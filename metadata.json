@@ -1,0 +1,6 @@
+{
+  "name": "Pakistan Digital Portal",
+  "description": "Comprehensive bilingual Pakistani digital news, education results, live cricket, financial rates, Islamic resources, and utility services portal in English and Urdu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
