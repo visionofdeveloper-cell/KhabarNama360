@@ -22,6 +22,9 @@ import { ToolsView } from './views/ToolsView.tsx';
 import { CricketView } from './views/CricketView.tsx';
 import { NewsCategoryView } from './views/NewsCategoryView.tsx';
 import { SearchView } from './views/SearchView.tsx';
+import { LegalPageView } from './views/LegalPageView.tsx';
+import { LEGAL_PAGE_SLUGS } from './data/legalPages.ts';
+import { CookieConsent } from './components/CookieConsent.tsx';
 
 const AdminAuthGate = React.lazy(() => import('./views/AdminAuthGate.tsx').then(m => ({ default: m.AdminAuthGate })));
 
@@ -50,6 +53,10 @@ function MainPortal() {
           onBack={() => navigateTo('home')}
         />
       );
+    }
+
+    if (LEGAL_PAGE_SLUGS.has(currentRoute)) {
+      return <LegalPageView slug={currentRoute} />;
     }
 
     switch (currentRoute) {
@@ -109,6 +116,7 @@ function MainPortal() {
         {renderCurrentView()}
       </main>
       <Footer />
+      <CookieConsent />
     </div>
   );
 }

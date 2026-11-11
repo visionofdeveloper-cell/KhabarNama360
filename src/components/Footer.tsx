@@ -85,7 +85,7 @@ export const Footer: React.FC = () => {
       {/* Main Sitemap & Information Columns */}
       <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
         {/* Brand Overview */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-1 space-y-4">
           <div
             onClick={() => navigateTo('home')}
             className="cursor-pointer flex items-center gap-3"
@@ -95,89 +95,115 @@ export const Footer: React.FC = () => {
               alt="360Khabarnama Logo"
               className="h-10 w-auto max-w-[200px] object-contain rounded-lg bg-white p-1"
             />
-            <div>
-              <h3 className="text-lg font-black text-white">
-                {isUrdu ? '360 خبرنامہ' : '360Khabarnama'}
-              </h3>
-              <p className="text-xs text-emerald-400 font-semibold">
-                {isUrdu ? 'آوازِ پاکستان - صحافت، معلومات اور خدمات' : 'The Voice of Pakistan'}
-              </p>
-            </div>
           </div>
-
+          <h3 className="text-base font-black text-white">
+            {isUrdu ? '360 خبرنامہ' : '360Khabarnama'}
+          </h3>
           <p className="text-xs text-gray-400 leading-relaxed font-urdu">
             {isUrdu
-              ? '360 خبرنامہ پاکستان کا سب سے جامع دو لسانی ڈیجیٹل پلیٹ فارم جو معتبر قومی و بین الاقوامی خبریں، تعلیمی بورڈز کے نتائج، لائیو کرکٹ اسکور، صرافہ و کرنسی ریٹس، پرائز بانڈ معلومات اور روزمرہ آن لائن ٹولز پیش کرتا ہے۔'
-              : '360Khabarnama is Pakistan’s premier bilingual information network offering verified national news, BISE educational board results, real-time cricket updates, financial indicators, Islamic resources, and digital citizen utilities.'}
+              ? 'ہر خبر۔ ہر معلومات۔ ایک جگہ۔ — انگریزی اور اردو میں خبریں، مالیاتی ریٹس، کرکٹ، موسم، تعلیمی نتائج اور آن لائن ٹولز۔'
+              : 'Your Complete World of News & Information. Bilingual news, live market rates, cricket, weather, education results, and everyday tools.'}
           </p>
-
-          <div className="space-y-1.5 text-xs text-gray-400 pt-2 border-t border-gray-800">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>{isUrdu ? 'نیوز ہیڈ کوارٹرز: بلیو ایریا، اسلام آباد، پاکستان' : 'News Headquarters: Blue Area, Islamabad, Pakistan'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span dir="ltr">+92 (051) 920-1122</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span>{isUrdu ? 'ایڈیٹوریل بورڈ: پریس کونسل آف پاکستان ضابطۂ اخلاق کی پابندی' : 'Complies with Press Council of Pakistan Editorial Standards'}</span>
-            </div>
-          </div>
         </div>
 
-        {/* Categories Col 1 */}
+        {/* Explore */}
         <div>
-          <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-3 text-emerald-400">
-            {isUrdu ? 'خبریں و سیاست' : 'News & Politics'}
+          <h5 className="text-xs font-bold uppercase tracking-wider mb-3 text-emerald-400">
+            {isUrdu ? 'دریافت کریں' : 'Explore'}
           </h5>
           <ul className="space-y-2 text-xs">
-            {categoriesCol1.map((item) => (
+            {[
+              { id: 'home', en: 'Latest News', ur: 'تازہ ترین خبریں' },
+              { id: 'pakistan', en: 'Pakistan News', ur: 'پاکستان' },
+              { id: 'politics', en: 'World & Politics', ur: 'سیاست و عالمی خبریں' },
+              { id: 'business', en: 'Business', ur: 'کاروبار و معیشت' },
+              { id: 'sports', en: 'Cricket', ur: 'کرکٹ' },
+              { id: 'weather', en: 'Weather', ur: 'موسم' },
+              { id: 'education', en: 'Education', ur: 'تعلیم و نتائج' },
+              { id: 'tools', en: 'Tools', ur: 'آن لائن ٹولز' },
+            ].map((item) => (
               <li key={item.id}>
-                <button
-                  onClick={() => navigateTo(item.id)}
-                  className="hover:text-amber-400 transition-colors text-start"
-                >
-                  {isUrdu ? item.labelUr : item.labelEn}
+                <button onClick={() => navigateTo(item.id)} className="hover:text-amber-400 transition-colors text-start">
+                  {isUrdu ? item.ur : item.en}
                 </button>
               </li>
             ))}
           </ul>
         </div>
 
-        {/* Categories Col 2 */}
+        {/* About */}
         <div>
-          <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-3 text-emerald-400">
-            {isUrdu ? 'معلومات و مارکیٹس' : 'Information & Markets'}
+          <h5 className="text-xs font-bold uppercase tracking-wider mb-3 text-emerald-400">
+            {isUrdu ? 'تعارف' : 'About'}
           </h5>
           <ul className="space-y-2 text-xs">
-            {categoriesCol2.map((item) => (
+            {[
+              { id: 'about', en: 'About Us', ur: 'ہمارے بارے میں' },
+              { id: 'team', en: 'Our Team', ur: 'ہماری ٹیم' },
+              { id: 'contact', en: 'Contact Us', ur: 'ہم سے رابطہ کریں' },
+              { id: 'ownership-funding', en: 'Ownership and Funding', ur: 'ملکیت اور فنڈنگ' },
+              { id: 'advertise', en: 'Advertise With Us', ur: 'ہمارے ساتھ اشتہار دیں' },
+              { id: 'accessibility', en: 'Accessibility', ur: 'رسائی کا بیان' },
+              { id: 'sitemap', en: 'HTML Sitemap', ur: 'ایچ ٹی ایم ایل سائٹ میپ' },
+            ].map((item) => (
               <li key={item.id}>
-                <button
-                  onClick={() => navigateTo(item.id)}
-                  className="hover:text-amber-400 transition-colors text-start"
-                >
-                  {isUrdu ? item.labelUr : item.labelEn}
+                <button onClick={() => navigateTo(item.id)} className="hover:text-amber-400 transition-colors text-start">
+                  {isUrdu ? item.ur : item.en}
                 </button>
               </li>
             ))}
           </ul>
         </div>
 
-        {/* Categories Col 3 */}
+        {/* Legal */}
         <div>
-          <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-3 text-emerald-400">
-            {isUrdu ? 'ادب، پکوان و ٹولز' : 'Culture & Utilities'}
+          <h5 className="text-xs font-bold uppercase tracking-wider mb-3 text-emerald-400">
+            {isUrdu ? 'قانونی صفحات' : 'Legal'}
           </h5>
           <ul className="space-y-2 text-xs">
-            {categoriesCol3.map((item) => (
+            {[
+              { id: 'privacy-policy', en: 'Privacy Policy', ur: 'رازداری کی پالیسی' },
+              { id: 'terms', en: 'Terms and Conditions', ur: 'شرائط و ضوابط' },
+              { id: 'disclaimer', en: 'Disclaimer', ur: 'دستبرداری' },
+              { id: 'financial-disclaimer', en: 'Financial Disclaimer', ur: 'مالیاتی دستبرداری' },
+              { id: 'health-disclaimer', en: 'Health Disclaimer', ur: 'صحت کی دستبرداری' },
+              { id: 'cookie-policy', en: 'Cookie Policy', ur: 'کوکی پالیسی' },
+              { id: 'copyright-policy', en: 'Copyright Policy', ur: 'کاپی رائٹ پالیسی' },
+              { id: 'advertising-policy', en: 'Advertising Policy', ur: 'اشتہارات کی پالیسی' },
+            ].map((item) => (
               <li key={item.id}>
-                <button
-                  onClick={() => navigateTo(item.id)}
-                  className="hover:text-amber-400 transition-colors text-start"
-                >
-                  {isUrdu ? item.labelUr : item.labelEn}
+                <button onClick={() => navigateTo(item.id)} className="hover:text-amber-400 transition-colors text-start">
+                  {isUrdu ? item.ur : item.en}
+                </button>
+              </li>
+            ))}
+            <li>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-privacy-choices'))}
+                className="text-amber-400 hover:text-amber-300 transition-colors text-start font-semibold"
+              >
+                {isUrdu ? 'پرائیویسی چوائسز' : 'Privacy Choices'}
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        {/* Editorial */}
+        <div>
+          <h5 className="text-xs font-bold uppercase tracking-wider mb-3 text-emerald-400">
+            {isUrdu ? 'ادارتی معیارات' : 'Editorial'}
+          </h5>
+          <ul className="space-y-2 text-xs">
+            {[
+              { id: 'editorial-policy', en: 'Editorial Policy', ur: 'ادارتی پالیسی' },
+              { id: 'corrections-policy', en: 'Corrections Policy', ur: 'تصحیح کی پالیسی' },
+              { id: 'fact-checking-policy', en: 'Fact-Checking Policy', ur: 'حقائق کی جانچ' },
+              { id: 'ai-content-policy', en: 'AI Content Policy', ur: 'اے آئی مواد کی پالیسی' },
+              { id: 'sources-methodology', en: 'Sources and Methodology', ur: 'ذرائع اور طریقہ کار' },
+            ].map((item) => (
+              <li key={item.id}>
+                <button onClick={() => navigateTo(item.id)} className="hover:text-amber-400 transition-colors text-start">
+                  {isUrdu ? item.ur : item.en}
                 </button>
               </li>
             ))}
@@ -189,12 +215,18 @@ export const Footer: React.FC = () => {
       <div className="bg-black/90 py-4 px-4 text-xs text-gray-500 border-t border-gray-900">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-start">
           <p>{t('common.copyright')}</p>
-          <div className="flex items-center gap-4 text-[11px]">
-            <span>Privacy Policy</span>
+          <div className="flex flex-wrap items-center justify-center gap-4 text-[11px]">
+            <button onClick={() => navigateTo('privacy-policy')} className="hover:text-white">
+              {isUrdu ? 'رازداری کی پالیسی' : 'Privacy Policy'}
+            </button>
             <span>•</span>
-            <span>Terms of Service</span>
+            <button onClick={() => navigateTo('terms')} className="hover:text-white">
+              {isUrdu ? 'شرائط و ضوابط' : 'Terms & Conditions'}
+            </button>
             <span>•</span>
-            <span>Google News Sitemap</span>
+            <button onClick={() => navigateTo('sitemap')} className="hover:text-white">
+              {isUrdu ? 'سائٹ میپ' : 'HTML Sitemap'}
+            </button>
             <span>•</span>
             <span className="flex items-center gap-1 text-emerald-400 font-medium">
               <span>Made with</span>

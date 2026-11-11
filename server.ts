@@ -658,9 +658,76 @@ app.get('/ur/feed.xml', (_req, res) => {
 
 // Authorized Digital Sellers (ads.txt)
 app.get('/ads.txt', (_req, res) => {
-  const pubId = process.env.ADSENSE_PUBLISHER_ID || 'pub-0000000000000000';
+  const pubId = process.env.ADSENSE_PUBLISHER_ID;
   res.header('Content-Type', 'text/plain; charset=utf-8');
-  res.send(`# 360khabarnama.com Authorized Digital Sellers\ngoogle.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`);
+  if (!pubId || pubId.includes('0000000000000000')) {
+    return res.status(404).send('# ads.txt not configured: ADSENSE_PUBLISHER_ID is not set.\n');
+  }
+  return res.send(`# 360khabarnama.com Authorized Digital Sellers\ngoogle.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`);
+});
+
+// Public Form Submissions (Contact, Corrections, Copyright, Advertise)
+const publicSubmissions: any[] = [];
+const handlePublicSubmission = (type: string) => (req: any, res: any) => {
+  const { name, email, subject, message, category, targetUrl, privacyAccepted } = req.body || {};
+  if (!name || !email || !subject || !message || !privacyAccepted) {
+    return res.status(400).json({ success: false, error: 'All required fields and privacy acknowledgement must be provided.' });
+  }
+  const entry = {
+    id: `sub-${Date.now()}`,
+    type,
+    name: String(name).slice(0, 120),
+    email: String(email).slice(0, 160),
+    subject: String(subject).slice(0, 200),
+    category: category ? String(category) : type,
+    targetUrl: targetUrl ? String(targetUrl) : undefined,
+    message: String(message).slice(0, 4000),
+    createdAt: new Date().toISOString(),
+  };
+  publicSubmissions.unshift(entry);
+  return res.json({ success: true, id: entry.id });
+};
+
+app.post('/api/public/contact', handlePublicSubmission('contact'));
+app.post('/api/public/correction', handlePublicSubmission('correction'));
+app.post('/api/public/copyright', handlePublicSubmission('copyright'));
+app.post('/api/public/advertise', handlePublicSubmission('advertise'));
+
+app.get('/api/admin/submissions', (_req, res) => {
+  res.json({ success: true, submissions: publicSubmissions });
+});
+
+app.post('/api/admin/links/scan', async (_req, res) => {
+  const { LinkAuditEngine } = await import('./services/seo/LinkAuditEngine.ts');
+  const baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+  const paths = [
+    '/',
+    '/robots.txt',
+    '/sitemap.xml',
+    '/en/feed.xml',
+    '/ur/feed.xml',
+    '/llms.txt',
+    '/en/about',
+    '/ur/about',
+    '/en/privacy-policy',
+    '/ur/privacy-policy',
+    '/en/contact',
+    '/ur/contact',
+  ];
+  const report = await LinkAuditEngine.runAudit(baseUrl, paths);
+  res.json({ success: true, report });
+});
+
+app.get('/api/admin/adsense-readiness', (_req, res) => {
+  const pubId = process.env.ADSENSE_PUBLISHER_ID;
+  const publisherConfigured = Boolean(pubId && !pubId.includes('0000000000000000'));
+  res.json({
+    success: true,
+    publisherConfigured,
+    adsTxtLive: publisherConfigured,
+    legalPagesCount: 20,
+    consentBannerActive: true,
+  });
 });
 
 // AI Crawler & LLM Discovery (llms.txt)
