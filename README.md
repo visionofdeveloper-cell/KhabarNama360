@@ -1,4 +1,4 @@
-# Khabarnama360 (خبرنامہ 360)
+# 360Khabarnama (360 خبرنامہ)
 
 A modern, production-oriented bilingual digital news, public information directory, education examination results platform, live sports portal, financial rates service, Islamic resources suite, and everyday citizen tools web application.
 
@@ -6,7 +6,7 @@ A modern, production-oriented bilingual digital news, public information directo
 
 ## 1. Project Overview & Architecture
 
-- **Working Project Name:** Khabarnama360 (خبرنامہ 360)
+- **Working Project Name:** 360Khabarnama (360 خبرنامہ)
 - **Target Audience:** Pakistani citizens and overseas diaspora worldwide.
 - **Languages Supported:**
   - **English:** Left-to-Right (LTR) interface with clean editorial typography.

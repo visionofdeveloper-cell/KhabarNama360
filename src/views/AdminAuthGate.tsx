@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Private Admin Authentication Gate
+ * 360Khabarnama — Private Admin Authentication Gate
  */
 
 import React, { useState, useEffect, Suspense, lazy } from 'react';
@@ -98,7 +98,7 @@ export const AdminAuthGate: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center text-emerald-400 font-mono text-xs">
-        Verifying Khabarnama360 Admin Session...
+        Verifying 360Khabarnama Admin Session...
       </div>
     );
   }
@@ -143,7 +143,7 @@ export const AdminAuthGate: React.FC = () => {
           </div>
           <div>
             <h1 className="text-lg font-black tracking-tight">
-              {bootstrapRequired ? 'First-Admin Provisioning' : 'Khabarnama360 Private Admin'}
+              {bootstrapRequired ? 'First-Admin Provisioning' : '360Khabarnama Private Admin'}
             </h1>
             <p className="text-xs text-gray-400">
               {bootstrapRequired
@@ -183,7 +183,7 @@ export const AdminAuthGate: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@khabarnama360.com"
+                placeholder="admin@360khabarnama.com"
                 className="w-full pl-10 pr-3 py-3 bg-gray-950 border border-gray-800 rounded-xl text-white focus:border-emerald-500 focus:outline-none"
               />
             </div>

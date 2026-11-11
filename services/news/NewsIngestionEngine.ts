@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Configurable News Source Registry & Ingestion Engine
+ * 360Khabarnama — Configurable News Source Registry & Ingestion Engine
  */
 
 export interface NewsSourceConfig {

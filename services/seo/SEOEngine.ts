@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Universal Page-Level SEO Engine, Schema Generator & Quality Gate
+ * 360Khabarnama — Universal Page-Level SEO Engine, Schema Generator & Quality Gate
  */
 
 import { Article } from '../../src/types/index.ts';
@@ -45,15 +45,15 @@ export interface InternalLinkSuggestion {
 }
 
 export class SEOEngine {
-  private static BASE_URL = process.env.APP_URL || 'https://khabarnama360.com';
+  private static BASE_URL = process.env.APP_URL || 'https://360khabarnama.com';
 
   /**
    * Generate bilingual metadata for any article or utility page
    */
   public static generateArticleMetadata(article: Article, lang: 'en' | 'ur'): PageMetadata {
     const title = lang === 'ur'
-      ? (article.seo?.metaTitleUr || `${article.titleUr} | خبرنامہ 360`)
-      : (article.seo?.metaTitleEn || `${article.titleEn} | Khabarnama360`);
+      ? (article.seo?.metaTitleUr || `${article.titleUr} | 360 خبرنامہ`)
+      : (article.seo?.metaTitleEn || `${article.titleEn} | 360Khabarnama`);
 
     const description = lang === 'ur'
       ? (article.seo?.metaDescriptionUr || article.summaryUr || article.titleUr)
@@ -72,7 +72,7 @@ export class SEOEngine {
       robots,
       ogTitle: title,
       ogDescription: description,
-      ogImage: article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`,
+      ogImage: article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
       ogType: 'article',
       locale: lang === 'ur' ? 'ur_PK' : 'en_PK',
       hreflangEn: `${this.BASE_URL}/en/news/${slug}`,
@@ -100,14 +100,14 @@ export class SEOEngine {
       dateModified: article.updatedAt || article.publishedAt,
       author: {
         '@type': 'Person',
-        name: lang === 'ur' ? (article.author?.nameUr || 'اداریہ خبرنامہ 360') : (article.author?.nameEn || 'Khabarnama360 Editorial'),
+        name: lang === 'ur' ? (article.author?.nameUr || 'اداریہ 360 خبرنامہ') : (article.author?.nameEn || '360Khabarnama Editorial'),
       },
       publisher: {
         '@type': 'Organization',
-        name: 'Khabarnama360',
+        name: '360Khabarnama',
         logo: {
           '@type': 'ImageObject',
-          url: `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`,
+          url: `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
         },
       },
       inLanguage: lang === 'ur' ? 'ur-PK' : 'en-PK',

@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — News Verification, Licensing & Risk Routing Engine
+ * 360Khabarnama — News Verification, Licensing & Risk Routing Engine
  */
 
 export type PublishingMode = 'MODE_A_VERIFIED_DATA' | 'MODE_B_LICENSED_AUTO' | 'MODE_C_HUMAN_REVIEW';

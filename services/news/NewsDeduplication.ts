@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — News Deduplication & Event Cluster Matcher
+ * 360Khabarnama — News Deduplication & Event Cluster Matcher
  */
 
 import { Article } from '../../src/types/index.ts';

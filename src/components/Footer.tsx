@@ -91,13 +91,13 @@ export const Footer: React.FC = () => {
             className="cursor-pointer flex items-center gap-3"
           >
             <img
-              src="/assets/aistudio/logo_eb8cb81a.jpg"
-              alt="Khabarnama360 Logo"
+              src="/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png"
+              alt="360Khabarnama Logo"
               className="h-10 w-auto max-w-[200px] object-contain rounded-lg bg-white p-1"
             />
             <div>
               <h3 className="text-lg font-black text-white">
-                {isUrdu ? 'خبرنامہ 360' : 'Khabarnama360'}
+                {isUrdu ? '360 خبرنامہ' : '360Khabarnama'}
               </h3>
               <p className="text-xs text-emerald-400 font-semibold">
                 {isUrdu ? 'آوازِ پاکستان - صحافت، معلومات اور خدمات' : 'The Voice of Pakistan'}
@@ -107,8 +107,8 @@ export const Footer: React.FC = () => {
 
           <p className="text-xs text-gray-400 leading-relaxed font-urdu">
             {isUrdu
-              ? 'خبرنامہ 360 پاکستان کا سب سے جامع دو لسانی ڈیجیٹل پلیٹ فارم جو معتبر قومی و بین الاقوامی خبریں، تعلیمی بورڈز کے نتائج، لائیو کرکٹ اسکور، صرافہ و کرنسی ریٹس، پرائز بانڈ معلومات اور روزمرہ آن لائن ٹولز پیش کرتا ہے۔'
-              : 'Khabarnama360 is Pakistan’s premier bilingual information network offering verified national news, BISE educational board results, real-time cricket updates, financial indicators, Islamic resources, and digital citizen utilities.'}
+              ? '360 خبرنامہ پاکستان کا سب سے جامع دو لسانی ڈیجیٹل پلیٹ فارم جو معتبر قومی و بین الاقوامی خبریں، تعلیمی بورڈز کے نتائج، لائیو کرکٹ اسکور، صرافہ و کرنسی ریٹس، پرائز بانڈ معلومات اور روزمرہ آن لائن ٹولز پیش کرتا ہے۔'
+              : '360Khabarnama is Pakistan’s premier bilingual information network offering verified national news, BISE educational board results, real-time cricket updates, financial indicators, Islamic resources, and digital citizen utilities.'}
           </p>
 
           <div className="space-y-1.5 text-xs text-gray-400 pt-2 border-t border-gray-800">

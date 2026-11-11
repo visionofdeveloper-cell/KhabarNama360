@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Complete Enterprise Admin Dashboard
+ * 360Khabarnama — Complete Enterprise Admin Dashboard
  */
 
 import React, { useState, useEffect } from 'react';
@@ -171,7 +171,7 @@ export const AdminView: React.FC = () => {
     bodyEn: '',
     bodyUr: '',
     targetLanguage: 'both',
-    targetUrl: 'https://khabarnama360.com'
+    targetUrl: 'https://360khabarnama.com'
   });
 
   // Homepage Config
@@ -220,7 +220,7 @@ export const AdminView: React.FC = () => {
     author: {
       id: 'admin-1',
       nameEn: 'Editorial Staff',
-      nameUr: 'اداریہ خبرنامہ 360',
+      nameUr: 'اداریہ 360 خبرنامہ',
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
       role: 'Senior Editor'
     }
@@ -461,7 +461,7 @@ export const AdminView: React.FC = () => {
       author: {
         id: 'admin-1',
         nameEn: 'Editorial Staff',
-        nameUr: 'اداریہ خبرنامہ 360',
+        nameUr: 'اداریہ 360 خبرنامہ',
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
         role: userRole,
       },
@@ -721,7 +721,7 @@ export const AdminView: React.FC = () => {
           bodyEn: '',
           bodyUr: '',
           targetLanguage: 'both',
-          targetUrl: 'https://khabarnama360.com',
+          targetUrl: 'https://360khabarnama.com',
         });
         loadModuleData('audience');
       }
@@ -776,7 +776,7 @@ export const AdminView: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-black text-sm tracking-tight text-white">Khabarnama360</span>
+                <span className="font-black text-sm tracking-tight text-white">360Khabarnama</span>
                 <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.2 rounded-md uppercase tracking-wider">
                   Admin OS
                 </span>
@@ -1189,7 +1189,7 @@ export const AdminView: React.FC = () => {
                     <span>Portal Telemetry • Real-Time Operating Status</span>
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-black">
-                    Khabarnama360 Executive Dashboard
+                    360Khabarnama Executive Dashboard
                   </h1>
                   <p className="text-xs text-gray-300 mt-1 max-w-xl">
                     Pakistan's leading bilingual digital portal. Editorial governance, real-time live data adapters, search visibility, and monetization metrics.
@@ -2087,7 +2087,7 @@ export const AdminView: React.FC = () => {
                 <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-2xs space-y-4 text-xs">
                   <h3 className="font-black text-sm text-gray-900">Production robots.txt Directives</h3>
                   <pre className="bg-gray-900 text-emerald-400 p-4 rounded-2xl font-mono text-xs overflow-x-auto">
-{`# Robots.txt for Khabarnama360 (Pakistan Bilingual Digital Portal)
+{`# Robots.txt for 360Khabarnama (Pakistan Bilingual Digital Portal)
 User-agent: *
 Allow: /
 Allow: /en/
@@ -2100,8 +2100,8 @@ Disallow: /en/epaper/
 Disallow: /ur/epaper/
 
 # Search Engine Sitemaps
-Sitemap: https://khabarnama360.com/sitemap.xml
-Sitemap: https://khabarnama360.com/sitemap-news.xml`}
+Sitemap: https://360khabarnama.com/sitemap.xml
+Sitemap: https://360khabarnama.com/sitemap-news.xml`}
                   </pre>
                 </div>
               )}

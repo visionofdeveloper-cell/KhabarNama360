@@ -15,7 +15,7 @@ class AutomationScheduler {
   public start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log('[Automation] Starting Khabarnama360 Live Data & AI Engine Background Scheduler...');
+    console.log('[Automation] Starting 360Khabarnama Live Data & AI Engine Background Scheduler...');
 
     // Perform an initial sync pass on startup
     this.runAllSyncs(true).catch(console.error);

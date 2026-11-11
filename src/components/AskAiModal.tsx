@@ -66,10 +66,10 @@ export const AskAiModal: React.FC<AskAiModalProps> = ({ isOpen, onClose }) => {
             </div>
             <div>
               <h3 className="text-lg font-bold">
-                {isUrdu ? 'خبرنامہ 360 اے آئی اسسٹنٹ' : 'Khabarnama360 AI Assistant'}
+                {isUrdu ? '360 خبرنامہ اے آئی اسسٹنٹ' : '360Khabarnama AI Assistant'}
               </h3>
               <p className="text-xs text-emerald-200">
-                {isUrdu ? 'مستند پاکستانی اعداد و شمار اور خبروں سے تصدیق شدہ معلومات' : 'Grounded in verified Khabarnama360 news and rates'}
+                {isUrdu ? 'مستند پاکستانی اعداد و شمار اور خبروں سے تصدیق شدہ معلومات' : 'Grounded in verified 360Khabarnama news and rates'}
               </p>
             </div>
           </div>
@@ -149,7 +149,7 @@ export const AskAiModal: React.FC<AskAiModalProps> = ({ isOpen, onClose }) => {
                 {answer}
               </p>
               <div className="text-[11px] text-gray-400 pt-2 border-t border-gray-200">
-                {isUrdu ? 'حوالہ: خبرنامہ 360 تصدیق شدہ فیڈ' : 'Source: Khabarnama360 Verified Database'}
+                {isUrdu ? 'حوالہ: 360 خبرنامہ تصدیق شدہ فیڈ' : 'Source: 360Khabarnama Verified Database'}
               </div>
             </div>
           )}

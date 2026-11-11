@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Unified Bilingual Metadata & Hreflang Generator
+ * 360Khabarnama — Unified Bilingual Metadata & Hreflang Generator
  */
 
 import { Article, Language } from '../../types/index.ts';
@@ -36,7 +36,7 @@ export interface UnifiedMetadata {
 }
 
 export class MetadataGenerator {
-  private static BASE_URL = (typeof process !== 'undefined' && process.env?.APP_URL) || 'https://khabarnama360.com';
+  private static BASE_URL = (typeof process !== 'undefined' && process.env?.APP_URL) || 'https://360khabarnama.com';
 
   public static buildCanonicalUrl(path: string, lang: Language): string {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -49,8 +49,8 @@ export class MetadataGenerator {
     const isUr = lang === 'ur';
 
     const title = isUr
-      ? (article.seo?.metaTitleUr || `${article.titleUr} | خبرنامہ 360`)
-      : (article.seo?.metaTitleEn || `${article.titleEn} | Khabarnama360`);
+      ? (article.seo?.metaTitleUr || `${article.titleUr} | 360 خبرنامہ`)
+      : (article.seo?.metaTitleEn || `${article.titleEn} | 360Khabarnama`);
 
     const description = isUr
       ? (article.seo?.metaDescriptionUr || article.summaryUr || article.titleUr)
@@ -61,7 +61,7 @@ export class MetadataGenerator {
       ? 'noindex, nofollow'
       : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
 
-    const ogImage = article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`;
+    const ogImage = article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
 
     return {
       title: title.slice(0, 70),
@@ -81,7 +81,7 @@ export class MetadataGenerator {
         url: canonicalUrl,
         type: 'article',
         image: ogImage,
-        siteName: isUr ? 'خبرنامہ 360' : 'Khabarnama360',
+        siteName: isUr ? '360 خبرنامہ' : '360Khabarnama',
         locale: isUr ? 'ur_PK' : 'en_PK',
       },
       twitter: {
@@ -107,7 +107,7 @@ export class MetadataGenerator {
     const title = isUr ? params.titleUr : params.titleEn;
     const description = isUr ? params.descriptionUr : params.descriptionEn;
     const canonicalUrl = this.buildCanonicalUrl(params.path, params.lang);
-    const ogImage = params.ogImage || `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`;
+    const ogImage = params.ogImage || `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
 
     return {
       title: title.slice(0, 70),
@@ -127,7 +127,7 @@ export class MetadataGenerator {
         url: canonicalUrl,
         type: 'website',
         image: ogImage,
-        siteName: isUr ? 'خبرنامہ 360' : 'Khabarnama360',
+        siteName: isUr ? '360 خبرنامہ' : '360Khabarnama',
         locale: isUr ? 'ur_PK' : 'en_PK',
       },
       twitter: {

@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Unified SEO Engine
+ * 360Khabarnama — Unified SEO Engine
  */
 
 import { Article, Language } from '../../types/index.ts';

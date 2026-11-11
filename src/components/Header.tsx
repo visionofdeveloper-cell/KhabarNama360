@@ -142,15 +142,15 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
           >
             <div className="flex items-center gap-2">
               <img
-                src="/assets/aistudio/logo_eb8cb81a.jpg"
-                alt="Khabarnama360 Logo"
+                src="/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png"
+                alt="360Khabarnama Logo"
                 className="h-10 sm:h-12 w-auto max-w-[200px] sm:max-w-[260px] object-contain rounded-lg shadow-xs group-hover:scale-102 transition-transform"
               />
             </div>
             <div className="hidden lg:block border-l border-gray-200 pl-3">
               <div className="flex items-center gap-1.5">
                 <span className="text-base font-black text-gray-900 group-hover:text-emerald-700 transition-colors">
-                  {isUrdu ? 'خبرنامہ 360' : 'Khabarnama360'}
+                  {isUrdu ? '360 خبرنامہ' : '360Khabarnama'}
                 </span>
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded-md uppercase">
                   Live

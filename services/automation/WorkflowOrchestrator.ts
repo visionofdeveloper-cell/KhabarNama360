@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Autonomous Workflow Orchestrator
+ * 360Khabarnama — Autonomous Workflow Orchestrator
  */
 
 import { db } from '../../src/server/db.ts';

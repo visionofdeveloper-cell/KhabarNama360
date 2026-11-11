@@ -33,8 +33,8 @@ const UI_TRANSLATIONS: Record<string, { en: string; ur: string }> = {
   'nav.admin': { en: 'Admin Portal', ur: 'ایڈمن پورٹل' },
 
   // General UI
-  'app.name': { en: 'Khabarnama360', ur: 'خبرنامہ 360' },
-  'app.tagline': { en: 'Khabarnama360 - The Voice of Pakistan: News, Results, Finance & Everyday Services', ur: 'خبرنامہ 360 - پاکستان کا مستند ڈیجیٹل پورٹل: خبریں، نتائج اور خدمات' },
+  'app.name': { en: '360Khabarnama', ur: '360 خبرنامہ' },
+  'app.tagline': { en: '360Khabarnama - The Voice of Pakistan: News, Results, Finance & Everyday Services', ur: '360 خبرنامہ - پاکستان کا مستند ڈیجیٹل پورٹل: خبریں، نتائج اور خدمات' },
   'common.breaking': { en: 'BREAKING NEWS', ur: 'تازہ ترین' },
   'common.search': { en: 'Search news, results, rates, dictionary, prize bonds...', ur: 'خبریں، بورڈ نتائج، ریٹس، لغت، پرائز بانڈ تلاش کریں...' },
   'common.searchBtn': { en: 'Search', ur: 'تلاش کریں' },
@@ -53,24 +53,55 @@ const UI_TRANSLATIONS: Record<string, { en: string; ur: string }> = {
   'common.back': { en: 'Back', ur: 'واپس' },
   'common.askAi': { en: 'Ask Khabarnama AI', ur: 'خبرنامہ اے آئی سے پوچھیں' },
   'common.advertisement': { en: 'ADVERTISEMENT', ur: 'اشتہار' },
-  'common.copyright': { en: '© 2026 Khabarnama360. All rights reserved.', ur: '© 2026 خبرنامہ 360۔ جملہ حقوق محفوظ ہیں۔' }
+  'common.copyright': { en: '© 2026 360Khabarnama. All rights reserved.', ur: '© 2026 360 خبرنامہ۔ جملہ حقوق محفوظ ہیں۔' }
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem('pdp_lang');
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    if (path.startsWith('/en/') || path === '/en') return 'en';
+    if (path.startsWith('/ur/') || path === '/ur') return 'ur';
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('pdp_lang') : null;
     if (saved === 'en' || saved === 'ur') return saved;
-    return 'ur'; // Default to Urdu for authentic Pakistani portal feel
+    return 'ur';
   });
 
-  const [currentRoute, setCurrentRoute] = useState<string>('home');
+  const parseRouteFromPath = (pathname: string): string => {
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'admin';
+    const stripped = pathname.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
+    if (!stripped) return 'home';
+    const firstSeg = stripped.split('/')[0];
+    return firstSeg || 'home';
+  };
+
+  const [currentRoute, setCurrentRoute] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return parseRouteFromPath(window.location.pathname);
+    }
+    return 'home';
+  });
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const path = window.location.pathname;
+      if (path.startsWith('/en/') || path === '/en') setLanguageState('en');
+      else if (path.startsWith('/ur/') || path === '/ur') setLanguageState('ur');
+      setCurrentRoute(parseRouteFromPath(path));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem('pdp_lang', lang);
+    if (typeof window !== 'undefined' && currentRoute !== 'admin') {
+      const targetPath = currentRoute === 'home' ? `/${lang}` : `/${lang}/${currentRoute}`;
+      window.history.pushState({}, '', targetPath);
+    }
   };
 
   const isUrdu = language === 'ur';
@@ -96,6 +127,16 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentRoute(route);
     if (route !== 'article') {
       setSelectedArticleId(null);
+    }
+    if (typeof window !== 'undefined') {
+      const targetUrl = route === 'admin'
+        ? '/admin'
+        : route === 'home'
+        ? `/${language}`
+        : `/${language}/${route}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState({}, '', targetUrl);
+      }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

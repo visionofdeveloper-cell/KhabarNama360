@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Private Admin Authentication, Session & RBAC Security Middleware
+ * 360Khabarnama — Private Admin Authentication, Session & RBAC Security Middleware
  */
 
 import crypto from 'crypto';
@@ -240,7 +240,7 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
   if (!session) {
     return res.status(401).json({
       success: false,
-      error: 'Authentication required. Please sign in to Khabarnama360 Admin.',
+      error: 'Authentication required. Please sign in to 360Khabarnama Admin.',
     });
   }
 

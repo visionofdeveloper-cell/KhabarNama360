@@ -283,7 +283,7 @@ export const EducationView: React.FC = () => {
             </div>
 
             <div className="pt-2 text-center text-[11px] text-gray-400 border-t">
-              Official digital copy verified by Khabarnama360 Educational Data Gateway.
+              Official digital copy verified by 360Khabarnama Educational Data Gateway.
             </div>
           </div>
         )}

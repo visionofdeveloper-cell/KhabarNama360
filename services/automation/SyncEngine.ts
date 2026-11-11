@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Central Automation & Sync Engine Base Architecture
+ * 360Khabarnama — Central Automation & Sync Engine Base Architecture
  */
 
 import { db } from '../../src/server/db.ts';
@@ -54,7 +54,7 @@ export abstract class SyncEngine<TInput = any, TNormalized = any> {
   abstract validateData(raw: TInput): SyncValidationResult;
 
   /**
-   * 3. Normalize raw provider representation into clean Khabarnama360 domain entities.
+   * 3. Normalize raw provider representation into clean 360Khabarnama domain entities.
    */
   abstract normalizeData(raw: TInput): TNormalized;
 

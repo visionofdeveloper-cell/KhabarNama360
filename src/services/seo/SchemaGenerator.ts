@@ -1,27 +1,27 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Google-Compatible JSON-LD Schema Generator
+ * 360Khabarnama — Google-Compatible JSON-LD Schema Generator
  */
 
 import { Article, Language } from '../../types/index.ts';
 
 export class SchemaGenerator {
-  private static BASE_URL = (typeof process !== 'undefined' && process.env?.APP_URL) || 'https://khabarnama360.com';
+  private static BASE_URL = (typeof process !== 'undefined' && process.env?.APP_URL) || 'https://360khabarnama.com';
 
   public static generateOrganizationSchema(lang: Language = 'en'): Record<string, any> {
     return {
       '@context': 'https://schema.org',
       '@type': 'NewsMediaOrganization',
-      name: lang === 'ur' ? 'خبرنامہ 360' : 'Khabarnama360',
+      name: lang === 'ur' ? '360 خبرنامہ' : '360Khabarnama',
       url: this.BASE_URL,
       logo: {
         '@type': 'ImageObject',
-        url: `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`,
+        url: `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
       },
       sameAs: [
-        'https://www.facebook.com/khabarnama360',
-        'https://twitter.com/khabarnama360',
+        'https://www.facebook.com/360Khabarnama',
+        'https://twitter.com/360Khabarnama',
       ],
     };
   }
@@ -30,7 +30,7 @@ export class SchemaGenerator {
     return {
       '@context': 'https://schema.org',
       '@type': 'WebSite',
-      name: lang === 'ur' ? 'خبرنامہ 360' : 'Khabarnama360',
+      name: lang === 'ur' ? '360 خبرنامہ' : '360Khabarnama',
       url: `${this.BASE_URL}/${lang}`,
       potentialAction: {
         '@type': 'SearchAction',
@@ -64,15 +64,15 @@ export class SchemaGenerator {
       author: {
         '@type': 'Person',
         name: isUr
-          ? (article.author?.nameUr || 'اداریہ خبرنامہ 360')
-          : (article.author?.nameEn || 'Khabarnama360 Editorial'),
+          ? (article.author?.nameUr || 'اداریہ 360 خبرنامہ')
+          : (article.author?.nameEn || '360Khabarnama Editorial'),
       },
       publisher: {
         '@type': 'Organization',
-        name: 'Khabarnama360',
+        name: '360Khabarnama',
         logo: {
           '@type': 'ImageObject',
-          url: `${this.BASE_URL}/assets/aistudio/logo_eb8cb81a.jpg`,
+          url: `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
         },
       },
       inLanguage: isUr ? 'ur-PK' : 'en-PK',

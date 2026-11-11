@@ -49,7 +49,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const text = encodeURIComponent(`${isUrdu ? article.titleUr : article.titleEn} - Khabarnama360\n${window.location.href}`);
+    const text = encodeURIComponent(`${isUrdu ? article.titleUr : article.titleEn} - 360Khabarnama\n${window.location.href}`);
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
@@ -237,7 +237,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
           </span>
           <p className="text-emerald-800/80 text-[11px] mt-0.5">
             {isUrdu
-              ? 'یہ رپورٹ خبرنامہ 360 کے سینئر نامہ نگاروں اور مصدقہ سرکاری و مارکیٹ ذرائع سے جانچ کر شائع کی گئی ہے۔'
+              ? 'یہ رپورٹ 360 خبرنامہ کے سینئر نامہ نگاروں اور مصدقہ سرکاری و مارکیٹ ذرائع سے جانچ کر شائع کی گئی ہے۔'
               : 'This coverage adheres to the Press Council code of ethics and has been cross-referenced with official records.'}
           </p>
         </div>

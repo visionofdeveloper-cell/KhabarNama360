@@ -33,7 +33,7 @@ export async function processDataChangeWithGemini(
   }
 
   try {
-    const prompt = `You are the Senior Chief Editor for "Khabarnama360", a premier Pakistani bilingual news publication.
+    const prompt = `You are the Senior Chief Editor for "360Khabarnama", a premier Pakistani bilingual news publication.
 A verified factual data change has occurred in our persistent data gateway:
 Category: ${category.toUpperCase()}
 Reason: ${triggerReason}

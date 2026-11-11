@@ -18,7 +18,7 @@ export async function syncCurrencyRates(): Promise<SyncResult> {
   try {
     // Verified third-party currency API
     const response = await fetch('https://open.er-api.com/v6/latest/USD', {
-      headers: { 'User-Agent': 'Khabarnama360-Automation/1.0' },
+      headers: { 'User-Agent': '360Khabarnama-Automation/1.0' },
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 

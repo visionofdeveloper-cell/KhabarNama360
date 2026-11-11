@@ -91,7 +91,7 @@ export async function syncWeatherData(): Promise<{
       try {
         const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=Asia%2FKarachi`;
         const res = await fetch(weatherUrl, {
-          headers: { 'User-Agent': 'Khabarnama360-Automation/1.0' },
+          headers: { 'User-Agent': '360Khabarnama-Automation/1.0' },
           signal: AbortSignal.timeout(8000),
         });
 

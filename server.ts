@@ -88,7 +88,7 @@ function normalizeSearchQuery(rawQuery: string): { original: string; normalized:
 
 // Health
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString(), portal: 'Khabarnama360' });
+  res.json({ status: 'ok', time: new Date().toISOString(), portal: '360Khabarnama' });
 });
 
 // ================= PRIVATE ADMIN AUTHENTICATION & SECURITY =================
@@ -420,7 +420,7 @@ app.all(['/api/epaper*', '/epaper*', '/en/epaper*', '/ur/epaper*'], (_req, res) 
     success: false,
     status: 410,
     error: 'Gone',
-    message: 'The E-Paper edition has been permanently retired from Khabarnama360.'
+    message: 'The E-Paper edition has been permanently retired from 360Khabarnama.'
   });
 });
 
@@ -479,7 +479,7 @@ app.get('/api/admin/analytics', (_req, res) => {
 
 // XML Sitemap Index & URLset
 app.get('/sitemap.xml', (_req, res) => {
-  const baseUrl = process.env.APP_URL || 'https://khabarnama360.com';
+  const baseUrl = process.env.APP_URL || 'https://360khabarnama.com';
   const articles = db.getData().articles.filter(a => a.status === 'published');
   const staticRoutes = [
     '', '/en', '/ur',
@@ -534,7 +534,7 @@ app.get('/sitemap.xml', (_req, res) => {
 
 // Google News Dedicated XML Sitemap (48h rolling window)
 app.get('/sitemap-news.xml', (_req, res) => {
-  const baseUrl = process.env.APP_URL || 'https://khabarnama360.com';
+  const baseUrl = process.env.APP_URL || 'https://360khabarnama.com';
   const cutoffTime = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
   const recentArticles = db.getData().articles
     .filter(a => a.status === 'published' && a.publishedAt >= cutoffTime);
@@ -549,7 +549,7 @@ app.get('/sitemap-news.xml', (_req, res) => {
     xml += `    <loc>${baseUrl}/en/news/${art.slug}</loc>\n`;
     xml += `    <news:news>\n`;
     xml += `      <news:publication>\n`;
-    xml += `        <news:name>Khabarnama360</news:name>\n`;
+    xml += `        <news:name>360Khabarnama</news:name>\n`;
     xml += `        <news:language>en</news:language>\n`;
     xml += `      </news:publication>\n`;
     xml += `      <news:publication_date>${pubDate}</news:publication_date>\n`;
@@ -561,7 +561,7 @@ app.get('/sitemap-news.xml', (_req, res) => {
     xml += `    <loc>${baseUrl}/ur/news/${art.slug}</loc>\n`;
     xml += `    <news:news>\n`;
     xml += `      <news:publication>\n`;
-    xml += `        <news:name>خبرنامہ 360</news:name>\n`;
+    xml += `        <news:name>360 خبرنامہ</news:name>\n`;
     xml += `        <news:language>ur</news:language>\n`;
     xml += `      </news:publication>\n`;
     xml += `      <news:publication_date>${pubDate}</news:publication_date>\n`;
@@ -577,8 +577,8 @@ app.get('/sitemap-news.xml', (_req, res) => {
 
 // Dynamic robots.txt
 app.get('/robots.txt', (_req, res) => {
-  const baseUrl = process.env.APP_URL || 'https://khabarnama360.com';
-  const content = `# Robots.txt for Khabarnama360 (Pakistan Bilingual Digital Portal)
+  const baseUrl = process.env.APP_URL || 'https://360khabarnama.com';
+  const content = `# Robots.txt for 360Khabarnama (Pakistan Bilingual Digital Portal)
 User-agent: *
 Allow: /
 Allow: /en/
@@ -596,6 +596,88 @@ Sitemap: ${baseUrl}/sitemap-news.xml
 `;
   res.header('Content-Type', 'text/plain');
   res.send(content);
+});
+
+// Bilingual RSS 2.0 Feeds
+const buildRssFeed = (lang: 'en' | 'ur') => {
+  const baseUrl = process.env.APP_URL || 'https://360khabarnama.com';
+  const articles = db.getArticles('published').slice(0, 30);
+  const title = lang === 'ur' ? '360 خبرنامہ — تازہ ترین خبریں' : '360Khabarnama — Latest Pakistan & World News';
+  const description = lang === 'ur'
+    ? 'پاکستان کا معتبر دو لسانی ڈیجیٹل نیوز اور انفارمیشن پورٹل'
+    : "Pakistan's premier bilingual digital news and information portal.";
+
+  const escapeXml = (str: string) =>
+    (str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+  const items = articles
+    .map((a: any) => {
+      const itemTitle = lang === 'ur' ? (a.titleUr || a.titleEn) : a.titleEn;
+      const itemDesc = lang === 'ur' ? (a.summaryUr || a.summaryEn || '') : (a.summaryEn || '');
+      const link = `${baseUrl}/${lang}/news/${a.slug}`;
+      const pubDate = new Date(a.publishedAt || a.createdAt || Date.now()).toUTCString();
+      return `    <item>
+      <title>${escapeXml(itemTitle)}</title>
+      <link>${escapeXml(link)}</link>
+      <guid isPermaLink="true">${escapeXml(link)}</guid>
+      <pubDate>${pubDate}</pubDate>
+      <description>${escapeXml(itemDesc)}</description>
+      <category>${escapeXml(a.category || 'News')}</category>
+    </item>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>${escapeXml(title)}</title>
+    <link>${baseUrl}/${lang}</link>
+    <description>${escapeXml(description)}</description>
+    <language>${lang === 'ur' ? 'ur-PK' : 'en-PK'}</language>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <atom:link href="${baseUrl}/${lang}/feed.xml" rel="self" type="application/rss+xml" />
+${items}
+  </channel>
+</rss>`;
+};
+
+app.get('/en/feed.xml', (_req, res) => {
+  res.header('Content-Type', 'application/rss+xml; charset=utf-8');
+  res.send(buildRssFeed('en'));
+});
+
+app.get('/ur/feed.xml', (_req, res) => {
+  res.header('Content-Type', 'application/rss+xml; charset=utf-8');
+  res.send(buildRssFeed('ur'));
+});
+
+// Authorized Digital Sellers (ads.txt)
+app.get('/ads.txt', (_req, res) => {
+  const pubId = process.env.ADSENSE_PUBLISHER_ID || 'pub-0000000000000000';
+  res.header('Content-Type', 'text/plain; charset=utf-8');
+  res.send(`# 360khabarnama.com Authorized Digital Sellers\ngoogle.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`);
+});
+
+// AI Crawler & LLM Discovery (llms.txt)
+app.get('/llms.txt', (_req, res) => {
+  const baseUrl = process.env.APP_URL || 'https://360khabarnama.com';
+  res.header('Content-Type', 'text/plain; charset=utf-8');
+  res.send(`# 360Khabarnama
+> Pakistan's bilingual (English & Urdu) digital news, live finance, sports, education results, Islamic resources, and daily utility portal.
+
+## Primary Sections
+- [English Portal](${baseUrl}/en): Breaking news, business, sports, technology, and Pakistan affairs.
+- [Urdu Portal](${baseUrl}/ur): اردو خبریں، کاروبار، کھیل، تعلیم اور اسلامی معلومات۔
+- [English RSS Feed](${baseUrl}/en/feed.xml)
+- [Urdu RSS Feed](${baseUrl}/ur/feed.xml)
+- [Sitemap](${baseUrl}/sitemap.xml)
+- [News Sitemap](${baseUrl}/sitemap-news.xml)
+`);
 });
 
 // ================= RBAC STAFF & USER MANAGEMENT =================
@@ -1173,7 +1255,7 @@ app.post('/api/admin/ai/draft-article', async (req, res) => {
   }
 
   try {
-    const prompt = `You are a Senior Editor and investigative journalist for "Khabarnama360", Pakistan's leading bilingual digital news portal.
+    const prompt = `You are a Senior Editor and investigative journalist for "360Khabarnama", Pakistan's leading bilingual digital news portal.
 Create a complete, highly objective, verified news article based on the following information:
 Category: ${category || 'Pakistan'}
 Topic / Lead: ${topic}
@@ -1234,14 +1316,14 @@ app.post('/api/admin/ai/social-captions', async (req, res) => {
   }
 
   try {
-    const prompt = `Create high-engagement social media copy for Khabarnama360 based on:
+    const prompt = `Create high-engagement social media copy for 360Khabarnama based on:
 English Title: ${titleEn}
 Urdu Title: ${titleUr}
 Summary: ${summaryEn}
 
 Generate copy for:
 1. Twitter / X (English & Urdu versions under 240 chars with 3 hashtags)
-2. Facebook (Engaging paragraph with call-to-action to read on Khabarnama360)
+2. Facebook (Engaging paragraph with call-to-action to read on 360Khabarnama)
 3. Instagram Caption (Hook, bullet points, and trending hashtags)
 4. WhatsApp Channel Broadcast (Quick-read bulleted breaking update)
 
@@ -1260,11 +1342,11 @@ Return JSON with keys: "twitterEn", "twitterUr", "facebook", "instagram", "whats
       captions = JSON.parse(response.text || '{}');
     } catch {
       captions = {
-        twitterEn: `${titleEn} #Pakistan #Khabarnama360`,
+        twitterEn: `${titleEn} #Pakistan #360Khabarnama`,
         twitterUr: `${titleUr} #خبرنامہ360 #پاکستان`,
-        facebook: `${summaryEn}\n\nRead complete report on Khabarnama360: Pakistan's verified digital portal.`,
-        instagram: `⚡ BREAKING: ${titleEn}\n\n${summaryEn}\n\n#PakistanNews #Khabarnama360 #CurrentAffairs`,
-        whatsapp: `📢 *Khabarnama360 Update*\n\n*${titleUr}*\n\n${summaryUr}\n\nپوری خبر پڑھیں: khabarnama360.com`
+        facebook: `${summaryEn}\n\nRead complete report on 360Khabarnama: Pakistan's verified digital portal.`,
+        instagram: `⚡ BREAKING: ${titleEn}\n\n${summaryEn}\n\n#PakistanNews #360Khabarnama #CurrentAffairs`,
+        whatsapp: `📢 *360Khabarnama Update*\n\n*${titleUr}*\n\n${summaryUr}\n\nپوری خبر پڑھیں: 360khabarnama.com`
       };
     }
 
@@ -1290,7 +1372,7 @@ app.post('/api/admin/ai/newsletter-draft', async (req, res) => {
     const usd = data.currencyRates[0]?.interbankPkr || '278.10';
     const petrol = data.fuelPrices[0]?.pricePkr || '265.40';
 
-    const prompt = `You are the Editor of Khabarnama360 Morning Pulse (صبح کی خبریں).
+    const prompt = `You are the Editor of 360Khabarnama Morning Pulse (صبح کی خبریں).
 Craft a premium daily email newsletter for Pakistani subscribers featuring:
 - Gold Rate 24K: Rs. ${gold}
 - USD/PKR Interbank: Rs. ${usd}
@@ -1318,11 +1400,11 @@ Output JSON with keys:
       newsletter = JSON.parse(response.text || '{}');
     } catch {
       newsletter = {
-        subjectEn: `Khabarnama360 Daily Briefing – ${new Date().toLocaleDateString('en-GB')}`,
-        subjectUr: `خبرنامہ 360: آج کا مارننگ بلیٹن`,
+        subjectEn: `360Khabarnama Daily Briefing – ${new Date().toLocaleDateString('en-GB')}`,
+        subjectUr: `360 خبرنامہ: آج کا مارننگ بلیٹن`,
         previewText: `Today's top stories, Gold Rs. ${gold}, USD Rs. ${usd}, and petrol updates.`,
-        htmlEn: `<h3>Good Morning from Khabarnama360</h3><p>Here is your daily summary of news and markets.</p>`,
-        htmlUr: `<div dir="rtl"><h3>صبح بخیر - خبرنامہ 360</h3><p>آج کا اہم ترین احوال اور مارکیٹ ریٹس۔</p></div>`
+        htmlEn: `<h3>Good Morning from 360Khabarnama</h3><p>Here is your daily summary of news and markets.</p>`,
+        htmlUr: `<div dir="rtl"><h3>صبح بخیر - 360 خبرنامہ</h3><p>آج کا اہم ترین احوال اور مارکیٹ ریٹس۔</p></div>`
       };
     }
 
@@ -1421,7 +1503,7 @@ Portal Context:
 - Lahore Fajr: ${data.prayerTimes.lahore?.fajr}, Maghrib: ${data.prayerTimes.lahore?.maghrib}
 `;
 
-    const prompt = `You are the virtual assistant of "Khabarnama360".
+    const prompt = `You are the virtual assistant of "360Khabarnama".
 Answer the user's question accurately in ${language === 'ur' ? 'Urdu' : 'English'}, using the provided portal facts if relevant. Keep it polite, helpful, and concise (under 120 words). Never fabricate statistics.
 
 ${contextSnippet}
@@ -1596,7 +1678,7 @@ async function setupVite() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Khabarnama360 running at http://0.0.0.0:${PORT}`);
+    console.log(`360Khabarnama running at http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Live Data & Automation Manager Component
+ * 360Khabarnama — Live Data & Automation Manager Component
  */
 
 import React, { useState, useEffect } from 'react';

@@ -572,86 +572,86 @@
       "nameUr": "کراچی",
       "provinceEn": "Sindh",
       "provinceUr": "سندھ",
-      "tempC": 36,
+      "tempC": 30,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 36,
-      "lowC": 23,
-      "humidity": 16,
-      "windKmh": 9,
-      "aqi": 80,
+      "highC": 31,
+      "lowC": 20,
+      "humidity": 39,
+      "windKmh": 5,
+      "aqi": 70,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 34,
-      "sunrise": "06:42 AM",
-      "sunset": "05:48 PM",
+      "feelsLikeC": 32,
+      "sunrise": "06:45 AM",
+      "sunset": "05:46 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 25,
+          "time": "06:00",
+          "tempC": 20,
+          "condition": "Dense Fog / Smog"
+        },
+        {
+          "time": "09:00",
+          "tempC": 24,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 34,
+          "time": "12:00",
+          "tempC": 31,
           "condition": "Clear Sky"
         },
         {
-          "time": "14:00",
-          "tempC": 36,
+          "time": "15:00",
+          "tempC": 30,
           "condition": "Clear Sky"
         },
         {
-          "time": "17:00",
-          "tempC": 33,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 28,
+          "time": "18:00",
+          "tempC": 26,
           "condition": "Clear Sky"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 31,
+          "lowC": 20,
+          "conditionEn": "Dense Fog / Smog",
+          "conditionUr": "شدید دھند اور اسموگ"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 30,
+          "lowC": 21,
+          "conditionEn": "Dense Fog / Smog",
+          "conditionUr": "شدید دھند اور اسموگ"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 31,
+          "lowC": 25,
+          "conditionEn": "Overcast",
+          "conditionUr": "مطلع ابر آلود"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 36,
-          "lowC": 23,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
+          "highC": 30,
+          "lowC": 24,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 33,
-          "lowC": 25,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 32,
-          "lowC": 24,
-          "conditionEn": "Dense Fog / Smog",
-          "conditionUr": "شدید دھند اور اسموگ"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 33,
-          "lowC": 22,
-          "conditionEn": "Dense Fog / Smog",
-          "conditionUr": "شدید دھند اور اسموگ"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 33,
-          "lowC": 22,
-          "conditionEn": "Dense Fog / Smog",
-          "conditionUr": "شدید دھند اور اسموگ"
+          "highC": 30,
+          "lowC": 23,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         }
       ]
     },
@@ -664,85 +664,90 @@
       "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 28,
-      "lowC": 17,
-      "humidity": 36,
+      "highC": 29,
+      "lowC": 19,
+      "humidity": 47,
       "windKmh": 5,
-      "aqi": 133,
-      "aqiStatusEn": "Unhealthy for Sensitive",
-      "aqiStatusUr": "حساس افراد کے لیے مضر",
-      "feelsLikeC": 28,
-      "sunrise": "06:23 AM",
-      "sunset": "05:08 PM",
+      "aqi": 273,
+      "aqiStatusEn": "Hazardous Smog Alert",
+      "aqiStatusUr": "شدید خطرناک اسموگ",
+      "feelsLikeC": 29,
+      "sunrise": "06:26 AM",
+      "sunset": "05:06 PM",
       "hourly": [
         {
-          "time": "08:00",
+          "time": "06:00",
           "tempC": 19,
+          "condition": "Mainly Clear"
+        },
+        {
+          "time": "09:00",
+          "tempC": 23,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "14:00",
+          "time": "12:00",
           "tempC": 28,
           "condition": "Clear Sky"
         },
         {
-          "time": "17:00",
-          "tempC": 26,
+          "time": "15:00",
+          "tempC": 28,
           "condition": "Clear Sky"
         },
         {
-          "time": "20:00",
-          "tempC": 22,
+          "time": "18:00",
+          "tempC": 25,
           "condition": "Clear Sky"
         }
       ],
       "daily": [
         {
-          "dayEn": "Sat",
-          "dayUr": "ہفتہ",
-          "highC": 28,
-          "lowC": 17,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
           "highC": 29,
-          "lowC": 16,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 28,
-          "lowC": 16,
+          "lowC": 19,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         },
         {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 28,
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 29,
+          "lowC": 18,
+          "conditionEn": "Overcast",
+          "conditionUr": "مطلع ابر آلود"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 29,
+          "lowC": 20,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Sat",
+          "dayUr": "ہفتہ",
+          "highC": 29,
           "lowC": 17,
           "conditionEn": "Mainly Clear",
           "conditionUr": "زیادہ تر صاف"
         },
         {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 28,
-          "lowC": 18,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 27,
+          "lowC": 16,
+          "conditionEn": "Clear Sky",
+          "conditionUr": "صاف مطلع"
         }
-      ]
+      ],
+      "alert": {
+        "titleEn": "Severe Smog Advisory: Wear N95 respirator mask",
+        "titleUr": "شدید اسموگ وارننگ: این 95 ماسک کا لازمی استعمال کریں",
+        "severity": "warning"
+      }
     },
     {
       "cityId": "islamabad",
@@ -750,84 +755,84 @@
       "nameUr": "اسلام آباد",
       "provinceEn": "Federal Capital",
       "provinceUr": "وفاقی دارالحکومت",
-      "tempC": 26,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 26,
-      "lowC": 16,
-      "humidity": 34,
-      "windKmh": 7,
-      "aqi": 91,
-      "aqiStatusEn": "Moderate",
-      "aqiStatusUr": "معتدل",
-      "feelsLikeC": 25,
-      "sunrise": "06:32 AM",
-      "sunset": "05:10 PM",
+      "tempC": 23,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 24,
+      "lowC": 15,
+      "humidity": 50,
+      "windKmh": 3,
+      "aqi": 124,
+      "aqiStatusEn": "Unhealthy for Sensitive",
+      "aqiStatusUr": "حساس افراد کے لیے مضر",
+      "feelsLikeC": 23,
+      "sunrise": "06:35 AM",
+      "sunset": "05:07 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 18,
+          "time": "06:00",
+          "tempC": 16,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
+          "time": "09:00",
+          "tempC": 19,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "12:00",
           "tempC": 24,
-          "condition": "Clear Sky"
+          "condition": "Mainly Clear"
         },
         {
-          "time": "14:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 24,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "17:00",
-          "tempC": 21,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 18,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 19,
+          "condition": "Mainly Clear"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 24,
+          "lowC": 15,
+          "conditionEn": "Thunderstorm",
+          "conditionUr": "گرج چمک کے ساتھ طوفان"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 21,
+          "lowC": 15,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 21,
+          "lowC": 14,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 26,
-          "lowC": 16,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
+          "highC": 23,
+          "lowC": 13,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 25,
-          "lowC": 15,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 25,
-          "lowC": 16,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 26,
-          "lowC": 16,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 25,
-          "lowC": 15,
+          "highC": 22,
+          "lowC": 13,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
         }
@@ -839,84 +844,84 @@
       "nameUr": "راولپنڈی",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 26,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 26,
-      "lowC": 14,
-      "humidity": 35,
-      "windKmh": 7,
-      "aqi": 91,
-      "aqiStatusEn": "Moderate",
-      "aqiStatusUr": "معتدل",
-      "feelsLikeC": 25,
-      "sunrise": "06:31 AM",
-      "sunset": "05:10 PM",
+      "tempC": 23,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 25,
+      "lowC": 15,
+      "humidity": 54,
+      "windKmh": 4,
+      "aqi": 124,
+      "aqiStatusEn": "Unhealthy for Sensitive",
+      "aqiStatusUr": "حساس افراد کے لیے مضر",
+      "feelsLikeC": 24,
+      "sunrise": "06:35 AM",
+      "sunset": "05:07 PM",
       "hourly": [
         {
-          "time": "08:00",
+          "time": "06:00",
           "tempC": 16,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
+          "time": "09:00",
+          "tempC": 19,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "12:00",
           "tempC": 24,
-          "condition": "Clear Sky"
+          "condition": "Mainly Clear"
         },
         {
-          "time": "14:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 24,
+          "condition": "Partly Cloudy"
         },
         {
-          "time": "17:00",
-          "tempC": 22,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 18,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 20,
+          "condition": "Mainly Clear"
         }
       ],
       "daily": [
-        {
-          "dayEn": "Sat",
-          "dayUr": "ہفتہ",
-          "highC": 26,
-          "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
-          "highC": 26,
-          "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 26,
-          "lowC": 15,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 26,
-          "lowC": 15,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
         {
           "dayEn": "Wed",
           "dayUr": "بدھ",
           "highC": 25,
           "lowC": 15,
+          "conditionEn": "Thunderstorm",
+          "conditionUr": "گرج چمک کے ساتھ طوفان"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 21,
+          "lowC": 16,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 21,
+          "lowC": 15,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Sat",
+          "dayUr": "ہفتہ",
+          "highC": 23,
+          "lowC": 13,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 23,
+          "lowC": 12,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
         }
@@ -928,86 +933,86 @@
       "nameUr": "پشاور",
       "provinceEn": "Khyber Pakhtunkhwa",
       "provinceUr": "خیبر پختونخوا",
-      "tempC": 26,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 26,
-      "lowC": 14,
-      "humidity": 42,
-      "windKmh": 4,
-      "aqi": 99,
-      "aqiStatusEn": "Moderate",
-      "aqiStatusUr": "معتدل",
-      "feelsLikeC": 25,
-      "sunrise": "06:38 AM",
-      "sunset": "05:16 PM",
+      "tempC": 23,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 24,
+      "lowC": 16,
+      "humidity": 59,
+      "windKmh": 2,
+      "aqi": 106,
+      "aqiStatusEn": "Unhealthy for Sensitive",
+      "aqiStatusUr": "حساس افراد کے لیے مضر",
+      "feelsLikeC": 24,
+      "sunrise": "06:42 AM",
+      "sunset": "05:12 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 16,
+          "time": "06:00",
+          "tempC": 17,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
+          "time": "09:00",
+          "tempC": 19,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "12:00",
           "tempC": 23,
-          "condition": "Clear Sky"
+          "condition": "Partly Cloudy"
         },
         {
-          "time": "14:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 24,
+          "condition": "Partly Cloudy"
         },
         {
-          "time": "17:00",
-          "tempC": 22,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 18,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 20,
+          "condition": "Mainly Clear"
         }
       ],
       "daily": [
         {
-          "dayEn": "Sat",
-          "dayUr": "ہفتہ",
-          "highC": 26,
-          "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
-          "highC": 26,
-          "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 25,
-          "lowC": 14,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 26,
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 24,
           "lowC": 16,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
         },
         {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 25,
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 19,
           "lowC": 14,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 21,
+          "lowC": 13,
+          "conditionEn": "Dense Fog / Smog",
+          "conditionUr": "شدید دھند اور اسموگ"
+        },
+        {
+          "dayEn": "Sat",
+          "dayUr": "ہفتہ",
+          "highC": 24,
+          "lowC": 12,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 23,
+          "lowC": 12,
+          "conditionEn": "Clear Sky",
+          "conditionUr": "صاف مطلع"
         }
       ]
     },
@@ -1018,83 +1023,83 @@
       "provinceEn": "Balochistan",
       "provinceUr": "بلوچستان",
       "tempC": 22,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 22,
-      "lowC": 10,
-      "humidity": 29,
-      "windKmh": 12,
-      "aqi": 66,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 23,
+      "lowC": 12,
+      "humidity": 31,
+      "windKmh": 8,
+      "aqi": 61,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 19,
-      "sunrise": "06:50 AM",
-      "sunset": "05:40 PM",
+      "feelsLikeC": 20,
+      "sunrise": "06:54 AM",
+      "sunset": "05:38 PM",
       "hourly": [
         {
-          "time": "08:00",
+          "time": "06:00",
           "tempC": 13,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 20,
-          "condition": "Clear Sky"
+          "time": "09:00",
+          "tempC": 18,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "14:00",
-          "tempC": 22,
-          "condition": "Clear Sky"
+          "time": "12:00",
+          "tempC": 23,
+          "condition": "Overcast"
         },
         {
-          "time": "17:00",
-          "tempC": 20,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 23,
+          "condition": "Overcast"
         },
         {
-          "time": "20:00",
-          "tempC": 16,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 19,
+          "condition": "Partly Cloudy"
         }
       ],
       "daily": [
         {
-          "dayEn": "Sat",
-          "dayUr": "ہفتہ",
-          "highC": 22,
-          "lowC": 10,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
           "highC": 23,
-          "lowC": 10,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 24,
-          "lowC": 11,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 24,
-          "lowC": 9,
+          "lowC": 12,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         },
         {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 23,
-          "lowC": 11,
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 21,
+          "lowC": 12,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 19,
+          "lowC": 10,
+          "conditionEn": "Partly Cloudy",
+          "conditionUr": "جزوی ابر آلود"
+        },
+        {
+          "dayEn": "Sat",
+          "dayUr": "ہفتہ",
+          "highC": 17,
+          "lowC": 6,
+          "conditionEn": "Partly Cloudy",
+          "conditionUr": "جزوی ابر آلود"
+        },
+        {
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 17,
+          "lowC": 4,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         }
@@ -1106,84 +1111,84 @@
       "nameUr": "ملتان",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 32,
+      "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 33,
-      "lowC": 20,
-      "humidity": 32,
-      "windKmh": 2,
-      "aqi": 180,
+      "highC": 31,
+      "lowC": 18,
+      "humidity": 39,
+      "windKmh": 0,
+      "aqi": 200,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 33,
-      "sunrise": "06:32 AM",
-      "sunset": "05:22 PM",
+      "feelsLikeC": 30,
+      "sunrise": "06:35 AM",
+      "sunset": "05:19 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 23,
+          "time": "06:00",
+          "tempC": 19,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
+          "time": "09:00",
+          "tempC": 24,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "12:00",
           "tempC": 30,
           "condition": "Clear Sky"
         },
         {
-          "time": "14:00",
-          "tempC": 33,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 31,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "17:00",
-          "tempC": 30,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 25,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 26,
+          "condition": "Partly Cloudy"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 31,
+          "lowC": 18,
+          "conditionEn": "Partly Cloudy",
+          "conditionUr": "جزوی ابر آلود"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 30,
+          "lowC": 18,
+          "conditionEn": "Overcast",
+          "conditionUr": "مطلع ابر آلود"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 29,
+          "lowC": 18,
+          "conditionEn": "Overcast",
+          "conditionUr": "مطلع ابر آلود"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 33,
-          "lowC": 20,
+          "highC": 28,
+          "lowC": 18,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 33,
-          "lowC": 19,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 32,
-          "lowC": 19,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 32,
-          "lowC": 19,
-          "conditionEn": "Partly Cloudy",
-          "conditionUr": "جزوی ابر آلود"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 32,
-          "lowC": 19,
+          "highC": 28,
+          "lowC": 16,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         }
@@ -1200,88 +1205,93 @@
       "nameUr": "فیصل آباد",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 28,
+      "tempC": 27,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 28,
-      "lowC": 18,
-      "humidity": 42,
-      "windKmh": 6,
-      "aqi": 151,
-      "aqiStatusEn": "Unhealthy (Smog)",
-      "aqiStatusUr": "مضرِ صحت (اسموگ)",
+      "lowC": 19,
+      "humidity": 54,
+      "windKmh": 1,
+      "aqi": 305,
+      "aqiStatusEn": "Hazardous Smog Alert",
+      "aqiStatusUr": "شدید خطرناک اسموگ",
       "feelsLikeC": 29,
-      "sunrise": "06:28 AM",
-      "sunset": "05:14 PM",
+      "sunrise": "06:31 AM",
+      "sunset": "05:11 PM",
       "hourly": [
         {
-          "time": "08:00",
+          "time": "06:00",
           "tempC": 20,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 26,
+          "time": "09:00",
+          "tempC": 22,
           "condition": "Clear Sky"
         },
         {
-          "time": "14:00",
+          "time": "12:00",
+          "tempC": 27,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "15:00",
           "tempC": 28,
           "condition": "Clear Sky"
         },
         {
-          "time": "17:00",
-          "tempC": 25,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 23,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 24,
+          "condition": "Partly Cloudy"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 28,
+          "lowC": 19,
+          "conditionEn": "Partly Cloudy",
+          "conditionUr": "جزوی ابر آلود"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 28,
+          "lowC": 19,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 27,
+          "lowC": 19,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 28,
+          "highC": 27,
           "lowC": 18,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
+          "conditionEn": "Mainly Clear",
+          "conditionUr": "زیادہ تر صاف"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 28,
-          "lowC": 17,
+          "highC": 26,
+          "lowC": 16,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 28,
-          "lowC": 17,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 28,
-          "lowC": 17,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 28,
-          "lowC": 18,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
         }
-      ]
+      ],
+      "alert": {
+        "titleEn": "Severe Smog Advisory: Wear N95 respirator mask",
+        "titleUr": "شدید اسموگ وارننگ: این 95 ماسک کا لازمی استعمال کریں",
+        "severity": "warning"
+      }
     },
     {
       "cityId": "sialkot",
@@ -1289,88 +1299,93 @@
       "nameUr": "سیالکوٹ",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 26,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 27,
-      "lowC": 14,
-      "humidity": 45,
-      "windKmh": 5,
-      "aqi": 111,
-      "aqiStatusEn": "Unhealthy for Sensitive",
-      "aqiStatusUr": "حساس افراد کے لیے مضر",
-      "feelsLikeC": 27,
-      "sunrise": "06:24 AM",
-      "sunset": "05:06 PM",
+      "tempC": 27,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 28,
+      "lowC": 19,
+      "humidity": 41,
+      "windKmh": 8,
+      "aqi": 216,
+      "aqiStatusEn": "Hazardous Smog Alert",
+      "aqiStatusUr": "شدید خطرناک اسموگ",
+      "feelsLikeC": 26,
+      "sunrise": "06:27 AM",
+      "sunset": "05:03 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 17,
+          "time": "06:00",
+          "tempC": 19,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 24,
-          "condition": "Clear Sky"
+          "time": "09:00",
+          "tempC": 22,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "14:00",
-          "tempC": 27,
-          "condition": "Clear Sky"
+          "time": "12:00",
+          "tempC": 28,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "17:00",
+          "time": "15:00",
+          "tempC": 28,
+          "condition": "Mainly Clear"
+        },
+        {
+          "time": "18:00",
           "tempC": 23,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 20,
           "condition": "Clear Sky"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 28,
+          "lowC": 19,
+          "conditionEn": "Overcast",
+          "conditionUr": "مطلع ابر آلود"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 26,
+          "lowC": 16,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 27,
+          "lowC": 17,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
           "highC": 27,
-          "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
+          "lowC": 16,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 27,
+          "highC": 26,
           "lowC": 14,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 27,
-          "lowC": 15,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 27,
-          "lowC": 15,
-          "conditionEn": "Partly Cloudy",
-          "conditionUr": "جزوی ابر آلود"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 27,
-          "lowC": 16,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         }
-      ]
+      ],
+      "alert": {
+        "titleEn": "Severe Smog Advisory: Wear N95 respirator mask",
+        "titleUr": "شدید اسموگ وارننگ: این 95 ماسک کا لازمی استعمال کریں",
+        "severity": "warning"
+      }
     },
     {
       "cityId": "hyderabad",
@@ -1378,86 +1393,86 @@
       "nameUr": "حیدرآباد",
       "provinceEn": "Sindh",
       "provinceUr": "سندھ",
-      "tempC": 37,
+      "tempC": 34,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 37,
+      "highC": 35,
       "lowC": 23,
-      "humidity": 14,
+      "humidity": 15,
       "windKmh": 8,
-      "aqi": 70,
+      "aqi": 60,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 35,
-      "sunrise": "06:38 AM",
-      "sunset": "05:42 PM",
+      "feelsLikeC": 32,
+      "sunrise": "06:40 AM",
+      "sunset": "05:40 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 26,
+          "time": "06:00",
+          "tempC": 23,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 35,
+          "time": "09:00",
+          "tempC": 28,
           "condition": "Clear Sky"
         },
         {
-          "time": "14:00",
-          "tempC": 37,
+          "time": "12:00",
+          "tempC": 34,
           "condition": "Clear Sky"
         },
         {
-          "time": "17:00",
-          "tempC": 35,
+          "time": "15:00",
+          "tempC": 34,
           "condition": "Clear Sky"
         },
         {
-          "time": "20:00",
-          "tempC": 30,
+          "time": "18:00",
+          "tempC": 31,
           "condition": "Clear Sky"
         }
       ],
       "daily": [
         {
-          "dayEn": "Sat",
-          "dayUr": "ہفتہ",
-          "highC": 37,
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 35,
           "lowC": 23,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
-          "highC": 37,
-          "lowC": 25,
           "conditionEn": "Mainly Clear",
           "conditionUr": "زیادہ تر صاف"
         },
         {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 35,
-          "lowC": 23,
-          "conditionEn": "Partly Cloudy",
-          "conditionUr": "جزوی ابر آلود"
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 33,
+          "lowC": 20,
+          "conditionEn": "Mainly Clear",
+          "conditionUr": "زیادہ تر صاف"
         },
         {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 36,
-          "lowC": 21,
-          "conditionEn": "Partly Cloudy",
-          "conditionUr": "جزوی ابر آلود"
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 33,
+          "lowC": 23,
+          "conditionEn": "Drizzle",
+          "conditionUr": "ہلکی بونداباندی"
         },
         {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 36,
+          "dayEn": "Sat",
+          "dayUr": "ہفتہ",
+          "highC": 33,
           "lowC": 23,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
+          "conditionEn": "Mainly Clear",
+          "conditionUr": "زیادہ تر صاف"
+        },
+        {
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 34,
+          "lowC": 22,
+          "conditionEn": "Partly Cloudy",
+          "conditionUr": "جزوی ابر آلود"
         }
       ]
     },
@@ -1467,84 +1482,84 @@
       "nameUr": "مری",
       "provinceEn": "Punjab Hills",
       "provinceUr": "پنجاب / ملکہ کوہسار",
-      "tempC": 17,
-      "conditionEn": "Clear Sky",
-      "conditionUr": "صاف مطلع",
-      "highC": 17,
-      "lowC": 5,
-      "humidity": 28,
-      "windKmh": 8,
-      "aqi": 89,
-      "aqiStatusEn": "Moderate",
-      "aqiStatusUr": "معتدل",
-      "feelsLikeC": 14,
-      "sunrise": "06:31 AM",
-      "sunset": "05:08 PM",
+      "tempC": 13,
+      "conditionEn": "Mainly Clear",
+      "conditionUr": "زیادہ تر صاف",
+      "highC": 14,
+      "lowC": 4,
+      "humidity": 44,
+      "windKmh": 4,
+      "aqi": 105,
+      "aqiStatusEn": "Unhealthy for Sensitive",
+      "aqiStatusUr": "حساس افراد کے لیے مضر",
+      "feelsLikeC": 11,
+      "sunrise": "06:34 AM",
+      "sunset": "05:05 PM",
       "hourly": [
         {
-          "time": "08:00",
+          "time": "06:00",
+          "tempC": 4,
+          "condition": "Drizzle"
+        },
+        {
+          "time": "09:00",
           "tempC": 9,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
-          "tempC": 17,
-          "condition": "Clear Sky"
+          "time": "12:00",
+          "tempC": 14,
+          "condition": "Drizzle"
         },
         {
-          "time": "14:00",
-          "tempC": 17,
-          "condition": "Clear Sky"
+          "time": "15:00",
+          "tempC": 13,
+          "condition": "Drizzle"
         },
         {
-          "time": "17:00",
-          "tempC": 10,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
-          "tempC": 8,
-          "condition": "Clear Sky"
+          "time": "18:00",
+          "tempC": 7,
+          "condition": "Mainly Clear"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 14,
+          "lowC": 4,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 9,
+          "lowC": 4,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 10,
+          "lowC": 3,
+          "conditionEn": "Rain Showers",
+          "conditionUr": "تیز بارش کے جھکڑ"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 17,
-          "lowC": 5,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Sun",
-          "dayUr": "اتوار",
-          "highC": 17,
-          "lowC": 5,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 16,
-          "lowC": 5,
-          "conditionEn": "Overcast",
-          "conditionUr": "مطلع ابر آلود"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 15,
-          "lowC": 5,
+          "highC": 13,
+          "lowC": 2,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
         },
         {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 14,
-          "lowC": 5,
+          "dayEn": "Sun",
+          "dayUr": "اتوار",
+          "highC": 11,
+          "lowC": 1,
           "conditionEn": "Drizzle",
           "conditionUr": "ہلکی بونداباندی"
         }
@@ -1556,84 +1571,84 @@
       "nameUr": "گوادر",
       "provinceEn": "Balochistan Coast",
       "provinceUr": "بلوچستان ساحل",
-      "tempC": 32,
+      "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 32,
-      "lowC": 22,
-      "humidity": 37,
-      "windKmh": 8,
-      "aqi": 67,
+      "highC": 29,
+      "lowC": 23,
+      "humidity": 68,
+      "windKmh": 4,
+      "aqi": 75,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 34,
-      "sunrise": "07:01 AM",
-      "sunset": "06:06 PM",
+      "feelsLikeC": 32,
+      "sunrise": "07:04 AM",
+      "sunset": "06:04 PM",
       "hourly": [
         {
-          "time": "08:00",
-          "tempC": 22,
+          "time": "06:00",
+          "tempC": 23,
           "condition": "Clear Sky"
         },
         {
-          "time": "11:00",
+          "time": "09:00",
+          "tempC": 24,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "12:00",
+          "tempC": 28,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "15:00",
           "tempC": 29,
           "condition": "Clear Sky"
         },
         {
-          "time": "14:00",
-          "tempC": 32,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "17:00",
-          "tempC": 29,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "20:00",
+          "time": "18:00",
           "tempC": 27,
           "condition": "Clear Sky"
         }
       ],
       "daily": [
         {
+          "dayEn": "Wed",
+          "dayUr": "بدھ",
+          "highC": 29,
+          "lowC": 23,
+          "conditionEn": "Clear Sky",
+          "conditionUr": "صاف مطلع"
+        },
+        {
+          "dayEn": "Thu",
+          "dayUr": "جمعرات",
+          "highC": 30,
+          "lowC": 24,
+          "conditionEn": "Clear Sky",
+          "conditionUr": "صاف مطلع"
+        },
+        {
+          "dayEn": "Fri",
+          "dayUr": "جمعہ",
+          "highC": 31,
+          "lowC": 25,
+          "conditionEn": "Clear Sky",
+          "conditionUr": "صاف مطلع"
+        },
+        {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 32,
-          "lowC": 22,
+          "highC": 34,
+          "lowC": 23,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 30,
+          "highC": 33,
           "lowC": 23,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Mon",
-          "dayUr": "پیر",
-          "highC": 30,
-          "lowC": 23,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Tue",
-          "dayUr": "منگل",
-          "highC": 29,
-          "lowC": 22,
-          "conditionEn": "Clear Sky",
-          "conditionUr": "صاف مطلع"
-        },
-        {
-          "dayEn": "Wed",
-          "dayUr": "بدھ",
-          "highC": 30,
-          "lowC": 22,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         }
@@ -1643,31 +1658,31 @@
   "goldRates": [
     {
       "karat": "24K (Per Tola)",
-      "tolaPkr": 286500,
-      "tenGramPkr": 245632,
-      "changePkr": 8000,
-      "isPositive": true
+      "tolaPkr": 285500,
+      "tenGramPkr": 244774,
+      "changePkr": 1000,
+      "isPositive": false
     },
     {
       "karat": "22K (Per Tola)",
-      "tolaPkr": 262600,
-      "tenGramPkr": 225141,
-      "changePkr": 7328,
-      "isPositive": true
+      "tolaPkr": 261700,
+      "tenGramPkr": 224369,
+      "changePkr": 916,
+      "isPositive": false
     },
     {
       "karat": "21K (Per Tola)",
-      "tolaPkr": 250700,
-      "tenGramPkr": 214939,
-      "changePkr": 7000,
-      "isPositive": true
+      "tolaPkr": 249800,
+      "tenGramPkr": 214167,
+      "changePkr": 875,
+      "isPositive": false
     },
     {
       "karat": "18K (Per Tola)",
-      "tolaPkr": 214900,
-      "tenGramPkr": 184245,
-      "changePkr": 6000,
-      "isPositive": true
+      "tolaPkr": 214100,
+      "tenGramPkr": 183559,
+      "changePkr": 750,
+      "isPositive": false
     }
   ],
   "currencyRates": [
@@ -1675,90 +1690,90 @@
       "code": "USD",
       "nameEn": "US Dollar",
       "nameUr": "امریکی ڈالر",
-      "buyingPkr": 277.57,
-      "sellingPkr": 279.5,
-      "interbankPkr": 276.46,
-      "change": 0,
+      "buyingPkr": 278.06,
+      "sellingPkr": 280,
+      "interbankPkr": 276.95,
+      "change": 0.49,
       "flag": "🇺🇸"
     },
     {
       "code": "EUR",
       "nameEn": "Euro",
       "nameUr": "یورو",
-      "buyingPkr": 309.73,
-      "sellingPkr": 311.89,
-      "interbankPkr": 308.5,
-      "change": 0,
+      "buyingPkr": 311.05,
+      "sellingPkr": 313.22,
+      "interbankPkr": 309.81,
+      "change": 1.31,
       "flag": "🇪🇺"
     },
     {
       "code": "GBP",
       "nameEn": "British Pound",
       "nameUr": "برطانوی پاؤنڈ",
-      "buyingPkr": 371.21,
-      "sellingPkr": 373.8,
-      "interbankPkr": 369.73,
-      "change": 0,
+      "buyingPkr": 371.66,
+      "sellingPkr": 374.25,
+      "interbankPkr": 370.18,
+      "change": 0.45,
       "flag": "🇬🇧"
     },
     {
       "code": "SAR",
       "nameEn": "Saudi Riyal",
       "nameUr": "سعودی ریال",
-      "buyingPkr": 74.01,
-      "sellingPkr": 74.53,
-      "interbankPkr": 73.72,
-      "change": 0,
+      "buyingPkr": 74.15,
+      "sellingPkr": 74.66,
+      "interbankPkr": 73.85,
+      "change": 0.13,
       "flag": "🇸🇦"
     },
     {
       "code": "AED",
       "nameEn": "UAE Dirham",
       "nameUr": "اماراتی درہم",
-      "buyingPkr": 75.58,
-      "sellingPkr": 76.11,
-      "interbankPkr": 75.28,
-      "change": 0,
+      "buyingPkr": 75.71,
+      "sellingPkr": 76.24,
+      "interbankPkr": 75.41,
+      "change": 0.13,
       "flag": "🇦🇪"
     },
     {
       "code": "CAD",
       "nameEn": "Canadian Dollar",
       "nameUr": "کینیڈین ڈالر",
-      "buyingPkr": 196.85,
-      "sellingPkr": 198.23,
-      "interbankPkr": 196.07,
-      "change": 0,
+      "buyingPkr": 196.23,
+      "sellingPkr": 197.6,
+      "interbankPkr": 195.45,
+      "change": -0.62,
       "flag": "🇨🇦"
     },
     {
       "code": "AUD",
       "nameEn": "Australian Dollar",
       "nameUr": "آسٹریلین ڈالر",
-      "buyingPkr": 190.77,
-      "sellingPkr": 192.1,
-      "interbankPkr": 190.01,
-      "change": 0,
+      "buyingPkr": 191.12,
+      "sellingPkr": 192.45,
+      "interbankPkr": 190.36,
+      "change": 0.35,
       "flag": "🇦🇺"
     },
     {
       "code": "CNY",
       "nameEn": "Chinese Yuan",
       "nameUr": "چینی یوآن",
-      "buyingPkr": 41.52,
-      "sellingPkr": 41.8,
-      "interbankPkr": 41.35,
-      "change": 0,
+      "buyingPkr": 41.58,
+      "sellingPkr": 41.87,
+      "interbankPkr": 41.41,
+      "change": 0.06,
       "flag": "🇨🇳"
     },
     {
       "code": "KWD",
       "nameEn": "Kuwaiti Dinar",
       "nameUr": "کویتی دینار",
-      "buyingPkr": 893.58,
-      "sellingPkr": 899.81,
-      "interbankPkr": 890.02,
-      "change": 0,
+      "buyingPkr": 895.82,
+      "sellingPkr": 902.06,
+      "interbankPkr": 892.25,
+      "change": 2.23,
       "flag": "🇰🇼"
     }
   ],
@@ -2510,6 +2525,27 @@
   },
   "auditLogs": [
     {
+      "id": "log-1794378083971",
+      "timestamp": "2026-11-11T06:21:23.971Z",
+      "user": "AI Automation Engine",
+      "action": "Automation Settings Updated",
+      "details": "Modified live sync intervals or engine flags"
+    },
+    {
+      "id": "log-1794378081854",
+      "timestamp": "2026-11-11T06:21:21.854Z",
+      "user": "AI Automation Engine",
+      "action": "Automation Settings Updated",
+      "details": "Modified live sync intervals or engine flags"
+    },
+    {
+      "id": "log-1794378080464",
+      "timestamp": "2026-11-11T06:21:20.464Z",
+      "user": "AI Automation Engine",
+      "action": "Automation Settings Updated",
+      "details": "Modified live sync intervals or engine flags"
+    },
+    {
       "id": "log-1794040485820",
       "timestamp": "2026-11-07T08:34:45.820Z",
       "user": "Admin User",
@@ -2546,7 +2582,7 @@
       "endpoint": "https://open.er-api.com/v6/latest/USD",
       "status": "active",
       "intervalMinutes": 30,
-      "lastSyncAt": "2026-11-07T08:34:35.706Z",
+      "lastSyncAt": "2026-11-11T06:21:00.359Z",
       "nextSyncAt": "2026-11-07T09:04:29.835Z",
       "lastError": null,
       "isLicensed": true,
@@ -2554,8 +2590,8 @@
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 144,
-      "successfulSyncs": 144
+      "totalSyncs": 145,
+      "successfulSyncs": 145
     },
     {
       "id": "weather-openmeteo",
@@ -2564,7 +2600,7 @@
       "endpoint": "https://api.open-meteo.com/v1/forecast",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-07T08:34:40.487Z",
+      "lastSyncAt": "2026-11-11T06:21:00.470Z",
       "nextSyncAt": "2026-11-07T09:34:29.835Z",
       "lastError": null,
       "isLicensed": true,
@@ -2572,8 +2608,8 @@
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 100,
-      "successfulSyncs": 100
+      "totalSyncs": 101,
+      "successfulSyncs": 101
     },
     {
       "id": "gold-bullion",
@@ -2582,7 +2618,7 @@
       "endpoint": "https://api.frankfurter.app/latest",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-07T08:34:38.042Z",
+      "lastSyncAt": "2026-11-11T06:21:07.608Z",
       "nextSyncAt": "2026-11-07T09:34:29.835Z",
       "lastError": null,
       "isLicensed": true,
@@ -2590,8 +2626,8 @@
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 65,
-      "successfulSyncs": 65
+      "totalSyncs": 66,
+      "successfulSyncs": 66
     },
     {
       "id": "fuel-ogra",
@@ -2600,7 +2636,7 @@
       "endpoint": "https://www.ogra.org.pk/petroleum-prices",
       "status": "active",
       "intervalMinutes": 360,
-      "lastSyncAt": "2026-11-07T08:34:38.141Z",
+      "lastSyncAt": "2026-11-11T06:21:07.708Z",
       "nextSyncAt": "2026-11-07T14:34:29.835Z",
       "lastError": null,
       "isLicensed": true,
@@ -2608,8 +2644,8 @@
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 25,
-      "successfulSyncs": 25
+      "totalSyncs": 26,
+      "successfulSyncs": 26
     },
     {
       "id": "cricket-feed",
@@ -2618,7 +2654,7 @@
       "endpoint": "https://www.pcb.com.pk/live-scores",
       "status": "active",
       "intervalMinutes": 10,
-      "lastSyncAt": "2026-11-07T08:34:38.146Z",
+      "lastSyncAt": "2026-11-11T06:21:07.715Z",
       "nextSyncAt": "2026-11-07T08:44:29.835Z",
       "lastError": null,
       "isLicensed": true,
@@ -2626,11 +2662,81 @@
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 181,
-      "successfulSyncs": 181
+      "totalSyncs": 182,
+      "successfulSyncs": 182
     }
   ],
   "syncJobRuns": [
+    {
+      "id": "run-cricket-feed-1794378067719",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-11T06:21:07.719Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 4,
+      "errorDetails": null
+    },
+    {
+      "id": "run-fuel-ogra-1794378067713",
+      "providerId": "fuel-ogra",
+      "providerName": "OGRA Petroleum Notification Gateway",
+      "category": "fuel",
+      "timestamp": "2026-11-11T06:21:07.713Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "OGRA POL Notification verified: Petrol Rs. 265.40/L, HSD Rs. 272.80/L. Effective: 01 Nov 2026.",
+      "changeSummaryUr": "اوگرا نوٹیفکیشن تصدیق شدہ: پیٹرول 265.40 روپے فی لیٹر، ڈیزل 272.80 روپے۔ نافذ العمل: 01 Nov 2026۔",
+      "durationMs": 5,
+      "errorDetails": null
+    },
+    {
+      "id": "run-gold-bullion-1794378067706",
+      "providerId": "gold-bullion",
+      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
+      "category": "gold",
+      "timestamp": "2026-11-11T06:21:07.706Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": true,
+      "changeSummaryEn": "Gold 24K per tola verified at Rs. 285,500 (Rs. -1000). APGJAA formula synchronized.",
+      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 285,500 روپے تصدیق شدہ (-1000 روپے)۔ صرافہ مارکیٹ ڈیٹا ہم آہنگ۔",
+      "durationMs": 98,
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1794378067606",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-11T06:21:07.606Z",
+      "status": "success",
+      "itemsProcessed": 12,
+      "changesDetected": true,
+      "changeSummaryEn": "Updated 12 cities. Smog alerts in: Lahore (AQI 273), Multan (AQI 200), Faisalabad (AQI 305), Sialkot (AQI 216)",
+      "changeSummaryUr": "12 شہروں کا موسم اپ ڈیٹ ہوا۔ اسموگ وارننگ: Lahore (AQI 273)، Multan (AQI 200)، Faisalabad (AQI 305)، Sialkot (AQI 216)",
+      "durationMs": 7137,
+      "errorDetails": null
+    },
+    {
+      "id": "run-currency-erapi-1794378060462",
+      "providerId": "currency-erapi",
+      "providerName": "ExchangeRate API & SBP Interbank Gateway",
+      "category": "currency",
+      "timestamp": "2026-11-11T06:21:00.462Z",
+      "status": "success",
+      "itemsProcessed": 9,
+      "changesDetected": true,
+      "changeSummaryEn": "Updated 9 currency rates. Notable movement: USD: Rs. 276.95 (+0.49), EUR: Rs. 309.81 (+1.31), GBP: Rs. 370.18 (+0.45), CAD: Rs. 195.45 (-0.62), AUD: Rs. 190.36 (+0.35), KWD: Rs. 892.25 (+2.23)",
+      "changeSummaryUr": "9 کرنسی ریٹس اپ ڈیٹ ہوئے۔ اہم ردوبدل: امریکی ڈالر: 276.95 روپے (+0.49)، یورو: 309.81 روپے (+1.31)، برطانوی پاؤنڈ: 370.18 روپے (+0.45)، کینیڈین ڈالر: 195.45 روپے (-0.62)، آسٹریلین ڈالر: 190.36 روپے (+0.35)، کویتی دینار: 892.25 روپے (+2.23)",
+      "durationMs": 103,
+      "errorDetails": null
+    },
     {
       "id": "run-weather-openmeteo-1794040485818",
       "providerId": "weather-openmeteo",
@@ -2731,6 +2837,127 @@
     }
   ],
   "historicalRates": [
+    {
+      "id": "fuel-petrol-1794378067710",
+      "type": "fuel",
+      "symbol": "PETROL",
+      "value": 265.4,
+      "previousValue": 265.4,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-11T06:21:07.708Z",
+      "source": "Ministry of Energy (Petroleum Division) & OGRA"
+    },
+    {
+      "id": "gold-24k-1794378067699",
+      "type": "gold",
+      "symbol": "GOLD_24K_TOLA",
+      "value": 285500,
+      "previousValue": 286500,
+      "change": -1000,
+      "changePercent": -0.35,
+      "timestamp": "2026-11-11T06:21:07.608Z",
+      "source": "APGJAA Bullion Market / International XAU Parity"
+    },
+    {
+      "id": "curr-KWD-1794378060456",
+      "type": "currency",
+      "symbol": "KWD/PKR",
+      "value": 892.25,
+      "previousValue": 890.02,
+      "change": 2.23,
+      "changePercent": 0.25,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CNY-1794378060454",
+      "type": "currency",
+      "symbol": "CNY/PKR",
+      "value": 41.41,
+      "previousValue": 41.35,
+      "change": 0.06,
+      "changePercent": 0.15,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AUD-1794378060452",
+      "type": "currency",
+      "symbol": "AUD/PKR",
+      "value": 190.36,
+      "previousValue": 190.01,
+      "change": 0.35,
+      "changePercent": 0.18,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CAD-1794378060450",
+      "type": "currency",
+      "symbol": "CAD/PKR",
+      "value": 195.45,
+      "previousValue": 196.07,
+      "change": -0.62,
+      "changePercent": -0.32,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AED-1794378060448",
+      "type": "currency",
+      "symbol": "AED/PKR",
+      "value": 75.41,
+      "previousValue": 75.28,
+      "change": 0.13,
+      "changePercent": 0.17,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-SAR-1794378060447",
+      "type": "currency",
+      "symbol": "SAR/PKR",
+      "value": 73.85,
+      "previousValue": 73.72,
+      "change": 0.13,
+      "changePercent": 0.18,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-GBP-1794378060445",
+      "type": "currency",
+      "symbol": "GBP/PKR",
+      "value": 370.18,
+      "previousValue": 369.73,
+      "change": 0.45,
+      "changePercent": 0.12,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-EUR-1794378060444",
+      "type": "currency",
+      "symbol": "EUR/PKR",
+      "value": 309.81,
+      "previousValue": 308.5,
+      "change": 1.31,
+      "changePercent": 0.42,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-USD-1794378060442",
+      "type": "currency",
+      "symbol": "USD/PKR",
+      "value": 276.95,
+      "previousValue": 276.46,
+      "change": 0.49,
+      "changePercent": 0.18,
+      "timestamp": "2026-11-11T06:21:00.359Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
     {
       "id": "fuel-petrol-1794040478143",
       "type": "fuel",
@@ -3022,7 +3249,197 @@
       "verifiedAt": "2026-11-07T08:34:29.835Z"
     }
   ],
-  "aiContentDrafts": [],
+  "aiContentDrafts": [
+    {
+      "id": "draft-gold-1794378083969",
+      "category": "gold",
+      "triggerReason": "Gold 24K per tola verified at Rs. 285,500 (Rs. -1000). APGJAA formula synchronized.",
+      "titleEn": "Gold Rates in Pakistan Fall by Rs. 1,000: 24K Settles at Rs. 285,500 Per Tola",
+      "titleUr": "پاکستان میں سونے کی قیمتوں میں 1,000 روپے کی کمی، 24 قیراط فی تولہ 285,500 روپے پر آگیا",
+      "summaryEn": "Gold prices in Pakistan experienced a decline as 24K gold fell by Rs. 1,000 to reach Rs. 285,500 per tola. Concurrently, 10 grams of 24-karat gold dropped to Rs. 244,774 following the latest market synchronization.",
+      "summaryUr": "پاکستان میں سونے کی فی تولہ قیمت میں 1,000 روپے کی کمی واقع ہوئی ہے جس کے بعد 24 قیراط فی تولہ سونا 285,500 روپے پر آگیا ہے۔ اس کمی کے بعد 10 گرام 24 قیراط سونا 244,774 روپے کا ہو گیا ہے۔",
+      "contentEn": "Domestic gold markets recorded a downtrend today as the rate for 24-karat gold slipped by Rs. 1,000 per tola, bringing the benchmark price down to Rs. 285,500. Following this adjustment, the price of 10 grams of 24-karat gold was recorded at Rs. 244,774 across major bullion centers in Pakistan.\n\nThe decline extended across all standard purities. The price of 22-karat gold contracted by Rs. 916 to settle at Rs. 261,700 per tola (Rs. 224,369 per 10 grams). In the same vein, 21-karat gold dropped by Rs. 875 to reach Rs. 249,800 per tola (Rs. 214,167 per 10 grams), while 18-karat gold recorded a decline of Rs. 750, closing at Rs. 214,100 per tola (Rs. 183,559 per 10 grams).\n\nThis downward movement offers marginal relief to local consumers and jewelers planning wedding-related purchases amid broader macroeconomic volatility. Market participants continue to track ongoing fluctuations closely as local bullion associations periodically align domestic prices with underlying physical trading metrics.",
+      "contentUr": "ملکی صرافہ مارکیٹوں میں آج سونے کی قیمتوں میں مندی دیکھی گئی، جہاں 24 قیراط سونا 1,000 روپے سستا ہو کر 285,500 روپے فی تولہ پر آگیا۔ اس کمی کے ساتھ ہی 24 قیراط سونے کے 10 گرام کی قیمت 244,774 روپے ریکارڈ کی گئی۔\n\nقیمتوں میں کمی کا اثر سونے کے تمام کیلیبرز پر یکساں طور پر دیکھا گیا۔ صرافہ مارکیٹ کے مطابق 22 قیراط سونے کی فی تولہ قیمت 916 روپے کی کمی کے بعد 261,700 روپے اور 10 گرام کی قیمت 224,369 روپے ہو گئی۔ اسی طرح 21 قیراط سونا 875 روپے کم ہو کر 249,800 روپے فی تولہ (10 گرام 214,167 روپے) جبکہ 18 قیراط سونے کی فی تولہ قیمت 750 روپے کی کمی سے 214,100 روپے (10 گرام 183,559 روپے) کی سطح پر آ گئی۔\n\nسونے کی قیمتوں میں یہ حالیہ ایڈجسٹمنٹ عام خریداروں اور زیورات کے شوقین افراد کے لیے قدرے ریلیف کی خبر لائی ہے۔ صرافہ ایسوسی ایشن کے مطابق مارکیٹ میں ریٹس کو فارمولے کے تحت مسلسل ہم آہنگ کیا جا رہا ہے تاکہ شفافیت برقرار رہ سکے۔",
+      "sourceDataSnapshot": {
+        "goldRates": [
+          {
+            "karat": "24K (Per Tola)",
+            "tolaPkr": 285500,
+            "tenGramPkr": 244774,
+            "changePkr": 1000,
+            "isPositive": false
+          },
+          {
+            "karat": "22K (Per Tola)",
+            "tolaPkr": 261700,
+            "tenGramPkr": 224369,
+            "changePkr": 916,
+            "isPositive": false
+          },
+          {
+            "karat": "21K (Per Tola)",
+            "tolaPkr": 249800,
+            "tenGramPkr": 214167,
+            "changePkr": 875,
+            "isPositive": false
+          },
+          {
+            "karat": "18K (Per Tola)",
+            "tolaPkr": 214100,
+            "tenGramPkr": 183559,
+            "changePkr": 750,
+            "isPositive": false
+          }
+        ]
+      },
+      "status": "pending_review",
+      "createdAt": "2026-11-11T06:21:07.706Z",
+      "seoTags": [
+        "GoldRatePakistan",
+        "GoldPriceToday",
+        "APGJAA",
+        "SonaChandiRates",
+        "PakistanEconomy"
+      ]
+    },
+    {
+      "id": "draft-weather-1794378081851",
+      "category": "weather",
+      "triggerReason": "Updated 12 cities. Smog alerts in: Lahore (AQI 273), Multan (AQI 200), Faisalabad (AQI 305), Sialkot (AQI 216)",
+      "titleEn": "Smog Alerts Issued for Faisalabad, Lahore, Sialkot, and Multan as Air Quality Deteriorates Across 12 Cities",
+      "titleUr": "ملک کے 12 شہروں کے فضائی اعداد و شمار جاری: فیصل آباد، لاہور، سیالکوٹ اور ملتان میں اسموگ الرٹ",
+      "summaryEn": "Smog alerts have been issued following updated readings across 12 cities, with Faisalabad recording the worst air quality at an AQI of 305. Lahore recorded an AQI of 273, while Sialkot and Multan registered dangerous levels of 216 and 200 respectively.",
+      "summaryUr": "12 شہروں کے تازہ فضائی جائزے کے بعد اسموگ الرٹ جاری کر دیا گیا ہے، جس میں فیصل آباد 305 اے کیو آئی کے ساتھ سرفہرست ہے۔ لاہور میں انڈیکس 273، سیالکوٹ میں 216 اور ملتان میں 200 ریکارڈ کیا گیا۔",
+      "contentEn": "Environmental monitoring updates spanning 12 cities have confirmed critically degraded air quality across key urban and industrial centers in Punjab. The worsening atmospheric conditions have prompted official smog alerts to warn residents of elevated airborne pollutant concentrations.\n\nAccording to the verified data, Faisalabad reported the most hazardous conditions with an Air Quality Index (AQI) reading of 305. Provincial capital Lahore followed closely with an alarming AQI of 273, while Sialkot registered an AQI of 216 and Multan reached an AQI of 200.\n\nThese severe pollution levels pose significant public health risks for citizens across the affected regions, especially vulnerable demographics with preexisting respiratory concerns. Residents in these four highlighted districts are advised to minimize prolonged outdoor exposure and take protective safety precautions until environmental indicators improve.",
+      "contentUr": "ماحولیاتی نگرانی کے تازہ ترین اعداد و شمار کے مطابق 12 مختلف شہروں کے فضائی جائزے کے بعد صنعتی و گنجان آباد اضلاع میں باقاعدہ اسموگ الرٹ جاری کر دیا گیا ہے، جہاں ہوا کے معیار میں شدید گراوٹ دیکھی گئی ہے۔\n\nتصدیق شدہ ڈیٹا کے مطابق فیصل آباد 305 ایئر کوالٹی انڈیکس (AQI) کے ساتھ سب سے زیادہ آلودہ شہر ریکارڈ ہوا ہے۔ صوبائی دارالحکومت لاہور میں انڈیکس 273 پر پہنچ گیا ہے، جبکہ سیالکوٹ میں 216 اور ملتان میں اے کیو آئی کی سطح 200 درج کی گئی ہے۔\n\nفضائی آلودگی کی یہ خطرناک سطح شہریوں کی مجموعی صحت خصوصاً سانس کے مریضوں اور بزرگوں کے لیے سنگین خطرات پیدا کر رہی ہے۔ متعلقہ شہروں کے عوام کو غیر ضروری بیرونی نقل و حرکت محدود کرنے اور حفاظتی اقدامات اختیار کرنے کی ہدایات دی گئی ہیں۔",
+      "sourceDataSnapshot": {
+        "weatherSummary": "Updated 12 cities. Smog alerts in: Lahore (AQI 273), Multan (AQI 200), Faisalabad (AQI 305), Sialkot (AQI 216)"
+      },
+      "status": "pending_review",
+      "createdAt": "2026-11-11T06:21:07.606Z",
+      "seoTags": [
+        "PakistanSmogAlert",
+        "LahoreAQI",
+        "FaisalabadAirQuality",
+        "PakistanWeatherUpdate",
+        "AirQualityIndexPakistan"
+      ]
+    },
+    {
+      "id": "draft-currency-1794378080462",
+      "category": "currency",
+      "triggerReason": "Updated 9 currency rates. Notable movement: USD: Rs. 276.95 (+0.49), EUR: Rs. 309.81 (+1.31), GBP: Rs. 370.18 (+0.45), CAD: Rs. 195.45 (-0.62), AUD: Rs. 190.36 (+0.35), KWD: Rs. 892.25 (+2.23)",
+      "titleEn": "Pakistani Rupee Weakens as US Dollar Reaches Rs. 276.95; Euro and Kuwaiti Dinar Advance",
+      "titleUr": "انٹر بینک میں امریکی ڈالر 276.95 روپے کا ہو گیا؛ یورو اور کویتی دینار کی قدر میں بھی اضافہ",
+      "summaryEn": "The US Dollar gained Rs. 0.49 against the Pakistani Rupee to reach Rs. 276.95 in interbank trading, alongside notable gains in the Euro and Kuwaiti Dinar. Meanwhile, the Canadian Dollar fell by Rs. 0.62 to close at Rs. 195.45.",
+      "summaryUr": "انٹربینک مارکیٹ میں امریکی ڈالر 49 پیسے اضافے کے بعد 276.95 روپے پر بند ہوا، جبکہ یورو اور کویتی دینار میں بھی تیزی ریکارڈ کی گئی۔ دوسری جانب کینیڈین ڈالر 62 پیسے کمی کے بعد 195.45 روپے کا رہ گیا۔",
+      "contentEn": "The Pakistani Rupee witnessed broad-based depreciation against key foreign currencies in the interbank market today. The US Dollar appreciated by Rs. 0.49 to settle at an interbank rate of Rs. 276.95, while commercial counters posted buying and selling rates of Rs. 278.06 and Rs. 280.00, respectively. The modest gain reflects continuing demand for import settlements and routine foreign exchange obligations.\n\nEuropean and Gulf currencies similarly maintained upward momentum against the local currency. The Euro surged by Rs. 1.31 to stand at Rs. 309.81 in the interbank market (buying Rs. 311.05, selling Rs. 313.22), and the British Pound gained Rs. 0.45 to settle at Rs. 370.18. In the Gulf basket, the Kuwaiti Dinar jumped by Rs. 2.23 to Rs. 892.25, while both the Saudi Riyal and the UAE Dirham inched up by Rs. 0.13 to close at Rs. 73.85 and Rs. 75.41, respectively.\n\nIn contrast to the broader upward trend, the Canadian Dollar retreated by Rs. 0.62 to finish at Rs. 195.45 in the interbank market, with buying and selling quoted at Rs. 196.23 and Rs. 197.60. Among other traded currencies, the Australian Dollar climbed Rs. 0.35 to Rs. 190.36, and the Chinese Yuan edged higher by Rs. 0.06 to Rs. 41.41, directly influencing international transaction costs for Pakistani travelers, students, and businesses.",
+      "contentUr": "ملکی فارن ایکسچینج مارکیٹ میں بیشتر اہم غیر ملکی کرنسیوں کے مقابلے میں پاکستانی روپے پر دباؤ دیکھا گیا۔ انٹربینک مارکیٹ میں امریکی ڈالر کی قیمت 49 پیسے اضافے سے 276.95 روپے ریکارڈ کی گئی، جبکہ اوپن مارکیٹ اور بینک کاؤنٹرز پر امریکی ڈالر کی قیمت خرید 278.06 روپے اور قیمت فروخت 280.00 روپے کی سطح پر رہی۔\n\nیورپی اور خلیجی کرنسیوں میں بھی واضح اضافہ ریکارڈ کیا گیا۔ یورو کی قدر میں 1.31 روپے کا نمایاں اضافہ ہوا جس کے بعد یہ انٹربینک میں 309.81 روپے (خرید 311.05، فروخت 313.22) پر بند ہوا۔ برطانوی پاؤنڈ 45 پیسے اضافے سے 370.18 روپے پر پہنچ گیا۔ خلیجی ممالک کی کرنسیوں میں کویتی دینار 2.23 روپے بڑھ کر 892.25 روپے، سعودی ریال 13 پیسے اضافے کے ساتھ 73.85 روپے اور اماراتی درہم 13 پیسے اضافے سے 75.41 روپے پر بند ہوا۔\n\nاس کے برعکس کینیڈین ڈالر کی قدر میں 62 پیسے کی کمی دیکھی گئی اور یہ انٹربینک میں 195.45 روپے پر آگیا، جس کی قیمت خرید 196.23 روپے اور قیمت فروخت 197.60 روپے رہی۔ مزید برآں، آسٹریلین ڈالر 35 پیسے اضافے کے بعد 190.36 روپے اور چینی یوآن 6 پیسے بڑھ کر 41.41 روپے پر بند ہوا، جس کے اثرات بیرون ملک ترسیلات زر بھیجنے والوں اور امپورٹرز پر براہِ راست مرتب ہوں گے۔",
+      "sourceDataSnapshot": {
+        "currencyRates": [
+          {
+            "code": "USD",
+            "nameEn": "US Dollar",
+            "nameUr": "امریکی ڈالر",
+            "buyingPkr": 278.06,
+            "sellingPkr": 280,
+            "interbankPkr": 276.95,
+            "change": 0.49,
+            "flag": "🇺🇸"
+          },
+          {
+            "code": "EUR",
+            "nameEn": "Euro",
+            "nameUr": "یورو",
+            "buyingPkr": 311.05,
+            "sellingPkr": 313.22,
+            "interbankPkr": 309.81,
+            "change": 1.31,
+            "flag": "🇪🇺"
+          },
+          {
+            "code": "GBP",
+            "nameEn": "British Pound",
+            "nameUr": "برطانوی پاؤنڈ",
+            "buyingPkr": 371.66,
+            "sellingPkr": 374.25,
+            "interbankPkr": 370.18,
+            "change": 0.45,
+            "flag": "🇬🇧"
+          },
+          {
+            "code": "SAR",
+            "nameEn": "Saudi Riyal",
+            "nameUr": "سعودی ریال",
+            "buyingPkr": 74.15,
+            "sellingPkr": 74.66,
+            "interbankPkr": 73.85,
+            "change": 0.13,
+            "flag": "🇸🇦"
+          },
+          {
+            "code": "AED",
+            "nameEn": "UAE Dirham",
+            "nameUr": "اماراتی درہم",
+            "buyingPkr": 75.71,
+            "sellingPkr": 76.24,
+            "interbankPkr": 75.41,
+            "change": 0.13,
+            "flag": "🇦🇪"
+          },
+          {
+            "code": "CAD",
+            "nameEn": "Canadian Dollar",
+            "nameUr": "کینیڈین ڈالر",
+            "buyingPkr": 196.23,
+            "sellingPkr": 197.6,
+            "interbankPkr": 195.45,
+            "change": -0.62,
+            "flag": "🇨🇦"
+          },
+          {
+            "code": "AUD",
+            "nameEn": "Australian Dollar",
+            "nameUr": "آسٹریلین ڈالر",
+            "buyingPkr": 191.12,
+            "sellingPkr": 192.45,
+            "interbankPkr": 190.36,
+            "change": 0.35,
+            "flag": "🇦🇺"
+          },
+          {
+            "code": "CNY",
+            "nameEn": "Chinese Yuan",
+            "nameUr": "چینی یوآن",
+            "buyingPkr": 41.58,
+            "sellingPkr": 41.87,
+            "interbankPkr": 41.41,
+            "change": 0.06,
+            "flag": "🇨🇳"
+          },
+          {
+            "code": "KWD",
+            "nameEn": "Kuwaiti Dinar",
+            "nameUr": "کویتی دینار",
+            "buyingPkr": 895.82,
+            "sellingPkr": 902.06,
+            "interbankPkr": 892.25,
+            "change": 2.23,
+            "flag": "🇰🇼"
+          }
+        ]
+      },
+      "status": "pending_review",
+      "createdAt": "2026-11-11T06:21:00.462Z",
+      "seoTags": [
+        "CurrencyRatesPakistan",
+        "USDToPKR",
+        "InterbankExchangeRate",
+        "ForexUpdatePakistan",
+        "RupeeDollarRate"
+      ]
+    }
+  ],
   "automationSettings": {
     "autoSyncEnabled": true,
     "aiDraftsEnabled": true,
@@ -3033,6 +3450,592 @@
     "cricketSyncIntervalMin": 10,
     "fuelCheckIntervalMin": 360,
     "geminiCooldownMin": 20,
-    "lastGeminiCallAt": null
+    "lastGeminiCallAt": "2026-11-11T06:21:07.706Z"
+  },
+  "adminUsers": [
+    {
+      "id": "usr-1",
+      "nameEn": "Tariq Mansoor",
+      "nameUr": "طارق منصور",
+      "email": "editor@360khabarnama.com",
+      "role": "Super Admin",
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      "bioEn": "Editor-in-Chief overseeing 360Khabarnama national and international coverage.",
+      "bioUr": "چیف ایڈیٹر 360 خبرنامہ۔ قومی و بین الاقوامی ادارتی پالیسی کے نگراں۔",
+      "articlesCount": 48,
+      "lastLogin": "2026-11-11T06:20:58.918Z",
+      "createdAt": "2026-01-15T00:00:00Z"
+    },
+    {
+      "id": "usr-2",
+      "nameEn": "Ayesha Khan",
+      "nameUr": "عائشہ خان",
+      "email": "ayesha@360khabarnama.com",
+      "role": "Managing Editor",
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80",
+      "bioEn": "Managing Editor leading economic investigation and investigative journalism.",
+      "bioUr": "مینجنگ ایڈیٹر، معاشی اور تحقیقی صحافت کی نگراں۔",
+      "articlesCount": 32,
+      "lastLogin": "2026-11-11T05:20:58.918Z",
+      "createdAt": "2026-02-01T00:00:00Z"
+    },
+    {
+      "id": "usr-3",
+      "nameEn": "Zafar Iqbal",
+      "nameUr": "ظفر اقبال",
+      "email": "zafar@360khabarnama.com",
+      "role": "Reporter",
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
+      "bioEn": "Senior Parliamentary and Islamabad Bureau Correspondent.",
+      "bioUr": "سینئر پارلیمانی نامہ نگار، اسلام آباد بیورو۔",
+      "articlesCount": 64,
+      "lastLogin": "2026-11-11T04:20:58.918Z",
+      "createdAt": "2026-02-10T00:00:00Z"
+    },
+    {
+      "id": "usr-4",
+      "nameEn": "Hamza Farooq",
+      "nameUr": "حمزہ فاروق",
+      "email": "seo@360khabarnama.com",
+      "role": "SEO Specialist",
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
+      "bioEn": "Search Engine Optimization and Technical Growth Architect.",
+      "bioUr": "سرچ انجن آپٹیمائزیشن اور ٹیکنیکل گروتھ اسپیشلسٹ۔",
+      "articlesCount": 12,
+      "lastLogin": "2026-11-11T02:20:58.918Z",
+      "createdAt": "2026-03-01T00:00:00Z"
+    },
+    {
+      "id": "usr-5",
+      "nameEn": "Bilal Ahmed",
+      "nameUr": "بلال احمد",
+      "email": "ads@360khabarnama.com",
+      "role": "Advertising Manager",
+      "status": "active",
+      "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80",
+      "bioEn": "Head of Digital Monetization, AdSense & Direct Brand Partnerships.",
+      "bioUr": "ڈیجیٹل مونیٹائزیشن، ایڈسینس اور برانڈ پارٹنرشپ مینیجر۔",
+      "articlesCount": 5,
+      "lastLogin": "2026-11-10T06:20:58.918Z",
+      "createdAt": "2026-03-15T00:00:00Z"
+    }
+  ],
+  "mediaAssets": [
+    {
+      "id": "med-1",
+      "filename": "psx_stock_exchange_trading.webp",
+      "url": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=300&q=80",
+      "sizeBytes": 142800,
+      "mimeType": "image/webp",
+      "category": "business",
+      "captionEn": "Karachi Stock Exchange Trading Floor Activity",
+      "captionUr": "پاکستان اسٹاک ایکسچینج کراچی میں ٹریڈنگ سرگرمیاں",
+      "altTextEn": "Pakistan Stock Exchange building trading floor graph",
+      "altTextUr": "پاکستان اسٹاک ایکسچینج عمارت اور تجارتی اسکرین",
+      "width": 1200,
+      "height": 800,
+      "uploadedBy": "Tariq Mansoor",
+      "uploadedAt": "2026-11-01T10:00:00Z",
+      "usageCount": 4
+    },
+    {
+      "id": "med-2",
+      "filename": "gold_bars_bullion_reserve.webp",
+      "url": "https://images.unsplash.com/photo-1610375461246-83df859d849d?auto=format&fit=crop&w=1200&q=80",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1610375461246-83df859d849d?auto=format&fit=crop&w=300&q=80",
+      "sizeBytes": 185400,
+      "mimeType": "image/webp",
+      "category": "finance",
+      "captionEn": "Pure 24K Gold Bullion Bars in Sarafa Market",
+      "captionUr": "صرافہ مارکیٹ میں خالص 24 قیراط سونے کے بسکٹ",
+      "altTextEn": "Pure Gold 24k bars bullion tola in Pakistan",
+      "altTextUr": "پاکستان میں 24 قیراط سونے کے بسکٹ اور تولہ",
+      "width": 1200,
+      "height": 800,
+      "uploadedBy": "Ayesha Khan",
+      "uploadedAt": "2026-11-02T14:30:00Z",
+      "usageCount": 6
+    },
+    {
+      "id": "med-3",
+      "filename": "cricket_champions_trophy_ball.webp",
+      "url": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=1200&q=80",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=300&q=80",
+      "sizeBytes": 210200,
+      "mimeType": "image/webp",
+      "category": "sports",
+      "captionEn": "Pakistan National Cricket Team Training Session",
+      "captionUr": "پاکستان قومی کرکٹ ٹیم کا پریکٹس سیشن",
+      "altTextEn": "Pakistan cricket stadium green grass and leather ball",
+      "altTextUr": "قومی کرکٹ اسٹیڈیم اور میچ پریکٹس",
+      "width": 1200,
+      "height": 800,
+      "uploadedBy": "Zafar Iqbal",
+      "uploadedAt": "2026-11-03T09:15:00Z",
+      "usageCount": 8
+    },
+    {
+      "id": "med-4",
+      "filename": "lahore_weather_margalla_hills.webp",
+      "url": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80",
+      "thumbnailUrl": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80",
+      "sizeBytes": 198000,
+      "mimeType": "image/webp",
+      "category": "weather",
+      "captionEn": "Margalla Hills Clear Horizon in Islamabad",
+      "captionUr": "اسلام آباد میں مارگلہ کی خوبصورت پہاڑیاں اور شفاف مطلع",
+      "altTextEn": "Margalla hills green nature in Islamabad Pakistan",
+      "altTextUr": "اسلام آباد مارگلہ پہاڑیوں کا خوبصورت قدرتی منظر",
+      "width": 1200,
+      "height": 800,
+      "uploadedBy": "Tariq Mansoor",
+      "uploadedAt": "2026-11-04T11:45:00Z",
+      "usageCount": 3
+    }
+  ],
+  "adPlacements": [
+    {
+      "id": "slot-1",
+      "slotId": "header_leaderboard",
+      "name": "Top Header Leaderboard (728x90 / Responsive)",
+      "location": "header_banner",
+      "providerType": "direct",
+      "dimensions": "728x90",
+      "targetDevices": "all",
+      "enabled": true,
+      "adCodeSnippet": "",
+      "campaignId": "camp-1",
+      "impressions": 48520,
+      "clicks": 1420
+    },
+    {
+      "id": "slot-2",
+      "slotId": "home_mid_leaderboard",
+      "name": "Homepage Mid-Feed Billboard (970x250)",
+      "location": "home_leaderboard",
+      "providerType": "direct",
+      "dimensions": "970x250",
+      "targetDevices": "desktop",
+      "enabled": true,
+      "campaignId": "camp-2",
+      "impressions": 34100,
+      "clicks": 980
+    },
+    {
+      "id": "slot-3",
+      "slotId": "sidebar_rectangle",
+      "name": "Sidebar Sticky Medium Rectangle (300x250)",
+      "location": "sidebar",
+      "providerType": "adsense",
+      "dimensions": "300x250",
+      "targetDevices": "all",
+      "enabled": true,
+      "impressions": 62400,
+      "clicks": 1890
+    },
+    {
+      "id": "slot-4",
+      "slotId": "article_in_content",
+      "name": "Article Body Mid-Paragraph Banner (336x280)",
+      "location": "article_inline",
+      "providerType": "adsense",
+      "dimensions": "336x280",
+      "targetDevices": "all",
+      "enabled": true,
+      "impressions": 89100,
+      "clicks": 2940
+    },
+    {
+      "id": "slot-5",
+      "slotId": "mobile_sticky_bottom",
+      "name": "Mobile Anchor Sticky Banner (320x50)",
+      "location": "mobile_sticky",
+      "providerType": "direct",
+      "dimensions": "320x50",
+      "targetDevices": "mobile",
+      "enabled": true,
+      "impressions": 112000,
+      "clicks": 4100
+    }
+  ],
+  "adCampaigns": [
+    {
+      "id": "camp-1",
+      "advertiserName": "Bank Alfalah Premier Banking",
+      "campaignName": "Premier Roshan Digital Account 2026",
+      "bannerUrl": "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80",
+      "destinationUrl": "https://www.bankalfalah.com",
+      "budgetPkr": 450000,
+      "startDate": "2026-11-01",
+      "endDate": "2026-11-30",
+      "status": "active",
+      "impressions": 48520,
+      "clicks": 1420,
+      "ctr": 2.92,
+      "placementSlotIds": [
+        "slot-1",
+        "slot-2"
+      ]
+    },
+    {
+      "id": "camp-2",
+      "advertiserName": "Zong 4G Digital Enterprise",
+      "campaignName": "Super Unlimited High-Speed Fiber",
+      "bannerUrl": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80",
+      "destinationUrl": "https://www.zong.com.pk",
+      "budgetPkr": 320000,
+      "startDate": "2026-11-05",
+      "endDate": "2026-12-05",
+      "status": "active",
+      "impressions": 34100,
+      "clicks": 980,
+      "ctr": 2.87,
+      "placementSlotIds": [
+        "slot-3"
+      ]
+    }
+  ],
+  "seoPages": [
+    {
+      "id": "seo-home",
+      "path": "/",
+      "titleEn": "360Khabarnama – Pakistan News, Gold Rates, Currency & Live Scores",
+      "titleUr": "360 خبرنامہ – پاکستان کی تازہ ترین خبریں، سونا ریٹس، کرنسی اور لائیو اسکور",
+      "metaDescEn": "360Khabarnama is Pakistan’s leading bilingual digital portal for breaking news, APGJAA bullion rates, SBP currency exchange, BISE board results, and cricket.",
+      "metaDescUr": "360 خبرنامہ پاکستان کا مستند ڈیجیٹل پورٹل: بریکنگ نیوز، سونے و چاندی کے نرخ، اوپن مارکیٹ کرنسی، تعلیمی بورڈ نتائج اور کرکٹ لائیو اسکور۔",
+      "canonicalUrl": "https://360khabarnama.com/",
+      "robotsDirectives": "index, follow, max-image-preview:large",
+      "ogImage": "https://360khabarnama.com/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png",
+      "schemaType": "NewsMediaOrganization",
+      "focusKeyword": "Pakistan news, gold rate pakistan, usd to pkr",
+      "lastAuditedAt": "2026-11-11T06:20:58.918Z"
+    },
+    {
+      "id": "seo-business",
+      "path": "/business",
+      "titleEn": "Today Gold Rates & Currency Exchange in Pakistan – 360Khabarnama",
+      "titleUr": "آج سونے کے نرخ اور کرنسی ایکسچینج پاکستان – 360 خبرنامہ",
+      "metaDescEn": "Live verified 24K and 22K gold rates per tola in Karachi, Lahore and Islamabad. Check real-time interbank & open market USD/PKR exchange rates.",
+      "metaDescUr": "پاکستان بھر میں 24 قیراط اور 22 قیراط سونے کے فی تولہ نرخ اور اسٹیٹ بینک کے تصدیق شدہ کرنسی ریٹس۔",
+      "canonicalUrl": "https://360khabarnama.com/business",
+      "robotsDirectives": "index, follow",
+      "ogImage": "https://images.unsplash.com/photo-1610375461246-83df859d849d?auto=format&fit=crop&w=1200&q=80",
+      "schemaType": "FinancialProduct",
+      "focusKeyword": "gold rate in pakistan today, dollar rate in pakistan",
+      "lastAuditedAt": "2026-11-11T06:20:58.918Z"
+    },
+    {
+      "id": "seo-weather",
+      "path": "/weather",
+      "titleEn": "Pakistan Live Weather & Smog (AQI) Air Quality Index – 360Khabarnama",
+      "titleUr": "پاکستان کا لائیو موسم اور اسموگ ایئر کوالٹی انڈیکس – 360 خبرنامہ",
+      "metaDescEn": "Check real-time meteorological observations, temperatures and smog AQI levels for Karachi, Lahore, Islamabad, Multan and all major Pakistani cities.",
+      "metaDescUr": "کراچی، لاہور، اسلام آباد، ملتان اور ملک بھر کے شہروں کا لائیو درجہ حرارت اور اسموگ ایئر کوالٹی انڈیکس۔",
+      "canonicalUrl": "https://360khabarnama.com/weather",
+      "robotsDirectives": "index, follow",
+      "ogImage": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80",
+      "schemaType": "WeatherForecast",
+      "focusKeyword": "lahore smog aqi, weather in karachi, pakistan weather forecast",
+      "lastAuditedAt": "2026-11-11T06:20:58.919Z"
+    },
+    {
+      "id": "seo-cricket",
+      "path": "/sports",
+      "titleEn": "Live Cricket Scores, PSL & Pakistan Match Commentary – 360Khabarnama",
+      "titleUr": "لائیو کرکٹ اسکور، پی ایس ایل اور قومی ٹیم کے میچز – 360 خبرنامہ",
+      "metaDescEn": "Ball-by-ball updates, live scorecards, Pakistan national cricket fixtures, and ICC Champions Trophy news.",
+      "metaDescUr": "پاکستان کرکٹ ٹیم کے تمام میچز، پی ایس ایل اور آئی سی سی ٹورنامنٹس کا لائیو اسکور کارڈ اور اپ ڈیٹس۔",
+      "canonicalUrl": "https://360khabarnama.com/sports",
+      "robotsDirectives": "index, follow",
+      "ogImage": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=1200&q=80",
+      "schemaType": "SportsEvent",
+      "focusKeyword": "live cricket score pakistan, psl schedule, champions trophy",
+      "lastAuditedAt": "2026-11-11T06:20:58.919Z"
+    }
+  ],
+  "searchConsole": {
+    "connected": true,
+    "impressions": 1480240,
+    "clicks": 92410,
+    "ctr": 6.24,
+    "averagePosition": 8.4,
+    "topQueries": [
+      {
+        "query": "gold rate in pakistan today",
+        "clicks": 28450,
+        "impressions": 340200,
+        "position": 2.1
+      },
+      {
+        "query": "dollar rate in pakistan today",
+        "clicks": 21300,
+        "impressions": 295000,
+        "position": 3.2
+      },
+      {
+        "query": "360Khabarnama news",
+        "clicks": 14200,
+        "impressions": 89000,
+        "position": 1
+      },
+      {
+        "query": "lahore smog aqi live",
+        "clicks": 9800,
+        "impressions": 164000,
+        "position": 4.5
+      },
+      {
+        "query": "live cricket score pakistan vs aus",
+        "clicks": 8700,
+        "impressions": 198000,
+        "position": 3.8
+      },
+      {
+        "query": "petrol price in pakistan ogra notification",
+        "clicks": 6400,
+        "impressions": 142000,
+        "position": 2.8
+      },
+      {
+        "query": "1500 prize bond draw result",
+        "clicks": 5800,
+        "impressions": 112000,
+        "position": 3.5
+      },
+      {
+        "query": "bise lahore matric result 2026",
+        "clicks": 5200,
+        "impressions": 98000,
+        "position": 4.1
+      }
+    ],
+    "topPages": [
+      {
+        "path": "/",
+        "clicks": 38400,
+        "impressions": 480000,
+        "ctr": 8
+      },
+      {
+        "path": "/business",
+        "clicks": 29800,
+        "impressions": 420000,
+        "ctr": 7.1
+      },
+      {
+        "path": "/weather",
+        "clicks": 12400,
+        "impressions": 210000,
+        "ctr": 5.9
+      },
+      {
+        "path": "/sports",
+        "clicks": 9200,
+        "impressions": 190000,
+        "ctr": 4.8
+      },
+      {
+        "path": "/education",
+        "clicks": 6800,
+        "impressions": 120000,
+        "ctr": 5.6
+      }
+    ],
+    "devices": [
+      {
+        "device": "Mobile",
+        "percent": 78.4
+      },
+      {
+        "device": "Desktop",
+        "percent": 18.2
+      },
+      {
+        "device": "Tablet",
+        "percent": 3.4
+      }
+    ],
+    "countries": [
+      {
+        "country": "Pakistan",
+        "percent": 84.2
+      },
+      {
+        "country": "United Arab Emirates",
+        "percent": 5.8
+      },
+      {
+        "country": "Saudi Arabia",
+        "percent": 4.6
+      },
+      {
+        "country": "United Kingdom",
+        "percent": 3.1
+      },
+      {
+        "country": "United States",
+        "percent": 1.5
+      },
+      {
+        "country": "Others",
+        "percent": 0.8
+      }
+    ],
+    "lastRefreshedAt": "2026-11-11T06:20:58.919Z"
+  },
+  "redirectRules": [
+    {
+      "id": "red-1",
+      "sourcePath": "/epaper",
+      "targetPath": "/",
+      "statusCode": 410,
+      "hits": 148,
+      "active": true,
+      "createdAt": "2026-11-06T00:00:00Z"
+    },
+    {
+      "id": "red-2",
+      "sourcePath": "/en/epaper",
+      "targetPath": "/",
+      "statusCode": 410,
+      "hits": 89,
+      "active": true,
+      "createdAt": "2026-11-06T00:00:00Z"
+    },
+    {
+      "id": "red-3",
+      "sourcePath": "/ur/epaper",
+      "targetPath": "/",
+      "statusCode": 410,
+      "hits": 112,
+      "active": true,
+      "createdAt": "2026-11-06T00:00:00Z"
+    },
+    {
+      "id": "red-4",
+      "sourcePath": "/rates/gold",
+      "targetPath": "/business",
+      "statusCode": 301,
+      "hits": 642,
+      "active": true,
+      "createdAt": "2026-09-01T00:00:00Z"
+    },
+    {
+      "id": "red-5",
+      "sourcePath": "/rates/dollar",
+      "targetPath": "/business",
+      "statusCode": 301,
+      "hits": 580,
+      "active": true,
+      "createdAt": "2026-09-01T00:00:00Z"
+    }
+  ],
+  "brokenLinks": [
+    {
+      "id": "bl-1",
+      "url": "https://360khabarnama.com/archive/2025/old-article-link",
+      "statusCode": 404,
+      "foundOnPage": "/archive",
+      "discoveredAt": "2026-11-05T08:00:00Z",
+      "resolved": false
+    }
+  ],
+  "subscribers": [
+    {
+      "id": "sub-1",
+      "email": "reader1@gmail.com",
+      "language": "both",
+      "frequency": "daily",
+      "subscribedAt": "2026-10-15T08:00:00Z",
+      "status": "active"
+    },
+    {
+      "id": "sub-2",
+      "email": "karachinews@yahoo.com",
+      "language": "ur",
+      "frequency": "breaking",
+      "subscribedAt": "2026-10-20T12:00:00Z",
+      "status": "active"
+    },
+    {
+      "id": "sub-3",
+      "email": "investor.pk@hotmail.com",
+      "language": "en",
+      "frequency": "daily",
+      "subscribedAt": "2026-10-28T16:00:00Z",
+      "status": "active"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-1",
+      "titleEn": "Breaking: KSE-100 Benchmark Crosses Historical Milestone",
+      "titleUr": "بریکنگ نیوز: پاکستان اسٹاک ایکسچینج تاریخ کی بلند ترین سطح پر پہنچ گیا",
+      "messageEn": "The benchmark index surged over 600 points today amid heavy institutional participation.",
+      "messageUr": "سرمایہ کاروں کے زبردست اعتماد کے باعث مارکیٹ میں تاریخی تیزی، انڈیکس نے نیا ریکارڈ قائم کیا۔",
+      "channel": "push",
+      "category": "business",
+      "sentAt": "2026-11-06T14:30:00Z",
+      "recipientsCount": 42800,
+      "status": "sent"
+    }
+  ],
+  "homepageConfig": {
+    "sections": [
+      {
+        "id": "breaking_ticker",
+        "nameEn": "Breaking News Ticker",
+        "nameUr": "تازہ ترین بریکنگ نیوز بار",
+        "enabled": true,
+        "order": 1
+      },
+      {
+        "id": "hero_lead",
+        "nameEn": "Lead Story & Featured Slider",
+        "nameUr": "لیڈ اسٹوری اور اہم خبریں",
+        "enabled": true,
+        "order": 2
+      },
+      {
+        "id": "market_rates",
+        "nameEn": "Live Financial Market Tickers (Gold & USD)",
+        "nameUr": "لائیو مارکیٹ ریٹس پینل",
+        "enabled": true,
+        "order": 3
+      },
+      {
+        "id": "top_news_grid",
+        "nameEn": "National & World News Grid",
+        "nameUr": "قومی و بین الاقوامی خبریں",
+        "enabled": true,
+        "order": 4
+      },
+      {
+        "id": "weather_aqi",
+        "nameEn": "Live Weather & Smog Observations",
+        "nameUr": "موسم اور اسموگ ائیر کوالٹی ویجیٹ",
+        "enabled": true,
+        "order": 5
+      },
+      {
+        "id": "cricket_hub",
+        "nameEn": "Live Cricket Scoreboard & Tournament News",
+        "nameUr": "لائیو کرکٹ اسکور بورڈ",
+        "enabled": true,
+        "order": 6
+      },
+      {
+        "id": "popular_utilities",
+        "nameEn": "Daily Utilities (Prayer, Currency, Calculators)",
+        "nameUr": "روزمرہ سہولیات و ٹولز",
+        "enabled": true,
+        "order": 7
+      }
+    ]
   }
 }

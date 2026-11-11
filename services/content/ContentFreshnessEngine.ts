@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Khabarnama360 — Content Freshness & Review Automation Engine
+ * 360Khabarnama — Content Freshness & Review Automation Engine
  */
 
 import { Article } from '../../src/types/index.ts';
