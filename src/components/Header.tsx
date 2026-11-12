@@ -12,9 +12,13 @@ import {
   Volume2,
   VolumeX,
   Menu,
-  X
+  X,
+  Bell,
+  BellRing
 } from 'lucide-react';
 import { AskAiModal } from './AskAiModal.tsx';
+import { NotificationToggleModal } from './NotificationToggleModal.tsx';
+import { PushNotificationClient } from '../services/pushNotificationClient.ts';
 
 interface HeaderProps {
   onSearch: (q: string) => void;
@@ -25,8 +29,14 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
   const [searchInput, setSearchInput] = useState('');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
   const [tickerPaused, setTickerPaused] = useState(false);
   const [tickerSound, setTickerSound] = useState(false);
+
+  useEffect(() => {
+    setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
+  }, []);
 
   const breakingHeadlines = isUrdu ? [
     'پاکستان اسٹاک ایکسچینج میں زبردست تیزی، انڈیکس تاریخ کی نئی بلندی پر پہنچ گیا',
@@ -185,8 +195,34 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
             </div>
           </form>
 
-          {/* Right Controls: AI Assistant & Mobile Menu Toggle */}
+          {/* Right Controls: Notification Bell, AI Assistant & Mobile Menu Toggle */}
           <div className="flex items-center gap-2">
+            {/* Push Notifications Toggle Button */}
+            <button
+              onClick={() => setIsNotifModalOpen(true)}
+              title={isUrdu ? 'بریکنگ نیوز اور کرکٹ الرٹس' : 'Breaking News & Cricket Alerts'}
+              aria-label="Notification Settings"
+              className={`relative flex items-center justify-center p-2 rounded-xl transition-all border ${
+                isPushSubscribed
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-xs'
+                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              {isPushSubscribed ? (
+                <BellRing className="w-4 h-4 text-emerald-700" />
+              ) : (
+                <Bell className="w-4 h-4 text-gray-600" />
+              )}
+              {isPushSubscribed ? (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
+                </span>
+              ) : (
+                <span className="absolute -top-1 -right-1 flex h-2 w-2 rounded-full bg-amber-500"></span>
+              )}
+            </button>
+
             <button
               onClick={() => setIsAiModalOpen(true)}
               className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-sm shadow-amber-500/25 transition-all hover:scale-[1.02]"
@@ -324,6 +360,15 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
 
       {/* Reader AI Modal */}
       <AskAiModal isOpen={isAiModalOpen} onClose={() => setIsAiModalOpen(false)} />
+
+      {/* Push Notifications & Cricket Alert Modal */}
+      <NotificationToggleModal
+        isOpen={isNotifModalOpen}
+        onClose={() => {
+          setIsNotifModalOpen(false);
+          setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
+        }}
+      />
     </>
   );
 };

@@ -33,6 +33,7 @@ import {
   AdCampaign,
   NewsletterSubscriber,
   AudienceNotification,
+  WebPushSubscription,
   HomepageLayoutConfig,
   ArticleVersion,
   SystemHealthReport
@@ -89,6 +90,8 @@ interface DatabaseSchema {
   brokenLinks: BrokenLinkReport[];
   subscribers: NewsletterSubscriber[];
   notifications: AudienceNotification[];
+  pushSubscriptions?: WebPushSubscription[];
+  vapidKeys?: { publicKey: string; privateKey: string };
   homepageConfig: HomepageLayoutConfig;
 }
 
@@ -1737,6 +1740,7 @@ class DatabaseManager {
         if (!parsed.brokenLinks) parsed.brokenLinks = defaultBrokenLinks;
         if (!parsed.subscribers || parsed.subscribers.length === 0) parsed.subscribers = defaultSubscribers;
         if (!parsed.notifications || parsed.notifications.length === 0) parsed.notifications = defaultNotifications;
+        if (!parsed.pushSubscriptions) parsed.pushSubscriptions = [];
         if (!parsed.homepageConfig) parsed.homepageConfig = defaultHomepageConfig;
         return parsed;
       }
@@ -2456,6 +2460,115 @@ class DatabaseManager {
     this.logAudit(actor, 'Broadcast Dispatched', `Broadcast: ${notif.titleEn}`);
     this.saveDatabase(this.data);
     return newNotif;
+  }
+
+  // --- Web Push Subscriptions ---
+  public getPushSubscriptions(status?: 'active' | 'unsubscribed'): WebPushSubscription[] {
+    const list = this.data.pushSubscriptions || [];
+    if (status) {
+      return list.filter(s => s.status === status);
+    }
+    return list;
+  }
+
+  public upsertPushSubscription(sub: Partial<WebPushSubscription>): WebPushSubscription {
+    if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
+    const index = this.data.pushSubscriptions.findIndex(s => s.endpoint === sub.endpoint);
+    const now = new Date().toISOString();
+
+    if (index !== -1) {
+      const existing = this.data.pushSubscriptions[index];
+      const updated: WebPushSubscription = {
+        ...existing,
+        ...sub,
+        id: existing.id,
+        endpoint: existing.endpoint,
+        keys: sub.keys || existing.keys,
+        topics: {
+          breakingNews: sub.topics?.breakingNews ?? existing.topics.breakingNews,
+          cricketScores: sub.topics?.cricketScores ?? existing.topics.cricketScores,
+          dailyBriefing: sub.topics?.dailyBriefing ?? existing.topics.dailyBriefing ?? true,
+        },
+        language: sub.language || existing.language || 'both',
+        status: 'active',
+        lastActiveAt: now,
+      };
+      this.data.pushSubscriptions[index] = updated;
+      this.saveDatabase(this.data);
+      return updated;
+    }
+
+    const created: WebPushSubscription = {
+      id: `push-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      endpoint: sub.endpoint || '',
+      keys: sub.keys,
+      topics: {
+        breakingNews: sub.topics?.breakingNews ?? true,
+        cricketScores: sub.topics?.cricketScores ?? true,
+        dailyBriefing: sub.topics?.dailyBriefing ?? true,
+      },
+      language: sub.language || 'both',
+      userAgent: sub.userAgent || '',
+      subscribedAt: now,
+      lastActiveAt: now,
+      status: 'active',
+    };
+    this.data.pushSubscriptions.unshift(created);
+    this.saveDatabase(this.data);
+    return created;
+  }
+
+  public unsubscribePush(endpoint: string): boolean {
+    if (!this.data.pushSubscriptions) return false;
+    const sub = this.data.pushSubscriptions.find(s => s.endpoint === endpoint);
+    if (sub) {
+      sub.status = 'unsubscribed';
+      sub.lastActiveAt = new Date().toISOString();
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  public updatePushTopics(
+    endpoint: string,
+    topics: { breakingNews: boolean; cricketScores: boolean; dailyBriefing?: boolean },
+    language?: 'en' | 'ur' | 'both'
+  ): boolean {
+    if (!this.data.pushSubscriptions) return false;
+    const sub = this.data.pushSubscriptions.find(s => s.endpoint === endpoint);
+    if (sub) {
+      sub.topics = {
+        breakingNews: topics.breakingNews,
+        cricketScores: topics.cricketScores,
+        dailyBriefing: topics.dailyBriefing ?? sub.topics.dailyBriefing ?? true,
+      };
+      if (language) sub.language = language;
+      sub.lastActiveAt = new Date().toISOString();
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  public getVapidKeys(): { publicKey: string; privateKey: string } | null {
+    return this.data.vapidKeys || null;
+  }
+
+  public setVapidKeys(keys: { publicKey: string; privateKey: string }): void {
+    this.data.vapidKeys = keys;
+    this.saveDatabase(this.data);
+  }
+
+  public getPushStats(): { total: number; active: number; breakingNews: number; cricketScores: number } {
+    const list = this.data.pushSubscriptions || [];
+    const active = list.filter(s => s.status === 'active');
+    return {
+      total: list.length,
+      active: active.length,
+      breakingNews: active.filter(s => s.topics?.breakingNews).length,
+      cricketScores: active.filter(s => s.topics?.cricketScores).length,
+    };
   }
 
   // --- Homepage Builder ---

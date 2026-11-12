@@ -19,11 +19,18 @@ import { SEOEngine } from './services/seo/SEOEngine.ts';
 import { ContentFreshnessEngine } from './services/content/ContentFreshnessEngine.ts';
 import { NewsIngestionEngine } from './services/news/NewsIngestionEngine.ts';
 import { WorkflowOrchestrator } from './services/automation/WorkflowOrchestrator.ts';
+import { pushNotificationService } from './src/server/pushNotificationService.ts';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+// Extract CLI arguments like --port 3000 if provided, or default to 3000
+const portArgIdx = process.argv.indexOf('--port');
+const cliPort = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? parseInt(process.argv[portArgIdx + 1], 10) : NaN;
+// In AI Studio / Cloud Run, NGINX is bound to 8080 and reverse-proxies to 3000.
+// We must never bind to 8080 even if Cloud Run passes PORT=8080 in the container environment.
+const envPort = process.env.PORT && process.env.PORT !== '8080' ? parseInt(process.env.PORT, 10) : NaN;
+const PORT = !isNaN(cliPort) ? cliPort : (!isNaN(envPort) ? envPort : 3000);
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json({ limit: '10mb' }));
@@ -195,6 +202,9 @@ app.post('/api/news', (req, res) => {
     return res.status(400).json({ success: false, error: 'Both English and Urdu titles are required' });
   }
   const saved = db.upsertArticle(article, actor);
+  if (saved.isBreaking && (saved.status === 'published' || !saved.status)) {
+    pushNotificationService.alertBreakingNews(saved).catch(console.error);
+  }
   res.json({ success: true, article: saved });
 });
 
@@ -220,6 +230,9 @@ app.post('/api/news/:id/workflow', (req, res) => {
   article.updatedAt = new Date().toISOString();
 
   db.upsertArticle(article, actor);
+  if (article.isBreaking && article.status === 'published') {
+    pushNotificationService.alertBreakingNews(article).catch(console.error);
+  }
   db.logAudit(actor, 'Workflow Status Changed', `Changed article "${article.titleEn}" status from ${prevStatus} to ${status}`);
   res.json({ success: true, article });
 });
@@ -699,7 +712,7 @@ app.get('/api/admin/submissions', (_req, res) => {
 
 app.post('/api/admin/links/scan', async (_req, res) => {
   const { LinkAuditEngine } = await import('./services/seo/LinkAuditEngine.ts');
-  const baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+  const baseUrl = `http://localhost:${PORT}`;
   const paths = [
     '/',
     '/robots.txt',
@@ -951,6 +964,94 @@ app.post('/api/admin/audience/notifications', (req, res) => {
   const actor = (req.headers['x-admin-user'] as string) || 'Editor';
   const sent = db.sendAudienceNotification(req.body, actor);
   res.json({ success: true, notification: sent });
+});
+
+// ================= WEB PUSH NOTIFICATION ENGINE =================
+// Serve Service Worker with proper Service-Worker-Allowed header
+app.get('/sw.js', (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.sendFile(path.resolve(process.cwd(), 'public', 'sw.js'));
+});
+
+// Get VAPID Public Key for client subscription
+app.get('/api/notifications/vapid-key', (_req, res) => {
+  const publicKey = pushNotificationService.getPublicKey();
+  res.json({ success: true, publicKey });
+});
+
+// Subscribe client device to Web Push
+app.post('/api/notifications/subscribe', (req, res) => {
+  const { endpoint, keys, topics, language, userAgent } = req.body || {};
+  if (!endpoint) {
+    return res.status(400).json({ success: false, error: 'Subscription endpoint is required' });
+  }
+
+  const sub = db.upsertPushSubscription({
+    endpoint,
+    keys,
+    topics,
+    language: language || 'both',
+    userAgent: userAgent || req.headers['user-agent'] || '',
+  });
+
+  res.json({ success: true, subscription: sub });
+});
+
+// Unsubscribe client device
+app.post('/api/notifications/unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) {
+    return res.status(400).json({ success: false, error: 'Subscription endpoint is required' });
+  }
+  const removed = db.unsubscribePush(endpoint);
+  res.json({ success: removed });
+});
+
+// Update client alert preferences
+app.post('/api/notifications/preferences', (req, res) => {
+  const { endpoint, topics, language } = req.body || {};
+  if (!endpoint || !topics) {
+    return res.status(400).json({ success: false, error: 'Endpoint and topics are required' });
+  }
+  const updated = db.updatePushTopics(endpoint, topics, language);
+  res.json({ success: updated });
+});
+
+// Trigger immediate test push alert (breaking news or cricket score)
+app.post('/api/notifications/test', async (req, res) => {
+  const { type, endpoint } = req.body || {};
+  const alertType = type === 'cricketScores' ? 'cricketScores' : 'breakingNews';
+  const result = await pushNotificationService.sendTestAlert(alertType, endpoint);
+  res.json({ success: true, result });
+});
+
+// History & Stats of sent notifications
+app.get('/api/notifications/history', (_req, res) => {
+  res.json({
+    success: true,
+    history: db.getNotifications().slice(0, 30),
+    stats: db.getPushStats(),
+  });
+});
+
+// Admin Broadcast Push Alert
+app.post('/api/admin/notifications/broadcast', async (req, res) => {
+  const { title, titleUr, body, bodyUr, url, topic } = req.body || {};
+  if (!title || !body) {
+    return res.status(400).json({ success: false, error: 'Title and body are required' });
+  }
+
+  const result = await pushNotificationService.broadcast({
+    title,
+    titleUr,
+    body,
+    bodyUr,
+    url: url || 'https://360khabarnama.com',
+    topic: topic || 'breakingNews',
+  });
+
+  res.json({ success: true, result });
 });
 
 // ================= HOMEPAGE LAYOUT BUILDER =================

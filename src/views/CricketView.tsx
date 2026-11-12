@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { CricketMatch } from '../types/index.ts';
-import { Trophy, Calendar, MapPin, Activity, Flame, Shield, Users } from 'lucide-react';
+import { Trophy, Calendar, MapPin, Activity, Flame, Shield, Users, Bell, BellRing } from 'lucide-react';
+import { NotificationToggleModal } from '../components/NotificationToggleModal.tsx';
+import { PushNotificationClient } from '../services/pushNotificationClient.ts';
 
 export const CricketView: React.FC = () => {
   const { isUrdu } = useLanguage();
   const [matches, setMatches] = useState<CricketMatch[]>([]);
+  const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
 
   useEffect(() => {
+    setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
     fetch('/api/cricket/matches')
       .then(res => res.json())
       .then(data => {
@@ -43,6 +48,29 @@ export const CricketView: React.FC = () => {
             ? 'بال بائی بال کمنٹری، مکمل اسکور کارڈ، میچ کے بہترین لمحات اور کھلاڑیوں کی درجہ بندی'
             : 'Official PCB fixtures, real-time match summaries, ICC team rankings, and player statistics.'}
         </p>
+
+        {/* Cricket Notification Banner Button */}
+        <div className="mt-5 pt-4 border-t border-emerald-800/60 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-emerald-100 font-medium">
+            <BellRing className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              {isUrdu
+                ? 'کیا آپ میچ کے اہم لمحات اور ہر وکٹ کا فوری نوٹیفکیشن چاہتے ہیں؟'
+                : 'Want instant push alerts for match milestones, PSL wickets & results?'}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsNotifModalOpen(true)}
+            className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-gray-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-amber-400/20 transition-all hover:scale-[1.02]"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>
+              {isPushSubscribed
+                ? (isUrdu ? 'الرٹس کی ترجیحات تبدیل کریں' : 'Manage Alerts')
+                : (isUrdu ? 'کرکٹ الرٹس آن کریں' : 'Turn On Cricket Alerts')}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Live / Recent Matches */}
@@ -135,6 +163,14 @@ export const CricketView: React.FC = () => {
           ))}
         </div>
       </div>
+
+      <NotificationToggleModal
+        isOpen={isNotifModalOpen}
+        onClose={() => {
+          setIsNotifModalOpen(false);
+          setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
+        }}
+      />
     </div>
   );
 };

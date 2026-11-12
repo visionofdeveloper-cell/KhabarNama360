@@ -470,6 +470,40 @@ export interface NewsletterSubscriber {
   status: 'active' | 'unsubscribed';
 }
 
+export interface NotificationTopics {
+  breakingNews: boolean;
+  cricketScores: boolean;
+  dailyBriefing?: boolean;
+}
+
+export interface WebPushSubscription {
+  id: string;
+  endpoint: string;
+  keys?: {
+    p256dh: string;
+    auth: string;
+  };
+  topics: NotificationTopics;
+  language: 'en' | 'ur' | 'both';
+  userAgent?: string;
+  subscribedAt: string;
+  lastActiveAt?: string;
+  status: 'active' | 'unsubscribed';
+}
+
+export interface PushAlertPayload {
+  title: string;
+  titleUr?: string;
+  body: string;
+  bodyUr?: string;
+  url: string;
+  topic: 'breakingNews' | 'cricketScores' | 'dailyBriefing' | 'general';
+  tag?: string;
+  badge?: string;
+  icon?: string;
+  timestamp?: string;
+}
+
 export interface AudienceNotification {
   id: string;
   titleEn: string;

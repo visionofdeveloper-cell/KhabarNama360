@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { Article } from '../types/index.ts';
+import { ReadingProgressBar } from '../components/ReadingProgressBar.tsx';
 import {
   Clock,
   Eye,
@@ -30,6 +31,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
   onBack
 }) => {
   const { isUrdu, t, navigateTo } = useLanguage();
+  const articleRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -78,7 +80,17 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
     : 'text-base leading-relaxed';
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    <>
+      <ReadingProgressBar
+        targetRef={articleRef}
+        title={isUrdu ? article.titleUr : article.titleEn}
+        readingTimeMin={article.readingTimeMin || 3}
+        isUrdu={isUrdu}
+        onBack={onBack}
+        onShareWhatsApp={handleShareWhatsApp}
+      />
+
+      <div ref={articleRef} className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-2 text-xs text-gray-500">
         <button onClick={onBack} className="hover:text-emerald-700 font-medium">
@@ -298,6 +310,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
           ))}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 };

@@ -25,6 +25,7 @@ import { SearchView } from './views/SearchView.tsx';
 import { LegalPageView } from './views/LegalPageView.tsx';
 import { LEGAL_PAGE_SLUGS } from './data/legalPages.ts';
 import { CookieConsent } from './components/CookieConsent.tsx';
+import { NotificationToast } from './components/NotificationToast.tsx';
 
 const AdminAuthGate = React.lazy(() => import('./views/AdminAuthGate.tsx').then(m => ({ default: m.AdminAuthGate })));
 
@@ -117,6 +118,7 @@ function MainPortal() {
       </main>
       <Footer />
       <CookieConsent />
+      <NotificationToast />
     </div>
   );
 }
