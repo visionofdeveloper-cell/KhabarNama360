@@ -47,7 +47,9 @@ import {
   AutomationSettings
 } from './automation/types.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const SEED_DATA_DIR = path.resolve(process.cwd(), 'data');
+const SEED_DB_FILE = path.join(SEED_DATA_DIR, 'portal_database.json');
+const DATA_DIR = process.env.VERCEL ? '/tmp/360khabarnama_data' : SEED_DATA_DIR;
 const DB_FILE = path.join(DATA_DIR, 'portal_database.json');
 
 interface DatabaseSchema {
@@ -1721,8 +1723,13 @@ class DatabaseManager {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      const sourceFile = fs.existsSync(DB_FILE)
+        ? DB_FILE
+        : fs.existsSync(SEED_DB_FILE)
+        ? SEED_DB_FILE
+        : null;
+      if (sourceFile) {
+        const raw = fs.readFileSync(sourceFile, 'utf-8');
         const parsed = JSON.parse(raw);
         if (!parsed.dataProviders || parsed.dataProviders.length === 0) parsed.dataProviders = defaultDataProviders;
         if (!parsed.syncJobRuns) parsed.syncJobRuns = [];

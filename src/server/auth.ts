@@ -39,10 +39,46 @@ const SESSION_COOKIE_NAME = 'kn360_admin_sid';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const SESSION_SECRET =
+  process.env.ADMIN_SESSION_SECRET ||
+  process.env.SESSION_SECRET ||
+  crypto.createHash('sha256').update(`360khabarnama:${process.env.GEMINI_API_KEY || 'kn360-default-secret'}`).digest('hex');
 
 // In-memory session & credential stores (persisted via db or dedicated secure store)
 const activeSessions = new Map<string, AdminSession>();
+const revokedSessions = new Set<string>();
 const adminCredentials = new Map<string, AdminCredentialRecord>();
+
+function signSessionPayload(session: AdminSession): string {
+  const payload = Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifySignedSessionToken(token: string): AdminSession | null {
+  const dotIdx = token.indexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = token.slice(0, dotIdx);
+  const sig = token.slice(dotIdx + 1);
+  if (!payload || !sig) return null;
+
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as AdminSession;
+    if (!parsed || !parsed.sessionId || Date.now() > parsed.expiresAt || revokedSessions.has(parsed.sessionId)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 // Hash password using Node crypto.scryptSync with random 16-byte salt
 export function hashPassword(password: string): string {
@@ -180,25 +216,32 @@ export function authenticateAdmin(
 
 export function getSessionFromRequest(req: Request): AdminSession | null {
   const cookies = parseCookies(req);
-  const sid = cookies[SESSION_COOKIE_NAME];
-  if (!sid) return null;
+  const rawToken = cookies[SESSION_COOKIE_NAME];
+  if (!rawToken) return null;
 
-  const session = activeSessions.get(sid);
+  const signedSession = verifySignedSessionToken(rawToken);
+  if (signedSession) {
+    return signedSession;
+  }
+
+  const session = activeSessions.get(rawToken);
   if (!session) return null;
 
   if (Date.now() > session.expiresAt) {
-    activeSessions.delete(sid);
+    activeSessions.delete(rawToken);
     return null;
   }
 
   return session;
 }
 
-export function setSessionCookie(res: Response, sessionId: string) {
-  const isProd = process.env.NODE_ENV === 'production';
+export function setSessionCookie(res: Response, sessionIdOrObj: string | AdminSession) {
+  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+  const sessionObj = typeof sessionIdOrObj === 'string' ? activeSessions.get(sessionIdOrObj) : sessionIdOrObj;
+  const cookieVal = sessionObj ? signSessionPayload(sessionObj) : String(sessionIdOrObj);
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE_NAME}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${isProd ? '; Secure' : ''}`
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${isProd ? '; Secure' : ''}`
   );
 }
 
@@ -210,6 +253,7 @@ export function clearSessionCookie(res: Response) {
 }
 
 export function revokeSession(sessionId: string, actor: string = 'Admin') {
+  revokedSessions.add(sessionId);
   const sess = activeSessions.get(sessionId);
   if (sess) {
     activeSessions.delete(sessionId);

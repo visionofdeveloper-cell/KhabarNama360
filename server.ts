@@ -1876,7 +1876,10 @@ async function setupVite() {
   });
 }
 
-setupVite().catch(err => {
-  console.error('Server startup error:', err);
-});
+if (!process.env.VERCEL) {
+  setupVite().catch(err => {
+    console.error('Server startup error:', err);
+  });
+}
 
+export default app;
