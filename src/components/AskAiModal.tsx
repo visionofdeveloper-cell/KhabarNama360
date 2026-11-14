@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { Sparkles, X, Send, Bot, AlertCircle } from 'lucide-react';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 interface AskAiModalProps {
   isOpen: boolean;
@@ -25,12 +26,11 @@ export const AskAiModal: React.FC<AskAiModalProps> = ({ isOpen, onClose }) => {
     setAnswer(null);
 
     try {
-      const res = await fetch('/api/ai/ask-portal', {
+      const data = await safeFetchJson('/api/ai/ask-portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, language }),
       });
-      const data = await res.json();
       if (data.success) {
         setAnswer(data.answer);
       } else {

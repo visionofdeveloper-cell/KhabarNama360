@@ -68,12 +68,19 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return 'ur';
   });
 
-  const parseRouteFromPath = (pathname: string): string => {
+  const parseRouteFromPath = (pathname: string, hash = '', search = ''): string => {
     if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
       return 'admin';
     }
-    if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'admin';
-    const stripped = pathname.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
+    const cleanPath = (pathname || '/').replace(/\/+$/, '') || '/';
+    if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) return 'admin';
+    if (hash === '#/admin' || hash.startsWith('#/admin/')) return 'admin';
+    if (search) {
+      const params = new URLSearchParams(search);
+      const qRoute = params.get('route');
+      if (qRoute === 'admin') return 'admin';
+    }
+    const stripped = cleanPath.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
     if (!stripped) return 'home';
     const firstSeg = stripped.split('/')[0];
     return firstSeg || 'home';
@@ -81,21 +88,25 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return parseRouteFromPath(window.location.pathname);
+      return parseRouteFromPath(window.location.pathname, window.location.hash, window.location.search);
     }
     return 'home';
   });
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
 
   useEffect(() => {
-    const onPopState = () => {
+    const syncRoute = () => {
       const path = window.location.pathname;
       if (path.startsWith('/en/') || path === '/en') setLanguageState('en');
       else if (path.startsWith('/ur/') || path === '/ur') setLanguageState('ur');
-      setCurrentRoute(parseRouteFromPath(path));
+      setCurrentRoute(parseRouteFromPath(path, window.location.hash, window.location.search));
     };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    window.addEventListener('popstate', syncRoute);
+    window.addEventListener('hashchange', syncRoute);
+    return () => {
+      window.removeEventListener('popstate', syncRoute);
+      window.removeEventListener('hashchange', syncRoute);
+    };
   }, []);
 
   const setLanguage = (lang: Language) => {

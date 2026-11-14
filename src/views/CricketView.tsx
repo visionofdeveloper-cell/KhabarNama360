@@ -4,6 +4,7 @@ import { CricketMatch } from '../types/index.ts';
 import { Trophy, Calendar, MapPin, Activity, Flame, Shield, Users, Bell, BellRing } from 'lucide-react';
 import { NotificationToggleModal } from '../components/NotificationToggleModal.tsx';
 import { PushNotificationClient } from '../services/pushNotificationClient.ts';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 export const CricketView: React.FC = () => {
   const { isUrdu } = useLanguage();
@@ -13,14 +14,22 @@ export const CricketView: React.FC = () => {
 
   useEffect(() => {
     setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
-    fetch('/api/cricket/matches')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setMatches(data.matches);
-        }
-      })
-      .catch(console.error);
+    const loadMatches = async () => {
+      const data = await safeFetchJson('/api/cricket/matches');
+      if (data.success && Array.isArray(data.matches)) {
+        setMatches(data.matches);
+      }
+    };
+    void loadMatches();
+    const interval = setInterval(() => void loadMatches(), 120_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadMatches();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const liveMatches = matches.filter(m => m.status === 'live');

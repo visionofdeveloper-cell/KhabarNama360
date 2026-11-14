@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "data/**"
+      "includeFiles": "{data/**,firebase-applet-config.json}"
     }
   },
   "rewrites": [
@@ -14,6 +14,10 @@
     },
     {
       "source": "/sitemap.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/sitemap-news.xml",
       "destination": "/api/index"
     },
     {

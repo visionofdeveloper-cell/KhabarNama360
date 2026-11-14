@@ -3,6 +3,7 @@ import { useLanguage } from '../context/LanguageContext.tsx';
 import { Article, CategoryPageConfig } from '../types/index.ts';
 import { ArrowRight } from 'lucide-react';
 import { AdBanner } from '../components/AdBanner.tsx';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 interface NewsCategoryViewProps {
   categorySlug: string;
@@ -19,17 +20,31 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      fetch(`/api/news?category=${encodeURIComponent(categorySlug)}`).then(res => res.json()),
-      fetch(`/api/categories/${encodeURIComponent(categorySlug)}/page`).then(res => res.json()),
-    ])
-      .then(([newsRes, pageRes]) => {
-        if (newsRes.success) setArticles(newsRes.articles || []);
-        if (pageRes.success && pageRes.category) setPageConfig(pageRes.category);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let active = true;
+    const loadCategory = async (showSpinner = false) => {
+      if (showSpinner) setLoading(true);
+      const [newsRes, pageRes] = await Promise.all([
+        safeFetchJson(`/api/news?category=${encodeURIComponent(categorySlug)}`),
+        safeFetchJson(`/api/categories/${encodeURIComponent(categorySlug)}/page`),
+      ]);
+      if (!active) return;
+      if (newsRes.success) setArticles(newsRes.articles || []);
+      if (pageRes.success && pageRes.category) setPageConfig(pageRes.category);
+      if (showSpinner) setLoading(false);
+    };
+
+    void loadCategory(true);
+    const interval = setInterval(() => void loadCategory(false), 180_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadCategory(false);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [categorySlug]);
 
   const title =

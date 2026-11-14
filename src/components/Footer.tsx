@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { Mail, CheckCircle2, Send, Heart, AlertCircle } from 'lucide-react';
 import { SiteSettings } from '../types/index.ts';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 export const Footer: React.FC = () => {
   const { isUrdu, t, navigateTo, language } = useLanguage();
@@ -11,8 +12,7 @@ export const Footer: React.FC = () => {
   const [settings, setSettings] = useState<SiteSettings | null>(null);
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
+    safeFetchJson('/api/settings')
       .then(d => {
         if (d.success && d.settings) setSettings(d.settings);
       })
@@ -26,13 +26,12 @@ export const Footer: React.FC = () => {
     setSubmitting(true);
     setSubFeedback(null);
     try {
-      const res = await fetch('/api/audience/subscribe', {
+      const d = await safeFetchJson('/api/audience/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: trimmed, language }),
       });
-      const d = await res.json();
-      if (res.ok && d.success) {
+      if (d.success) {
         setSubFeedback({
           ok: true,
           text: isUrdu

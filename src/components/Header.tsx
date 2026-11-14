@@ -18,6 +18,7 @@ import { AskAiModal } from './AskAiModal.tsx';
 import { NotificationToggleModal } from './NotificationToggleModal.tsx';
 import { PushNotificationClient } from '../services/pushNotificationClient.ts';
 import { CategoryPageConfig, SiteSettings } from '../types/index.ts';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 interface HeaderProps {
   onSearch: (q: string) => void;
@@ -37,44 +38,66 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
   const [publicCategories, setPublicCategories] = useState<CategoryPageConfig[]>([]);
   const [liveGold24k, setLiveGold24k] = useState<number | null>(null);
   const [weatherCities, setWeatherCities] = useState<{ nameEn: string; nameUr: string; tempC: number }[]>([]);
+  const [dynamicHeadlines, setDynamicHeadlines] = useState<{ en: string; ur: string }[]>([]);
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  // Auto-update daily date & clock every 30s (handles midnight rollover in Asia/Karachi)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
 
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.settings) setSiteSettings(d.settings);
-      })
-      .catch(() => {});
+    const loadHeaderData = async () => {
+      const [settingsRes, catRes, finRes, weatherRes, newsRes] = await Promise.all([
+        safeFetchJson('/api/settings'),
+        safeFetchJson('/api/categories/public'),
+        safeFetchJson('/api/finance/rates'),
+        safeFetchJson('/api/weather'),
+        safeFetchJson('/api/news?limit=8'),
+      ]);
 
-    fetch('/api/categories/public')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && Array.isArray(d.categories)) setPublicCategories(d.categories);
-      })
-      .catch(() => {});
+      if (settingsRes.success && settingsRes.settings) setSiteSettings(settingsRes.settings);
+      if (catRes.success && Array.isArray(catRes.categories)) setPublicCategories(catRes.categories);
+      if (finRes.success && Array.isArray(finRes.goldRates) && finRes.goldRates[0]?.tolaPkr) {
+        setLiveGold24k(finRes.goldRates[0].tolaPkr);
+      }
+      if (weatherRes.success && Array.isArray(weatherRes.weather)) {
+        setWeatherCities(weatherRes.weather.slice(0, 2));
+      }
+      if (newsRes.success && Array.isArray(newsRes.articles) && newsRes.articles.length > 0) {
+        setDynamicHeadlines(
+          newsRes.articles.slice(0, 6).map((a: any) => ({
+            en: a.titleEn || a.titleUr || '',
+            ur: a.titleUr || a.titleEn || '',
+          })).filter((h: any) => h.en || h.ur)
+        );
+      }
+    };
 
-    fetch('/api/finance/rates')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && Array.isArray(d.goldRates) && d.goldRates[0]?.tolaPkr) {
-          setLiveGold24k(d.goldRates[0].tolaPkr);
-        }
-      })
-      .catch(() => {});
+    void loadHeaderData();
 
-    fetch('/api/weather')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && Array.isArray(d.weather)) {
-          setWeatherCities(d.weather.slice(0, 2));
-        }
-      })
-      .catch(() => {});
+    const refreshInterval = setInterval(() => {
+      void loadHeaderData();
+    }, 180_000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        setNow(new Date());
+        void loadHeaderData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
-  const breakingHeadlines = isUrdu
+  const fallbackHeadlines = isUrdu
     ? [
         'پاکستان اسٹاک ایکسچینج میں زبردست تیزی، انڈیکس تاریخ کی نئی بلندی پر پہنچ گیا',
         'آئی سی سی چیمپئنز ٹرافی: قومی کرکٹ ٹیم کی تیاریاں عروج پر، فاسٹ بولرز ان فارم',
@@ -88,10 +111,21 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
         'Federal Government Unveils Landmark Solar Energy Subsidy Scheme for Low-Income Households',
       ];
 
+  const breakingHeadlines =
+    dynamicHeadlines.length > 0
+      ? dynamicHeadlines.map(h => (isUrdu ? h.ur : h.en))
+      : fallbackHeadlines;
+
   const [activeHeadlineIdx, setActiveHeadlineIdx] = useState(0);
 
   useEffect(() => {
-    if (tickerPaused) return;
+    if (activeHeadlineIdx >= breakingHeadlines.length) {
+      setActiveHeadlineIdx(0);
+    }
+  }, [activeHeadlineIdx, breakingHeadlines.length]);
+
+  useEffect(() => {
+    if (tickerPaused || breakingHeadlines.length === 0) return;
     const interval = setInterval(() => {
       setActiveHeadlineIdx(prev => (prev + 1) % breakingHeadlines.length);
     }, 4500);
@@ -148,11 +182,24 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
     '/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png';
 
   const formattedDate = new Intl.DateTimeFormat(isUrdu ? 'ur-PK' : 'en-PK', {
+    timeZone: 'Asia/Karachi',
     weekday: 'long',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date());
+  }).format(now);
+
+  let hijriDateLabel = '';
+  try {
+    hijriDateLabel = new Intl.DateTimeFormat(isUrdu ? 'ur-PK-u-ca-islamic-umalqura' : 'en-US-u-ca-islamic-umalqura', {
+      timeZone: 'Asia/Karachi',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(now);
+  } catch {
+    hijriDateLabel = '';
+  }
 
   return (
     <>
@@ -177,7 +224,13 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
           <div className="bg-emerald-900 text-emerald-100 text-xs py-1.5 px-4">
             <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="font-semibold text-emerald-200">{formattedDate}</span>
+                {hijriDateLabel && (
+                  <>
+                    <span className="font-semibold text-emerald-200">{hijriDateLabel}</span>
+                    <span className="hidden sm:inline text-emerald-400">•</span>
+                  </>
+                )}
+                <span className="font-semibold text-emerald-100">{formattedDate}</span>
                 <span className="hidden md:inline text-emerald-400">•</span>
                 <div className="hidden md:flex items-center gap-1.5 text-amber-300 font-medium">
                   <TrendingUp className="w-3.5 h-3.5" />

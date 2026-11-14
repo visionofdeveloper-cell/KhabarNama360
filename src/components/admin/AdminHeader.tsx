@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 export interface AdminSessionInfo {
   email: string;
@@ -62,13 +63,12 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
     setPwSaving(true);
     setPwStatus(null);
     try {
-      const res = await fetch('/api/admin/auth/change-password', {
+      const d = await safeFetchJson('/api/admin/auth/change-password', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-      const d = await res.json();
       if (d.success) {
         setPwStatus({ ok: true, msg: 'Password updated securely.' });
         setCurrentPassword('');
@@ -85,11 +85,10 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
 
   const handleInitiateMfa = async () => {
     setMfaMsg(null);
-    const res = await fetch('/api/admin/auth/mfa/setup', {
+    const d = await safeFetchJson('/api/admin/auth/mfa/setup', {
       method: 'POST',
       credentials: 'include',
     });
-    const d = await res.json();
     if (d.success) {
       setMfaSecret(d.secret);
       setMfaUri(d.otpauthUrl);
@@ -101,13 +100,12 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   const handleVerifyMfa = async (e: React.FormEvent) => {
     e.preventDefault();
     setMfaMsg(null);
-    const res = await fetch('/api/admin/auth/mfa/verify', {
+    const d = await safeFetchJson('/api/admin/auth/mfa/verify', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: mfaCode }),
     });
-    const d = await res.json();
     if (d.success) {
       setMfaMsg({ ok: true, msg: '2FA Authenticator enabled for your account.' });
       setMfaSecret('');
@@ -119,13 +117,14 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   };
 
   const handleDisableMfa = async () => {
-    const res = await fetch('/api/admin/auth/mfa/disable', {
+    const d = await safeFetchJson('/api/admin/auth/mfa/disable', {
       method: 'POST',
       credentials: 'include',
     });
-    const d = await res.json();
     if (d.success) {
       setMfaMsg({ ok: true, msg: '2FA Authenticator disabled.' });
+    } else if (d.error) {
+      setMfaMsg({ ok: false, msg: d.error });
     }
   };
 

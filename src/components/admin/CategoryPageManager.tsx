@@ -23,6 +23,7 @@ import {
   CategoryPageConfig,
   CategoryPageVersion,
 } from '../../types/index.ts';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 const AVAILABLE_BLOCK_TYPES: { type: CategoryBlockType; label: string }[] = [
   { type: 'category_hero', label: 'Category Hero Banner' },
@@ -76,8 +77,7 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
   const [newCat, setNewCat] = useState({ slug: '', nameEn: '', nameUr: '', descriptionEn: '', descriptionUr: '' });
 
   const loadCategories = async () => {
-    const res = await fetch('/api/admin/categories', { credentials: 'include' });
-    const d = await res.json();
+    const d = await safeFetchJson('/api/admin/categories', { credentials: 'include' });
     if (d.success) {
       setCategories(d.categories || []);
       const match = (d.categories || []).find((c: CategoryPageConfig) => c.slug === selectedSlug) || d.categories?.[0];
@@ -85,6 +85,8 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
         setEditing(JSON.parse(JSON.stringify(match)));
         setSelectedSlug(match.slug);
       }
+    } else if (d.error) {
+      setBanner(d.error);
     }
   };
 
@@ -95,12 +97,12 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
   const selectCategory = async (cat: CategoryPageConfig) => {
     setSelectedSlug(cat.slug);
     setEditing(JSON.parse(JSON.stringify(cat)));
-    const vRes = await fetch(`/api/admin/categories/${cat.slug}/versions`, { credentials: 'include' }).then(r => r.json());
+    const vRes = await safeFetchJson(`/api/admin/categories/${cat.slug}/versions`, { credentials: 'include' });
     if (vRes.success) setVersions(vRes.versions || []);
 
     const ds = SLUG_TO_DATASET[cat.slug];
     if (ds) {
-      const rRes = await fetch(`/api/admin/categories/dataset/${ds.dataset}`, { credentials: 'include' }).then(r => r.json());
+      const rRes = await safeFetchJson(`/api/admin/categories/dataset/${ds.dataset}`, { credentials: 'include' });
       if (rRes.success) setDatasetRecords(rRes.records || []);
     } else {
       setDatasetRecords([]);
@@ -114,29 +116,29 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
       status: publish ? 'published' : 'draft',
       blocks: publish ? editing.draftBlocks || editing.blocks : editing.blocks,
     };
-    const res = await fetch(`/api/admin/categories/${editing.slug}`, {
+    const d = await safeFetchJson(`/api/admin/categories/${editing.slug}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const d = await res.json();
     if (d.success) {
       setBanner(publish ? `Published category "${editing.nameEn}".` : `Saved draft for "${editing.nameEn}".`);
       await loadCategories();
       onRefreshParent?.();
+    } else if (d.error) {
+      setBanner(d.error);
     }
   };
 
   const handleCreateCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/categories/create', {
+    const d = await safeFetchJson('/api/admin/categories/create', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newCat),
     });
-    const d = await res.json();
     if (d.success) {
       setCreateOpen(false);
       setNewCat({ slug: '', nameEn: '', nameUr: '', descriptionEn: '', descriptionUr: '' });
@@ -150,12 +152,13 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
   };
 
   const handleDeleteCategory = async (slug: string) => {
-    const res = await fetch(`/api/admin/categories/${slug}`, { method: 'DELETE', credentials: 'include' });
-    const d = await res.json();
+    const d = await safeFetchJson(`/api/admin/categories/${slug}`, { method: 'DELETE', credentials: 'include' });
     if (d.success) {
       setBanner(`Deleted category /${slug}`);
       loadCategories();
       onRefreshParent?.();
+    } else if (d.error) {
+      setBanner(d.error);
     }
   };
 
@@ -193,17 +196,18 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
     if (!ds) return;
     try {
       const parsed = JSON.parse(newJsonRecord);
-      const res = await fetch(`/api/admin/categories/dataset/${ds.dataset}`, {
+      const d = await safeFetchJson(`/api/admin/categories/dataset/${ds.dataset}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed),
       });
-      const d = await res.json();
       if (d.success) {
         setNewJsonRecord('{}');
         setBanner(`Saved record into ${ds.label}.`);
         selectCategory(editing!);
+      } else if (d.error) {
+        setBanner(d.error);
       }
     } catch {
       setBanner('Invalid JSON record syntax.');

@@ -31,6 +31,7 @@ import { SEOManager } from '../components/admin/SEOManager.tsx';
 import { HomepageLayoutBuilder } from '../components/admin/HomepageLayoutBuilder.tsx';
 import { GlobalSettings } from '../components/admin/GlobalSettings.tsx';
 import { CategoryPageManager } from '../components/admin/CategoryPageManager.tsx';
+import { safeFetchJson, safeParseResponse } from '../utils/safeFetch.ts';
 import {
   Plus,
   Edit3,
@@ -251,11 +252,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const loadCoreData = async () => {
     try {
       const [anRes, artRes, setRes, logRes, catRes] = await Promise.all([
-        fetch('/api/admin/analytics', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/news?status=all', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/settings', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/audit-logs', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/categories/public', { credentials: 'include' }).then(r => r.json()),
+        safeFetchJson('/api/admin/analytics', { credentials: 'include' }),
+        safeFetchJson('/api/news?status=all', { credentials: 'include' }),
+        safeFetchJson('/api/settings', { credentials: 'include' }),
+        safeFetchJson('/api/admin/audit-logs', { credentials: 'include' }),
+        safeFetchJson('/api/categories/public', { credentials: 'include' }),
       ]);
 
       if (anRes.success) setAnalytics(anRes);
@@ -275,33 +276,33 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     try {
       if (mod === 'ads') {
         const [plRes, cRes] = await Promise.all([
-          fetch('/api/admin/ads/placements', { credentials: 'include' }).then(r => r.json()),
-          fetch('/api/admin/ads/campaigns', { credentials: 'include' }).then(r => r.json()),
+          safeFetchJson('/api/admin/ads/placements', { credentials: 'include' }),
+          safeFetchJson('/api/admin/ads/campaigns', { credentials: 'include' }),
         ]);
         if (plRes.success) setAdPlacements(plRes.placements || []);
         if (cRes.success) setAdCampaigns(cRes.campaigns || []);
       } else if (mod === 'media' || mod === 'seo') {
-        const res = await fetch('/api/admin/media', { credentials: 'include' }).then(r => r.json());
+        const res = await safeFetchJson('/api/admin/media', { credentials: 'include' });
         if (res.success) setMediaAssets(res.assets || []);
       } else if (mod === 'users') {
-        const res = await fetch('/api/admin/users', { credentials: 'include' }).then(r => r.json());
+        const res = await safeFetchJson('/api/admin/users', { credentials: 'include' });
         if (res.success) setAdminUsers(res.users || []);
       } else if (mod === 'audience') {
         const [sRes, nRes] = await Promise.all([
-          fetch('/api/admin/audience/subscribers', { credentials: 'include' }).then(r => r.json()),
-          fetch('/api/admin/audience/notifications', { credentials: 'include' }).then(r => r.json()),
+          safeFetchJson('/api/admin/audience/subscribers', { credentials: 'include' }),
+          safeFetchJson('/api/admin/audience/notifications', { credentials: 'include' }),
         ]);
         if (sRes.success) setSubscribers(sRes.subscribers || []);
         if (nRes.success) setNotificationsList(nRes.notifications || []);
       } else if (mod === 'ai-studio') {
         const [pRes, dRes] = await Promise.all([
-          fetch('/api/admin/ai/providers', { credentials: 'include' }).then(r => r.json()),
-          fetch('/api/admin/ai/editorial-drafts', { credentials: 'include' }).then(r => r.json()),
+          safeFetchJson('/api/admin/ai/providers', { credentials: 'include' }),
+          safeFetchJson('/api/admin/ai/editorial-drafts', { credentials: 'include' }),
         ]);
         if (pRes.success) setAiProviders(pRes.providers || []);
         if (dRes.success) setSavedDrafts(dRes.drafts || []);
       } else if (mod === 'health') {
-        const res = await fetch('/api/admin/system/health', { credentials: 'include' }).then(r => r.json());
+        const res = await safeFetchJson('/api/admin/system/health', { credentials: 'include' });
         if (res.success) setSystemHealth(res.health);
       } else if (mod === 'reports') {
         loadReport(selectedReportId);
@@ -314,7 +315,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const loadReport = async (reportId: string) => {
     setReportLoading(true);
     try {
-      const res = await fetch(`/api/admin/reports/${reportId}`, { credentials: 'include' }).then(r => r.json());
+      const res = await safeFetchJson(`/api/admin/reports/${reportId}`, { credentials: 'include' });
       if (res.success) setReportData(res);
       else notify(res.error || 'Could not load report', 'error');
     } catch {
@@ -385,7 +386,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const { data } = await safeParseResponse(res);
       if (res.ok && data.success) {
         notify(editingArticleId ? 'Article updated successfully!' : 'Article saved successfully!');
         resetComposer();
@@ -407,7 +408,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
-      const data = await res.json();
+      const { data } = await safeParseResponse(res);
       if (res.ok && data.success) {
         notify(`Article moved to "${newStatus}"`);
         loadCoreData();
@@ -421,7 +422,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const handleOpenVersions = async (article: Article) => {
     try {
-      const res = await fetch(`/api/news/${article.id}/versions`, { credentials: 'include' }).then(r => r.json());
+      const res = await safeFetchJson(`/api/news/${article.id}/versions`, { credentials: 'include' });
       if (res.success) {
         setActiveArticleVersions(res.versions || []);
         setEditingArticleId(article.id);
@@ -441,7 +442,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ versionId }),
       });
-      const data = await res.json();
+      const { data } = await safeParseResponse(res);
       if (res.ok && data.success) {
         notify('Article restored to selected snapshot!');
         setShowVersionsModal(false);
@@ -461,7 +462,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       message: 'This article will be permanently removed from the CMS and sitemap.',
       onConfirm: async () => {
         const res = await fetch(`/api/news/${id}`, { method: 'DELETE', credentials: 'include' });
-        const d = await res.json();
+        const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Article deleted.');
           loadCoreData();
@@ -486,7 +487,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           language: composerLang,
         }),
       });
-      const d = await res.json();
+      const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success) {
         setHeadlineChoices({ headlinesEn: d.headlinesEn || [], headlinesUr: d.headlinesUr || [] });
       } else {
@@ -522,7 +523,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           targetLanguage: target,
         }),
       });
-      const d = await res.json();
+      const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success) {
         setTranslationPreview({
           targetLang: target,
@@ -555,7 +556,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, content }),
       });
-      const d = await res.json();
+      const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success && d.seo) {
         setFormData(prev => ({
           ...prev,
@@ -607,7 +608,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           credentialId: studioCredentialId || undefined,
         }),
       });
-      const d = await res.json();
+      const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success) {
         setStudioResult(d.result);
         setStudioTelemetry(d.telemetry || null);
@@ -647,7 +648,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const d = await res.json();
+    const { data: d } = await safeParseResponse(res);
     if (res.ok && d.success) {
       notify('Saved output to Editorial Studio Drafts.');
       loadModuleData('ai-studio');
@@ -683,7 +684,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newCampaign),
     });
-    const data = await res.json();
+    const { data } = await safeParseResponse(res);
     if (res.ok && data.success) {
       notify('Campaign created!');
       setNewCampaignModal(false);
@@ -699,7 +700,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       message: 'Remove this direct campaign from active ad rotation?',
       onConfirm: async () => {
         const res = await fetch(`/api/admin/ads/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
-        const d = await res.json();
+        const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Campaign removed.');
           loadModuleData('ads');
@@ -715,7 +716,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !slot.enabled }),
     });
-    const d = await res.json();
+    const { data: d } = await safeParseResponse(res);
     if (res.ok && d.success) {
       notify(`Slot "${slot.name}" ${!slot.enabled ? 'Enabled' : 'Disabled'}`);
       loadModuleData('ads');
@@ -730,7 +731,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newMedia),
     });
-    const d = await res.json();
+    const { data: d } = await safeParseResponse(res);
     if (res.ok && d.success) {
       notify('Media asset added!');
       setNewMediaModal(false);
@@ -746,7 +747,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       message: 'Remove this asset from the editorial media library?',
       onConfirm: async () => {
         const res = await fetch(`/api/admin/media/${id}`, { method: 'DELETE', credentials: 'include' });
-        const d = await res.json();
+        const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Asset deleted.');
           loadModuleData('media');
@@ -763,7 +764,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newNotification),
     });
-    const d = await res.json();
+    const { data: d } = await safeParseResponse(res);
     if (res.ok && d.success) {
       notify(`Broadcast sent to ${d.notification?.recipientsCount || 'active'} subscribers.`);
       setNewNotification({
@@ -789,7 +790,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: passwordModalUser.email, newPassword: staffNewPassword }),
     });
-    const d = await res.json();
+    const { data: d } = await safeParseResponse(res);
     if (res.ok && d.success) {
       notify(`Local credential updated for ${passwordModalUser.email}`);
       setPasswordModalUser(null);
@@ -2261,7 +2262,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newUser),
               });
-              const d = await res.json();
+              const { data: d } = await safeParseResponse(res);
               if (res.ok && d.success) {
                 if (newUser.password && newUser.email) {
                   await fetch('/api/admin/auth/staff-password', {

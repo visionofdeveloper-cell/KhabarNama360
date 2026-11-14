@@ -12,6 +12,7 @@ import {
   Compass,
   MapPin
 } from 'lucide-react';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 export const WeatherView: React.FC = () => {
   const { isUrdu } = useLanguage();
@@ -19,14 +20,22 @@ export const WeatherView: React.FC = () => {
   const [activeCityId, setActiveCityId] = useState('karachi');
 
   useEffect(() => {
-    fetch('/api/weather')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setCities(data.weather);
-        }
-      })
-      .catch(console.error);
+    const loadWeather = async () => {
+      const data = await safeFetchJson('/api/weather');
+      if (data.success && Array.isArray(data.weather)) {
+        setCities(data.weather);
+      }
+    };
+    void loadWeather();
+    const interval = setInterval(() => void loadWeather(), 180_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadWeather();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const currentCity = cities.find(c => c.cityId === activeCityId) || cities[0];

@@ -36,6 +36,7 @@ import {
   SeoPageConfig,
   SitemapSettings,
 } from '../../types/index.ts';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 type SeoSubTab =
   | 'overview'
@@ -101,12 +102,12 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const loadSeoState = async () => {
     try {
       const [pagesRes, redRes, robRes, smRes, scRes, logRes] = await Promise.all([
-        fetch('/api/admin/seo/pages', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/seo/redirects', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/seo/robots-txt', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/seo/sitemap-config', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/seo/search-console', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/seo/audit-logs', { credentials: 'include' }).then(r => r.json()),
+        safeFetchJson('/api/admin/seo/pages', { credentials: 'include' }),
+        safeFetchJson('/api/admin/seo/redirects', { credentials: 'include' }),
+        safeFetchJson('/api/admin/seo/robots-txt', { credentials: 'include' }),
+        safeFetchJson('/api/admin/seo/sitemap-config', { credentials: 'include' }),
+        safeFetchJson('/api/admin/seo/search-console', { credentials: 'include' }),
+        safeFetchJson('/api/admin/seo/audit-logs', { credentials: 'include' }),
       ]);
       if (pagesRes.success) setSeoPages(pagesRes.pages || []);
       if (redRes.success) setRedirects(redRes.redirects || []);
@@ -131,13 +132,12 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const handleSaveSeoPage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPage) return;
-    const res = await fetch('/api/admin/seo/pages', {
+    const d = await safeFetchJson('/api/admin/seo/pages', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingPage),
     });
-    const d = await res.json();
     if (d.success) {
       setEditingPage(null);
       setBanner({ ok: true, msg: `Saved SEO metadata for "${d.page.path}".` });
@@ -149,8 +149,7 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   };
 
   const handleRunTechnicalAudit = async () => {
-    const res = await fetch('/api/admin/seo/audit/run', { method: 'POST', credentials: 'include' });
-    const d = await res.json();
+    const d = await safeFetchJson('/api/admin/seo/audit/run', { method: 'POST', credentials: 'include' });
     if (d.success) {
       setAuditResult(d.audit);
       setBanner({
@@ -158,52 +157,55 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
         msg: `Technical SEO Audit complete — Score: ${d.audit.score}/100 (${d.audit.criticalCount} critical, ${d.audit.warningCount} warnings).`,
       });
       loadSeoState();
+    } else if (d.error) {
+      setBanner({ ok: false, msg: d.error });
     }
   };
 
   const handleSaveRobots = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/seo/robots-txt', {
+    const d = await safeFetchJson('/api/admin/seo/robots-txt', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: robotsTxt }),
     });
-    const d = await res.json();
     if (d.success) setBanner({ ok: true, msg: 'robots.txt updated and published cleanly.' });
+    else if (d.error) setBanner({ ok: false, msg: d.error });
   };
 
   const handleSaveSitemapConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sitemapConfig) return;
-    const res = await fetch('/api/admin/seo/sitemap-config', {
+    const d = await safeFetchJson('/api/admin/seo/sitemap-config', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sitemapConfig),
     });
-    const d = await res.json();
     if (d.success) setBanner({ ok: true, msg: 'XML Sitemap configuration saved.' });
+    else if (d.error) setBanner({ ok: false, msg: d.error });
   };
 
   const handleAddRedirect = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/seo/redirects', {
+    const d = await safeFetchJson('/api/admin/seo/redirects', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newRedirect),
     });
-    const d = await res.json();
     if (d.success) {
       setNewRedirect({ sourcePath: '', targetPath: '/', statusCode: 301 });
       setBanner({ ok: true, msg: 'Redirect rule created.' });
       loadSeoState();
+    } else if (d.error) {
+      setBanner({ ok: false, msg: d.error });
     }
   };
 
   const handleToggleRedirect = async (r: RedirectRule) => {
-    await fetch('/api/admin/seo/redirects', {
+    await safeFetchJson('/api/admin/seo/redirects', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -213,21 +215,22 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   };
 
   const handleDeleteRedirect = async (id: string) => {
-    await fetch(`/api/admin/seo/redirects/${id}`, { method: 'DELETE', credentials: 'include' });
+    await safeFetchJson(`/api/admin/seo/redirects/${id}`, { method: 'DELETE', credentials: 'include' });
     loadSeoState();
   };
 
   const handleSaveCategorySeo = async (cat: CategoryPageConfig, updates: Partial<CategoryPageConfig>) => {
-    const res = await fetch(`/api/admin/categories/${cat.slug}`, {
+    const d = await safeFetchJson(`/api/admin/categories/${cat.slug}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...cat, ...updates }),
     });
-    const d = await res.json();
     if (d.success) {
       setBanner({ ok: true, msg: `Category SEO saved for ${cat.nameEn}.` });
       onRefreshParent?.();
+    } else if (d.error) {
+      setBanner({ ok: false, msg: d.error });
     }
   };
 
@@ -236,14 +239,13 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
     e.preventDefault();
     setGscBusy(true);
     try {
-      const res = await fetch('/api/admin/seo/gsc/oauth-config', {
+      const d = await safeFetchJson('/api/admin/seo/gsc/oauth-config', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: oauthClientId, clientSecret: oauthClientSecret, propertyUrl: gscPropertyUrl }),
       });
-      const d = await res.json();
-      setBanner({ ok: d.success, msg: d.success ? 'OAuth client saved. Authorize Consent below.' : d.error });
+      setBanner({ ok: Boolean(d.success), msg: d.success ? 'OAuth client saved. Authorize Consent below.' : (d.error || 'Failed saving OAuth config.') });
       loadSeoState();
     } finally {
       setGscBusy(false);
@@ -252,10 +254,9 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
 
   const handleStartOAuthConsent = async () => {
     const redirectUri = `${window.location.origin}/api/admin/seo/gsc/oauth-callback`;
-    const res = await fetch(`/api/admin/seo/gsc/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`, {
+    const d = await safeFetchJson(`/api/admin/seo/gsc/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`, {
       credentials: 'include',
     });
-    const d = await res.json();
     if (d.success && d.authUrl) {
       window.location.assign(d.authUrl);
     } else {
@@ -267,14 +268,13 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
     setGscBusy(true);
     try {
       const redirectUri = `${window.location.origin}/api/admin/seo/gsc/oauth-callback`;
-      const res = await fetch('/api/admin/seo/gsc/oauth-exchange', {
+      const d = await safeFetchJson('/api/admin/seo/gsc/oauth-exchange', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: oauthCodeInput, redirectUri }),
       });
-      const d = await res.json();
-      setBanner({ ok: d.success, msg: d.message || d.error || 'Code processed.' });
+      setBanner({ ok: Boolean(d.success), msg: d.message || d.error || 'Code processed.' });
       setOauthCodeInput('');
       loadSeoState();
     } finally {
@@ -286,14 +286,13 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
     e.preventDefault();
     setGscBusy(true);
     try {
-      const res = await fetch('/api/admin/seo/gsc/service-account', {
+      const d = await safeFetchJson('/api/admin/seo/gsc/service-account', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serviceAccountJson: saJsonInput, propertyUrl: gscPropertyUrl }),
       });
-      const d = await res.json();
-      setBanner({ ok: d.success, msg: d.success ? 'Service account encrypted & saved. Run Test Connection.' : d.error });
+      setBanner({ ok: Boolean(d.success), msg: d.success ? 'Service account encrypted & saved. Run Test Connection.' : (d.error || 'Failed saving service account.') });
       setSaJsonInput('');
       loadSeoState();
     } finally {
@@ -304,9 +303,8 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const handleTestGsc = async () => {
     setGscBusy(true);
     try {
-      const res = await fetch('/api/admin/seo/gsc/test', { method: 'POST', credentials: 'include' });
-      const d = await res.json();
-      setBanner({ ok: d.status === 'Authorized', msg: `[${d.status}] ${d.message}` });
+      const d = await safeFetchJson('/api/admin/seo/gsc/test', { method: 'POST', credentials: 'include' });
+      setBanner({ ok: d.status === 'Authorized', msg: `[${d.status || 'Error'}] ${d.message || d.error || 'Connection test failed.'}` });
       loadSeoState();
     } finally {
       setGscBusy(false);
@@ -316,10 +314,9 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const handleSyncGsc = async () => {
     setGscBusy(true);
     try {
-      const res = await fetch('/api/admin/seo/gsc/sync', { method: 'POST', credentials: 'include' });
-      const d = await res.json();
+      const d = await safeFetchJson('/api/admin/seo/gsc/sync', { method: 'POST', credentials: 'include' });
       setBanner({
-        ok: d.success && d.metrics?.connected,
+        ok: Boolean(d.success && d.metrics?.connected),
         msg: d.metrics?.diagnosticMessage || d.error || 'Sync attempt finished.',
       });
       loadSeoState();
@@ -329,15 +326,14 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   };
 
   const handleDisconnectGsc = async () => {
-    await fetch('/api/admin/seo/gsc/disconnect', { method: 'POST', credentials: 'include' });
+    await safeFetchJson('/api/admin/seo/gsc/disconnect', { method: 'POST', credentials: 'include' });
     setBanner({ ok: true, msg: 'Search Console disconnected cleanly.' });
     loadSeoState();
   };
 
   const loadLinksForArticle = async (id: string) => {
     setSelectedArticleId(id);
-    const res = await fetch(`/api/admin/seo/internal-links/${id}`, { credentials: 'include' });
-    const d = await res.json();
+    const d = await safeFetchJson(`/api/admin/seo/internal-links/${id}`, { credentials: 'include' });
     if (d.success) setLinkSuggestions(d.suggestions || []);
     const art = articles.find(a => a.id === id);
     if (art) {

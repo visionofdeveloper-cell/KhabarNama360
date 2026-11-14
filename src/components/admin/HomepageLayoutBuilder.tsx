@@ -26,6 +26,7 @@ import {
   HomepageSectionType,
   HomepageVersionSnapshot,
 } from '../../types/index.ts';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 interface HomepageLayoutBuilderProps {
   categories: { slug: string; nameEn: string }[];
@@ -58,8 +59,8 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
 
   const loadAll = async () => {
     const [hpRes, blkRes] = await Promise.all([
-      fetch('/api/admin/homepage/state', { credentials: 'include' }).then(r => r.json()),
-      fetch('/api/admin/homepage/custom-blocks', { credentials: 'include' }).then(r => r.json()),
+      safeFetchJson('/api/admin/homepage/state', { credentials: 'include' }),
+      safeFetchJson('/api/admin/homepage/custom-blocks', { credentials: 'include' }),
     ]);
     if (hpRes.success) {
       const sections = [...(hpRes.draft?.sections || hpRes.published?.sections || [])].sort(
@@ -137,14 +138,14 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/homepage/draft', {
+      const d = await safeFetchJson('/api/admin/homepage/draft', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
-      const d = await res.json();
       if (d.success) setBanner('Homepage draft saved (not yet visible to public readers until Published).');
+      else if (d.error) setBanner(d.error);
     } finally {
       setSaving(false);
     }
@@ -153,17 +154,18 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
   const handlePublish = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/homepage/publish', {
+      const d = await safeFetchJson('/api/admin/homepage/publish', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
-      const d = await res.json();
       if (d.success) {
         setBanner('Homepage layout published live across /en and /ur!');
         loadAll();
         onRefreshParent?.();
+      } else if (d.error) {
+        setBanner(d.error);
       }
     } finally {
       setSaving(false);
@@ -171,38 +173,40 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
   };
 
   const handleRollback = async (versionId: string) => {
-    const res = await fetch('/api/admin/homepage/rollback', {
+    const d = await safeFetchJson('/api/admin/homepage/rollback', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ versionId }),
     });
-    const d = await res.json();
     if (d.success) {
       setBanner(`Rolled back and published homepage snapshot ${versionId}.`);
       loadAll();
+    } else if (d.error) {
+      setBanner(d.error);
     }
   };
 
   const handleSaveCustomBlock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBlock) return;
-    const res = await fetch('/api/admin/homepage/custom-blocks', {
+    const d = await safeFetchJson('/api/admin/homepage/custom-blocks', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingBlock),
     });
-    const d = await res.json();
     if (d.success) {
       setEditingBlock(null);
       setBanner('Custom reusable block saved.');
       loadAll();
+    } else if (d.error) {
+      setBanner(d.error);
     }
   };
 
   const handleDeleteCustomBlock = async (id: string) => {
-    await fetch(`/api/admin/homepage/custom-blocks/${id}`, { method: 'DELETE', credentials: 'include' });
+    await safeFetchJson(`/api/admin/homepage/custom-blocks/${id}`, { method: 'DELETE', credentials: 'include' });
     loadAll();
   };
 

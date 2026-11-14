@@ -5,6 +5,7 @@ import { CookieConsent } from '../CookieConsent.tsx';
 import { NotificationToast } from '../NotificationToast.tsx';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { Wrench } from 'lucide-react';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 interface PublicLayoutProps {
   onSearch: (q: string) => void;
@@ -16,8 +17,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ onSearch, children }
   const [maintenance, setMaintenance] = useState<{ enabled: boolean; messageEn: string; messageUr: string } | null>(null);
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
+    safeFetchJson('/api/settings')
       .then(d => {
         if (d.success && d.settings?.maintenance?.enabled) {
           setMaintenance(d.settings.maintenance);

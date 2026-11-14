@@ -1,6 +1,77 @@
 import { CricketMatch } from '../../../types/index.ts';
 import { db } from '../../db.ts';
 
+function stripCdata(raw: string): string {
+  return raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchCricinfoLiveScores(): Promise<CricketMatch[]> {
+  try {
+    const res = await fetch('https://static.cricinfo.com/rss/livescores.xml', {
+      headers: {
+        Accept: 'application/rss+xml, application/xml, text/xml',
+        'User-Agent': '360Khabarnama-CricketBot/2.0',
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const items = xml.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+    const parsed: CricketMatch[] = [];
+
+    for (let i = 0; i < Math.min(6, items.length); i++) {
+      const item = items[i];
+      const titleMatch = item.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const descMatch = item.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
+      const title = titleMatch?.[1] ? stripCdata(titleMatch[1]) : '';
+      const desc = descMatch?.[1] ? stripCdata(descMatch[1]) : '';
+      if (
+        !title ||
+        /no\s+match\s+in\s+progress|no\s+live\s+match|no\s+matches/i.test(title) ||
+        (!/\s+v\s+|\s+vs\s+/i.test(title) && !/\d/.test(title))
+      ) {
+        continue;
+      }
+
+      const vsParts = title.split(/\s+v\s+|\s+vs\s+/i);
+      const teamAName = (vsParts[0] || 'Team A').replace(/\d+\/\d+.*$/, '').trim().slice(0, 28);
+      const teamBName = (vsParts[1] || 'Team B').replace(/\d+\/\d+.*$/, '').trim().slice(0, 28);
+
+      const isPak = /pakistan|pak\b/i.test(title);
+      parsed.push({
+        id: `cric-live-${i + 1}`,
+        titleEn: title,
+        titleUr: isPak ? `لائیو کرکٹ اسکور: ${title}` : `انٹرنیشنل کرکٹ: ${title}`,
+        tournament: 'ICC / International Live Match Center',
+        status: 'live',
+        teamA: {
+          name: teamAName || 'Team A',
+          code: teamAName.slice(0, 3).toUpperCase() || 'TMA',
+          flag: /pakistan/i.test(teamAName) ? '🇵🇰' : '🏏',
+        },
+        teamB: {
+          name: teamBName || 'Team B',
+          code: teamBName.slice(0, 3).toUpperCase() || 'TMB',
+          flag: /pakistan/i.test(teamBName) ? '🇵🇰' : '🏏',
+        },
+        statusTextEn: desc || title,
+        statusTextUr: desc || title,
+        venueEn: 'Live International Fixture',
+        venueUr: 'لائیو بین الاقوامی اسکور',
+        dateStr: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+      });
+    }
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
 export async function syncCricketData(): Promise<{
   success: boolean;
   changesDetected: boolean;
@@ -14,45 +85,22 @@ export async function syncCricketData(): Promise<{
   const now = new Date().toISOString();
 
   try {
-    const existingMatches = db.getData().cricketMatches || [];
+    const existingMatches = (db.getData().cricketMatches || []).filter(
+      m => !/no\s+match\s+in\s+progress/i.test(m.titleEn || '')
+    );
+    const liveFeedMatches = await fetchCricinfoLiveScores();
 
-    // Verified match updates for active tournament & Pakistan fixtures
-    // In production, connects to CricAPI / licensed feed with fallback
-    const liveMatch1 = existingMatches[0] || {
-      id: 'cric-1',
-      titleEn: 'Pakistan vs Australia - 2nd ODI (Melbourne Cricket Ground)',
-      titleUr: 'پاکستان بمقابلہ آسٹریلیا - دوسرا ون ڈے (ایم سی جی)',
-      tournament: 'Pakistan Tour of Australia 2026',
-      status: 'completed',
-      teamA: { name: 'Australia', code: 'AUS', score: '163', overs: '35.0', wickets: 10, flag: '🇦🇺' },
-      teamB: { name: 'Pakistan', code: 'PAK', score: '169/1', overs: '26.3', wickets: 1, flag: '🇵🇰' },
-      currentBatters: ['Babar Azam 35* (44)', 'Saim Ayub 82 (71)'],
-      currentBowler: 'Mitchell Starc 6-0-38-1',
-      statusTextEn: 'Pakistan won by 9 wickets with 141 balls remaining',
-      statusTextUr: 'پاکستان نے شاندار کارکردگی دکھا کر 9 وکٹوں سے فتح حاصل کر لی',
-      venueEn: 'MCG, Melbourne',
-      venueUr: 'میلبورن کرکٹ گراؤنڈ',
-      dateStr: 'Final Result',
-    };
+    const updatedMatches: CricketMatch[] =
+      liveFeedMatches.length > 0
+        ? [
+            ...liveFeedMatches,
+            ...existingMatches.filter(m => !m.id.startsWith('cric-live-')).slice(0, 2),
+          ]
+        : existingMatches;
 
-    const upcomingMatch2: CricketMatch = {
-      id: 'cric-2',
-      titleEn: 'Pakistan vs England - Champions Trophy Opening Match',
-      titleUr: 'پاکستان بمقابلہ انگلینڈ - چیمپئنز ٹرافی افتتاحی معرکہ',
-      tournament: 'ICC Champions Trophy Pakistan 2026',
-      status: 'upcoming',
-      teamA: { name: 'Pakistan', code: 'PAK', flag: '🇵🇰' },
-      teamB: { name: 'England', code: 'ENG', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-      statusTextEn: 'Starts at 02:30 PM PKT at National Stadium Karachi',
-      statusTextUr: 'نیشنل اسٹیڈیم کراچی میں دوپہر اڑھائی بجے شروع ہوگا',
-      venueEn: 'National Stadium, Karachi',
-      venueUr: 'نیشنل اسٹیڈیم کراچی',
-      dateStr: '19 Feb 2026',
-    };
-
-    const updatedMatches: CricketMatch[] = [liveMatch1, upcomingMatch2];
-
-    db.updateCricketMatches(updatedMatches);
+    if (updatedMatches.length > 0) {
+      db.updateCricketMatches(updatedMatches);
+    }
 
     db.updateDataProvider('cricket-feed', {
       status: 'active',
@@ -65,9 +113,15 @@ export async function syncCricketData(): Promise<{
 
     return {
       success: true,
-      changesDetected: false, // Avoid excessive Gemini calls during ongoing matches
-      changeSummaryEn: 'Synchronized live cricket scoreboard and Champions Trophy schedule.',
-      changeSummaryUr: 'لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔',
+      changesDetected: liveFeedMatches.length > 0,
+      changeSummaryEn:
+        liveFeedMatches.length > 0
+          ? `Synchronized ${liveFeedMatches.length} live international cricket scorecards.`
+          : 'Verified cricket schedule & scorecard feed (no new live fixtures changed).',
+      changeSummaryUr:
+        liveFeedMatches.length > 0
+          ? `${liveFeedMatches.length} لائیو بین الاقوامی کرکٹ میچز کے اسکور اپ ڈیٹ ہو گئے۔`
+          : 'کرکٹ شیڈول اور اسکور بورڈ فیڈ تصدیق شدہ ہے۔',
       itemsProcessed: updatedMatches.length,
       matches: updatedMatches,
     };
@@ -82,7 +136,7 @@ export async function syncCricketData(): Promise<{
     return {
       success: false,
       changesDetected: false,
-      changeSummaryEn: 'Cricket sync failed, fallback to previous scorecard.',
+      changeSummaryEn: 'Cricket sync failed, retained previous scorecard.',
       changeSummaryUr: 'کرکٹ اسکور کی اپ ڈیٹ ناکام، پچھلا اسکور کارڈ برقرار۔',
       itemsProcessed: 0,
       error: errorMsg,

@@ -28,11 +28,15 @@ export interface AIExecutionResponse {
 }
 
 export const GEMINI_SUPPORTED_MODELS = [
-  'gemini-4-hydrogen',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
   'gemini-3.1-flash-lite',
+  'gemini-4-hydrogen',
   'gemini-4-argon',
   'gemini-4-carbon',
-  'gemini-2.5-flash',
 ];
 
 export class GeminiProvider {

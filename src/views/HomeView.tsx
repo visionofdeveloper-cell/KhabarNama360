@@ -26,6 +26,7 @@ import {
   Newspaper,
 } from 'lucide-react';
 import { AdBanner } from '../components/AdBanner.tsx';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 interface HomeViewProps {
   onSelectArticle: (article: Article) => void;
@@ -61,68 +62,58 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
   const [quickResultError, setQuickResultError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/news')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) setArticles(data.articles || []);
-      })
-      .catch(console.error);
+    const loadHomeFeeds = async () => {
+      const [newsData, weatherData, finData, cricketData, prayerData] = await Promise.all([
+        safeFetchJson('/api/news'),
+        safeFetchJson('/api/weather'),
+        safeFetchJson('/api/finance/rates'),
+        safeFetchJson('/api/cricket/matches'),
+        safeFetchJson('/api/islamic/prayer-times?city=karachi'),
+      ]);
 
-    fetch('/api/weather')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) setWeatherList(data.weather || []);
-      })
-      .catch(console.error);
+      if (newsData.success) setArticles(newsData.articles || []);
+      if (weatherData.success) setWeatherList(weatherData.weather || []);
+      if (finData.success) {
+        setGoldRates(finData.goldRates || []);
+        setCurrencyRates(finData.currencyRates || []);
+      }
+      if (cricketData.success) setCricketMatches(cricketData.matches || []);
+      if (prayerData.success) setPrayerTimes(prayerData.prayerTimes || null);
+    };
 
-    fetch('/api/finance/rates')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setGoldRates(data.goldRates || []);
-          setCurrencyRates(data.currencyRates || []);
-        }
-      })
-      .catch(console.error);
+    const loadStaticLayout = async () => {
+      const [boardsData, homeCfg, blocksData] = await Promise.all([
+        safeFetchJson('/api/education/boards'),
+        safeFetchJson('/api/homepage/config'),
+        safeFetchJson('/api/homepage/custom-blocks/public'),
+      ]);
+      if (boardsData.success) setBoards(boardsData.boards || []);
+      if (homeCfg.success && Array.isArray(homeCfg.config?.sections) && homeCfg.config.sections.length > 0) {
+        setLayoutSections(homeCfg.config.sections);
+      }
+      if (blocksData.success && Array.isArray(blocksData.blocks)) {
+        setCustomBlocks(blocksData.blocks);
+      }
+    };
 
-    fetch('/api/cricket/matches')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) setCricketMatches(data.matches || []);
-      })
-      .catch(console.error);
+    void loadHomeFeeds();
+    void loadStaticLayout();
 
-    fetch('/api/islamic/prayer-times?city=karachi')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) setPrayerTimes(data.prayerTimes);
-      })
-      .catch(console.error);
+    const interval = setInterval(() => {
+      void loadHomeFeeds();
+    }, 180_000);
 
-    fetch('/api/education/boards')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) setBoards(data.boards || []);
-      })
-      .catch(console.error);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void loadHomeFeeds();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
-    fetch('/api/homepage/config')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.config?.sections) && data.config.sections.length > 0) {
-          setLayoutSections(data.config.sections);
-        }
-      })
-      .catch(() => {});
-
-    fetch('/api/homepage/custom-blocks/public')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.blocks)) {
-          setCustomBlocks(data.blocks);
-        }
-      })
-      .catch(() => {});
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const handleQuickResultSearch = async (e: React.FormEvent) => {
@@ -134,8 +125,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
     setQuickResult(null);
 
     try {
-      const res = await fetch(`/api/education/results/search?board=${selectedBoard}&roll=${quickRoll.trim()}&year=2026`);
-      const data = await res.json();
+      const data = await safeFetchJson(`/api/education/results/search?board=${selectedBoard}&roll=${quickRoll.trim()}&year=2026`);
       if (data.success) {
         setQuickResult(data.result);
       } else {

@@ -12,6 +12,7 @@ import {
   Repeat,
   BarChart3
 } from 'lucide-react';
+import { safeFetchJson } from '../utils/safeFetch.ts';
 
 export const FinanceView: React.FC = () => {
   const { isUrdu } = useLanguage();
@@ -28,27 +29,31 @@ export const FinanceView: React.FC = () => {
   const [convertTo, setConvertTo] = useState('PKR');
 
   useEffect(() => {
-    fetch('/api/finance/rates')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setGoldRates(data.goldRates || []);
-          setCurrencyRates(data.currencyRates || []);
-          setFuelPrices(data.fuelPrices || []);
-          setPsx(data.psx || null);
-        }
-      })
-      .catch(console.error);
-
-    fetch('/api/data-freshness')
-      .then(res => res.json())
-      .then(d => { if (d.success) setFreshness(d.freshness); })
-      .catch(console.error);
-
-    fetch('/api/rates/historical?type=gold&limit=5')
-      .then(res => res.json())
-      .then(d => { if (d.success) setHistoricalGold(d.records || []); })
-      .catch(console.error);
+    const loadRates = async () => {
+      const [ratesRes, freshRes, histRes] = await Promise.all([
+        safeFetchJson('/api/finance/rates'),
+        safeFetchJson('/api/data-freshness'),
+        safeFetchJson('/api/rates/historical?type=gold&limit=5'),
+      ]);
+      if (ratesRes.success) {
+        setGoldRates(ratesRes.goldRates || []);
+        setCurrencyRates(ratesRes.currencyRates || []);
+        setFuelPrices(ratesRes.fuelPrices || []);
+        setPsx(ratesRes.psx || null);
+      }
+      if (freshRes.success) setFreshness(freshRes.freshness);
+      if (histRes.success) setHistoricalGold(histRes.records || []);
+    };
+    void loadRates();
+    const interval = setInterval(() => void loadRates(), 180_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadRates();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const calculateConversion = () => {

@@ -31,7 +31,12 @@ export async function runDueCronJobs() {
   };
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const metaUrl = typeof import.meta !== 'undefined' ? (import.meta as any).url : undefined;
+const isMain = Boolean(
+  metaUrl &&
+  process.argv[1] &&
+  fileURLToPath(metaUrl) === process.argv[1]
+);
 if (isMain) {
   runDueCronJobs()
     .then(summary => {

@@ -68,6 +68,25 @@ function getActor(req: Request, fallback: string = 'Admin'): string {
   return session?.email || (req.headers['x-admin-user'] as string) || fallback;
 }
 
+const inFlightProviderRefreshes = new Map<string, Promise<any>>();
+
+function triggerStaleProviders(providerIds: string[]) {
+  const now = Date.now();
+  for (const id of providerIds) {
+    if (inFlightProviderRefreshes.has(id)) continue;
+    const provider = db.getDataProvider(id);
+    if (!provider || provider.status === 'disabled') continue;
+    const lastSyncMs = provider.lastSyncAt ? new Date(provider.lastSyncAt).getTime() : 0;
+    const intervalMs = Math.max(5, provider.intervalMinutes || 15) * 60 * 1000;
+    if (!lastSyncMs || now - lastSyncMs >= intervalMs) {
+      const p = ProviderRegistry.executeProviderSync(id, 'scheduler')
+        .catch(err => console.warn(`[AutoRefresh] Provider ${id} failed:`, err?.message))
+        .finally(() => inFlightProviderRefreshes.delete(id));
+      inFlightProviderRefreshes.set(id, p);
+    }
+  }
+}
+
 function requireAnyPermission(perms: AdminPermission[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     const session: AdminSession | undefined = (req as any).adminSession;
@@ -350,6 +369,14 @@ app.get('/api/news', (req, res) => {
     }
   }
 
+  // Trigger background auto-update when World News / Sports News feeds are due (supports Vercel + Node)
+  if (category === 'all' || category === 'world') {
+    triggerStaleProviders(['world-news-rss']);
+  }
+  if (category === 'all' || category === 'sports') {
+    triggerStaleProviders(['sports-news-rss']);
+  }
+
   const articles = db.getArticles(category, tag, search, status);
   res.json({ success: true, count: articles.length, articles });
 });
@@ -473,6 +500,7 @@ app.post('/api/education/results', requireAdminAuth, requirePermission('categori
 });
 
 app.get('/api/weather', (req, res) => {
+  triggerStaleProviders(['weather-openmeteo']);
   const city = req.query.city as string;
   const list = db.getData().weather;
   if (city) {
@@ -483,6 +511,7 @@ app.get('/api/weather', (req, res) => {
 });
 
 app.get('/api/finance/rates', (_req, res) => {
+  triggerStaleProviders(['currency-erapi', 'gold-bullion']);
   const data = db.getData();
   res.json({
     success: true,
@@ -495,6 +524,7 @@ app.get('/api/finance/rates', (_req, res) => {
 });
 
 app.get('/api/cricket/matches', (_req, res) => {
+  triggerStaleProviders(['cricket-feed']);
   res.json({ success: true, matches: db.getData().cricketMatches });
 });
 
@@ -2042,11 +2072,13 @@ app.post('/api/admin/automation/settings', requirePermission('automation:manage'
   res.json({ success: true, settings: updated });
 });
 
-// External Namecheap / Cloud Scheduler Webhook protected by CRON_SECRET
-app.post('/api/cron/run', async (req, res) => {
+// External Namecheap / Vercel Cron / Cloud Scheduler Webhook protected by CRON_SECRET
+const handleCronRun = async (req: Request, res: Response) => {
   const configuredSecret = process.env.CRON_SECRET;
+  const authBearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : '';
   const providedSecret =
     (req.headers['x-cron-secret'] as string) ||
+    authBearer ||
     (req.query.secret as string) ||
     (req.body?.secret as string);
 
@@ -2054,7 +2086,7 @@ app.post('/api/cron/run', async (req, res) => {
     if (!providedSecret || providedSecret !== configuredSecret) {
       return res.status(401).json({ success: false, error: 'Unauthorized cron trigger.' });
     }
-  } else if (!getSessionFromRequest(req)) {
+  } else if (!getSessionFromRequest(req) && !req.headers['x-vercel-cron']) {
     return res.status(403).json({
       success: false,
       error: 'CRON_SECRET environment variable is not configured and no admin session is present.',
@@ -2067,7 +2099,9 @@ app.post('/api/cron/run', async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Cron execution failed.' });
   }
-});
+};
+app.post('/api/cron/run', handleCronRun);
+app.get('/api/cron/run', handleCronRun);
 
 // Public Data Freshness & Historical Rates
 app.get('/api/rates/historical', (req, res) => {
@@ -2112,6 +2146,16 @@ app.get('/api/data-freshness', (_req, res) => {
   };
 
   res.json({ success: true, freshness, generatedAt: new Date().toISOString() });
+});
+
+// Ensure any unhandled error inside /api/* always returns valid JSON instead of HTML/plaintext
+app.use('/api', (err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[API Error]', err);
+  if (res.headersSent) return;
+  res.status(err?.statusCode || err?.status || 500).json({
+    success: false,
+    error: err?.message || 'Internal server error occurred.',
+  });
 });
 
 // ================= HTTP REDIRECT ENGINE & SSR METADATA INJECTION =================

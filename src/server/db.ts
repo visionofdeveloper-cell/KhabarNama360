@@ -1241,6 +1241,42 @@ const defaultDataProviders: DataProvider[] = [
     totalSyncs: 180,
     successfulSyncs: 180,
   },
+  {
+    id: 'world-news-rss',
+    name: 'Global World News Wire (BBC & Al Jazeera RSS)',
+    category: 'news',
+    endpoint: 'https://feeds.bbci.co.uk/news/world/rss.xml',
+    status: 'active',
+    intervalMinutes: 15,
+    lastSyncAt: null,
+    nextSyncAt: new Date(Date.now() + 15 * 60000).toISOString(),
+    lastError: null,
+    isLicensed: true,
+    attribution: 'BBC World Service & Al Jazeera English',
+    requiresApiKey: false,
+    hasApiKey: true,
+    consecutiveFailures: 0,
+    totalSyncs: 0,
+    successfulSyncs: 0,
+  },
+  {
+    id: 'sports-news-rss',
+    name: 'Sports & Cricket Wire (BBC Sport Cricket RSS)',
+    category: 'cricket',
+    endpoint: 'https://feeds.bbci.co.uk/sport/cricket/rss.xml',
+    status: 'active',
+    intervalMinutes: 15,
+    lastSyncAt: null,
+    nextSyncAt: new Date(Date.now() + 15 * 60000).toISOString(),
+    lastError: null,
+    isLicensed: true,
+    attribution: 'BBC Sport & International Cricket Wire',
+    requiresApiKey: false,
+    hasApiKey: true,
+    consecutiveFailures: 0,
+    totalSyncs: 0,
+    successfulSyncs: 0,
+  },
 ];
 
 const defaultFuelNotifications: FuelPriceNotification[] = [
@@ -1829,7 +1865,15 @@ class DatabaseManager {
       if (sourceFile) {
         const raw = fs.readFileSync(sourceFile, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!parsed.dataProviders || parsed.dataProviders.length === 0) parsed.dataProviders = defaultDataProviders;
+        if (!parsed.dataProviders || parsed.dataProviders.length === 0) {
+          parsed.dataProviders = defaultDataProviders;
+        } else {
+          for (const defProv of defaultDataProviders) {
+            if (!parsed.dataProviders.some((p: any) => p.id === defProv.id)) {
+              parsed.dataProviders.push(defProv);
+            }
+          }
+        }
         if (!parsed.syncJobRuns) parsed.syncJobRuns = [];
         if (!parsed.historicalRates || parsed.historicalRates.length === 0) parsed.historicalRates = defaultHistoricalRates;
         if (!parsed.fuelPriceNotifications || parsed.fuelPriceNotifications.length === 0) parsed.fuelPriceNotifications = defaultFuelNotifications;
@@ -1960,14 +2004,17 @@ class DatabaseManager {
   }
 
   private saveDatabase(dataToSave: DatabaseSchema) {
+    const tmpFile = `${DB_FILE}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      const tmpFile = `${DB_FILE}.tmp`;
       fs.writeFileSync(tmpFile, JSON.stringify(dataToSave, null, 2), 'utf-8');
       fs.renameSync(tmpFile, DB_FILE);
     } catch (e) {
+      try {
+        if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      } catch {}
       console.error('Failed to write database to disk:', e);
     }
   }

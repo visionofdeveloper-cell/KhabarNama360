@@ -12,6 +12,7 @@ import { syncWeatherData } from '../../src/server/automation/providers/weatherPr
 import { syncGoldRates } from '../../src/server/automation/providers/goldProvider.ts';
 import { syncFuelPrices } from '../../src/server/automation/providers/fuelProvider.ts';
 import { syncCricketData } from '../../src/server/automation/providers/cricketProvider.ts';
+import { syncWorldNewsFeed, syncSportsNewsFeed } from '../../src/server/automation/providers/newsFeedProvider.ts';
 import { DataValidator } from './DataValidator.ts';
 import { SyncLogger } from './SyncLogger.ts';
 import { processDataChangeWithGemini } from '../../src/server/automation/aiContentEngine.ts';
@@ -213,6 +214,12 @@ export class ProviderRegistry {
           break;
         case 'cricket-feed':
           result = await syncCricketData();
+          break;
+        case 'world-news-rss':
+          result = await syncWorldNewsFeed();
+          break;
+        case 'sports-news-rss':
+          result = await syncSportsNewsFeed();
           break;
         default: {
           if (!provider) {

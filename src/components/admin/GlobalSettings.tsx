@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sliders, Save, Download, CheckCircle2, KeyRound, X } from 'lucide-react';
 import { SiteSettings } from '../../types/index.ts';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 type SettingsTab =
   | 'general'
@@ -41,16 +42,17 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch('/api/settings', {
+      const d = await safeFetchJson('/api/settings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const d = await res.json();
       if (d.success) {
         setBanner('All settings saved and synced.');
         onSaved();
+      } else if (d.error) {
+        setBanner(d.error);
       }
     } finally {
       setSaving(false);

@@ -19,13 +19,29 @@ import {
   X,
 } from 'lucide-react';
 import { AIProviderCredential, AIProviderType, AITaskRouting, AIUsageLog } from '../../types/index.ts';
+import { safeFetchJson } from '../../utils/safeFetch.ts';
 
 interface APIKeyManagerProps {
   onNotify?: (msg: string) => void;
 }
 
+const GEMINI_FREE_TIER_MODELS = [
+  { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Free API Key Recommended)' },
+  { id: 'gemini-2.5-flash-lite', label: 'gemini-2.5-flash-lite (Free Tier High Quota)' },
+  { id: 'gemini-2.0-flash', label: 'gemini-2.0-flash (Free Tier Fast)' },
+  { id: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite (Free Tier Ultra-Light)' },
+  { id: 'gemini-1.5-flash', label: 'gemini-1.5-flash (Legacy Free Key)' },
+  { id: 'gemini-3.1-flash-lite', label: 'gemini-3.1-flash-lite (Free Preview)' },
+];
+
+const GEMINI_PRO_MODELS = [
+  { id: 'gemini-4-hydrogen', label: 'gemini-4-hydrogen (Gemini 4 Fast)' },
+  { id: 'gemini-4-argon', label: 'gemini-4-argon (Gemini 4 Balanced)' },
+  { id: 'gemini-4-carbon', label: 'gemini-4-carbon (Gemini 4 Flagship)' },
+];
+
 const MODEL_OPTIONS: Record<string, string[]> = {
-  gemini: ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-4-argon', 'gemini-4-carbon', 'gemini-2.5-flash'],
+  gemini: [...GEMINI_FREE_TIER_MODELS.map(m => m.id), ...GEMINI_PRO_MODELS.map(m => m.id)],
   grok: ['grok-3', 'grok-3-mini', 'grok-3-fast'],
   custom: ['gpt-4o-mini', 'llama-3.3-70b', 'custom-model'],
   custom_data: ['gpt-4o-mini', 'llama-3.3-70b', 'custom-model'],
@@ -51,27 +67,33 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formProviderType, setFormProviderType] = useState<AIProviderType>('gemini');
+  const [formKeyTier, setFormKeyTier] = useState<'free' | 'paid'>('free');
+  const [formCustomModelMode, setFormCustomModelMode] = useState(false);
   const [formLabel, setFormLabel] = useState('');
   const [formProjectId, setFormProjectId] = useState('');
   const [formEndpointUrl, setFormEndpointUrl] = useState('');
-  const [formModel, setFormModel] = useState('gemini-4-hydrogen');
+  const [formModel, setFormModel] = useState('gemini-2.5-flash');
   const [formApiKey, setFormApiKey] = useState('');
   const [formPriority, setFormPriority] = useState(10);
-  const [formDailyTokenLimit, setFormDailyTokenLimit] = useState(500000);
-  const [formMonthlyBudgetUsd, setFormMonthlyBudgetUsd] = useState(25);
+  const [formDailyTokenLimit, setFormDailyTokenLimit] = useState(250000);
+  const [formMonthlyBudgetUsd, setFormMonthlyBudgetUsd] = useState(0);
   const [saving, setSaving] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
     try {
       const [provRes, routeRes, useRes] = await Promise.all([
-        fetch('/api/admin/ai/providers', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/ai/routing', { credentials: 'include' }).then(r => r.json()),
-        fetch('/api/admin/ai/usage', { credentials: 'include' }).then(r => r.json()),
+        safeFetchJson('/api/admin/ai/providers', { credentials: 'include' }),
+        safeFetchJson('/api/admin/ai/routing', { credentials: 'include' }),
+        safeFetchJson('/api/admin/ai/usage', { credentials: 'include' }),
       ]);
       if (provRes.success) setCredentials(provRes.providers || []);
       if (routeRes.success) setRoutes(routeRes.routes || []);
       if (useRes.success) setUsageSummary(useRes.usage || null);
+      const firstErr = provRes.error || routeRes.error || useRes.error;
+      if (firstErr && !provRes.success) {
+        setStatusBanner({ ok: false, text: firstErr });
+      }
     } catch (e: any) {
       setStatusBanner({ ok: false, text: e?.message || 'Failed to load AI provider settings.' });
     } finally {
@@ -83,23 +105,49 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
     loadAll();
   }, []);
 
+  const applyTierPreset = (tier: 'free' | 'paid', providerType: AIProviderType = formProviderType) => {
+    setFormKeyTier(tier);
+    if (tier === 'free') {
+      setFormMonthlyBudgetUsd(0);
+      setFormDailyTokenLimit(250000);
+      if (providerType === 'gemini') {
+        if (!formProjectId.trim()) setFormProjectId(`aistudio-free-${Math.floor(100 + Math.random() * 900)}`);
+        if (!formLabel.trim()) setFormLabel('Google AI Studio Free Key');
+        setFormModel('gemini-2.5-flash');
+        setFormCustomModelMode(false);
+      }
+    } else {
+      setFormMonthlyBudgetUsd(25);
+      setFormDailyTokenLimit(500000);
+      if (providerType === 'gemini') {
+        setFormModel('gemini-4-hydrogen');
+        setFormCustomModelMode(false);
+      }
+    }
+  };
+
   const openAddModal = () => {
     setEditingId(null);
     setFormProviderType('gemini');
-    setFormLabel('');
-    setFormProjectId('');
+    setFormKeyTier('free');
+    setFormCustomModelMode(false);
+    setFormLabel('Google AI Studio Free Key');
+    setFormProjectId(`aistudio-free-${Math.floor(100 + Math.random() * 900)}`);
     setFormEndpointUrl('');
-    setFormModel('gemini-4-hydrogen');
+    setFormModel('gemini-2.5-flash');
     setFormApiKey('');
     setFormPriority(10);
-    setFormDailyTokenLimit(500000);
-    setFormMonthlyBudgetUsd(25);
+    setFormDailyTokenLimit(250000);
+    setFormMonthlyBudgetUsd(0);
     setModalOpen(true);
   };
 
   const openEditModal = (cred: AIProviderCredential) => {
     setEditingId(cred.id);
     setFormProviderType(cred.providerType);
+    setFormKeyTier(cred.monthlyBudgetUsd === 0 ? 'free' : 'paid');
+    const knownModels = MODEL_OPTIONS[cred.providerType] || [];
+    setFormCustomModelMode(!knownModels.includes(cred.model));
     setFormLabel(cred.label);
     setFormProjectId(cred.projectId);
     setFormEndpointUrl(cred.endpointUrl || '');
@@ -116,7 +164,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
     setSaving(true);
     setStatusBanner(null);
     try {
-      const res = await fetch('/api/admin/ai/providers', {
+      const d = await safeFetchJson('/api/admin/ai/providers', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -124,7 +172,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
           id: editingId || undefined,
           providerType: formProviderType,
           label: formLabel,
-          projectId: formProjectId,
+          projectId: formProjectId.trim() || (formKeyTier === 'free' ? 'aistudio-free-tier' : 'default-project'),
           endpointUrl: formEndpointUrl || undefined,
           model: formModel,
           apiKey: formApiKey || undefined,
@@ -133,7 +181,6 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
           monthlyBudgetUsd: formMonthlyBudgetUsd,
         }),
       });
-      const d = await res.json();
       if (d.success) {
         setModalOpen(false);
         setStatusBanner({ ok: true, text: 'AI credential saved securely (AES-256-GCM encrypted at rest).' });
@@ -153,11 +200,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
     setTestingId(id);
     setStatusBanner(null);
     try {
-      const res = await fetch(`/api/admin/ai/providers/${id}/test`, {
+      const d = await safeFetchJson(`/api/admin/ai/providers/${id}/test`, {
         method: 'POST',
         credentials: 'include',
       });
-      const d = await res.json();
       setStatusBanner({
         ok: Boolean(d.result?.ok),
         text: d.result?.message || d.error || 'Connection test completed.',
@@ -171,7 +217,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
   };
 
   const handleToggleEnabled = async (cred: AIProviderCredential) => {
-    const res = await fetch('/api/admin/ai/providers', {
+    const d = await safeFetchJson('/api/admin/ai/providers', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -184,30 +230,30 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
         enabled: !cred.enabled,
       }),
     });
-    const d = await res.json();
     if (d.success) loadAll();
+    else if (d.error) setStatusBanner({ ok: false, text: d.error });
   };
 
   const handleDelete = async (id: string) => {
-    const res = await fetch(`/api/admin/ai/providers/${id}`, {
+    const d = await safeFetchJson(`/api/admin/ai/providers/${id}`, {
       method: 'DELETE',
       credentials: 'include',
     });
-    const d = await res.json();
     if (d.success) {
       setStatusBanner({ ok: true, text: 'AI API key revoked and removed.' });
       loadAll();
+    } else if (d.error) {
+      setStatusBanner({ ok: false, text: d.error });
     }
   };
 
   const handleSaveRoute = async (route: AITaskRouting) => {
-    const res = await fetch('/api/admin/ai/routing', {
+    const d = await safeFetchJson('/api/admin/ai/routing', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(route),
     });
-    const d = await res.json();
     if (d.success) {
       setStatusBanner({ ok: true, text: `Updated routing for "${route.label}".` });
       loadAll();
@@ -319,7 +365,14 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
                     return (
                       <tr key={cred.id} className="hover:bg-gray-50">
                         <td className="p-3">
-                          <div className="font-bold text-gray-900">{cred.label}</div>
+                          <div className="font-bold text-gray-900 flex items-center gap-1.5">
+                            <span>{cred.label}</span>
+                            {cred.monthlyBudgetUsd === 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-extrabold uppercase">
+                                FREE TIER
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-gray-500 uppercase font-mono">{cred.providerType}</div>
                         </td>
                         <td className="p-3 font-mono text-[11px] text-gray-700">{cred.projectId}</td>
@@ -327,7 +380,11 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
                         <td className="p-3 font-mono text-[11px] text-emerald-800">{cred.model}</td>
                         <td className="p-3 font-mono tabular-nums text-[11px] text-gray-700">
                           <div>{(cred.dailyTokensUsed || 0).toLocaleString()} / {(cred.dailyTokenLimit || 0).toLocaleString()} tok</div>
-                          <div className="text-gray-500">${(cred.monthlySpendUsd || 0).toFixed(4)} / ${cred.monthlyBudgetUsd}</div>
+                          <div className="text-gray-500">
+                            {cred.monthlyBudgetUsd === 0
+                              ? 'Free Tier ($0.00 cap)'
+                              : `$${(cred.monthlySpendUsd || 0).toFixed(4)} / $${cred.monthlyBudgetUsd}`}
+                          </div>
                         </td>
                         <td className="p-3 text-[11px]">
                           <span
@@ -444,13 +501,14 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
                     <td className="p-3">
                       <input
                         type="text"
+                        list="routing-model-options"
                         value={r.primaryModel}
                         onChange={e => {
                           const next = [...routes];
                           next[idx] = { ...r, primaryModel: e.target.value };
                           setRoutes(next);
                         }}
-                        className="p-1.5 border border-gray-300 rounded font-mono text-xs w-40"
+                        className="p-1.5 border border-gray-300 rounded font-mono text-xs w-44"
                       />
                     </td>
                     <td className="p-3">
@@ -500,6 +558,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
               </tbody>
             </table>
           </div>
+          <datalist id="routing-model-options">
+            {MODEL_OPTIONS.gemini.map(m => <option key={m} value={m} />)}
+            {MODEL_OPTIONS.grok.map(m => <option key={m} value={m} />)}
+          </datalist>
         </div>
       )}
 
@@ -610,7 +672,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
                   onChange={e => {
                     const pt = e.target.value as AIProviderType;
                     setFormProviderType(pt);
-                    setFormModel(MODEL_OPTIONS[pt][0]);
+                    setFormCustomModelMode(false);
+                    setFormModel(pt === 'gemini' && formKeyTier === 'free' ? 'gemini-2.5-flash' : MODEL_OPTIONS[pt][0]);
                   }}
                   className="w-full p-2.5 border border-gray-300 rounded-lg bg-white"
                 >
@@ -626,34 +689,110 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify }) => {
                   required
                   value={formLabel}
                   onChange={e => setFormLabel(e.target.value)}
-                  placeholder="Newsroom Gemini Production"
+                  placeholder="Google AI Studio Free Key"
                   className="w-full p-2.5 border border-gray-300 rounded-lg"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {formProviderType === 'gemini' && (
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-emerald-950">Gemini Key Tier</span>
+                  <div className="inline-flex rounded-lg bg-white border border-emerald-200 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => applyTierPreset('free', 'gemini')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                        formKeyTier === 'free' ? 'bg-emerald-700 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Free API Key
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyTierPreset('paid', 'gemini')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                        formKeyTier === 'paid' ? 'bg-emerald-700 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Paid Billing Project
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-emerald-900 leading-relaxed">
+                  {formKeyTier === 'free'
+                    ? 'Works with free Google AI Studio keys (aistudio.google.com/apikey). Uses Free-Tier compatible Flash models with $0 spend cap.'
+                    : 'Paid GCP billing project mode supports higher RPM/TPM limits and Pro/Gemini-4 models.'}
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-gray-700 mb-1">GCP / Provider Project ID</label>
+                <label className="block font-bold text-gray-700 mb-1">
+                  GCP / Project ID {formKeyTier === 'free' && <span className="text-[10px] font-normal text-gray-500">(any unique tag)</span>}
+                </label>
                 <input
                   type="text"
                   required
                   value={formProjectId}
                   onChange={e => setFormProjectId(e.target.value)}
-                  placeholder="gen-lang-client-0094029776"
+                  placeholder={formKeyTier === 'free' ? 'aistudio-free-01' : 'gen-lang-client-0094029776'}
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
                 />
               </div>
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Default Model</label>
-                <input
-                  type="text"
-                  list="ai-model-suggestions"
-                  required
-                  value={formModel}
-                  onChange={e => setFormModel(e.target.value)}
-                  className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
-                />
+                {formProviderType === 'gemini' && !formCustomModelMode ? (
+                  <select
+                    value={MODEL_OPTIONS.gemini.includes(formModel) ? formModel : '__custom__'}
+                    onChange={e => {
+                      if (e.target.value === '__custom__') {
+                        setFormCustomModelMode(true);
+                      } else {
+                        setFormModel(e.target.value);
+                      }
+                    }}
+                    className="w-full p-2.5 border border-gray-300 rounded-lg font-mono bg-white"
+                  >
+                    <optgroup label="Free API Key Compatible Models">
+                      {GEMINI_FREE_TIER_MODELS.map(m => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Standard & Gemini 4 Models">
+                      {GEMINI_PRO_MODELS.map(m => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                    <option value="__custom__">+ Enter Custom Model ID...</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      list="ai-model-suggestions"
+                      required
+                      value={formModel}
+                      onChange={e => setFormModel(e.target.value)}
+                      placeholder="gemini-2.5-flash"
+                      className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+                    />
+                    {formProviderType === 'gemini' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormCustomModelMode(false);
+                          if (!MODEL_OPTIONS.gemini.includes(formModel)) setFormModel('gemini-2.5-flash');
+                        }}
+                        className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-[11px] font-bold text-gray-700 shrink-0"
+                      >
+                        List
+                      </button>
+                    )}
+                  </div>
+                )}
                 <datalist id="ai-model-suggestions">
                   {MODEL_OPTIONS[formProviderType].map(m => (
                     <option key={m} value={m} />
