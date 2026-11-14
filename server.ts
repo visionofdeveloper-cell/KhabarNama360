@@ -528,6 +528,48 @@ app.get('/api/finance/rates', (_req, res) => {
   });
 });
 
+app.post('/api/admin/finance/rates', requireAnyPermission(['categories:manage', 'settings:manage', 'articles:write']), (req, res) => {
+  try {
+    const { goldRates, currencyRates, fuelPrices, psx } = req.body || {};
+    const actor = getActor(req, 'Finance Editor');
+    const updatedSections: string[] = [];
+
+    if (Array.isArray(goldRates) && goldRates.length > 0) {
+      db.updateGoldRates(goldRates);
+      updatedSections.push('Gold');
+    }
+    if (Array.isArray(currencyRates) && currencyRates.length > 0) {
+      db.updateCurrencyRates(currencyRates);
+      updatedSections.push('Currency');
+    }
+    if (Array.isArray(fuelPrices) && fuelPrices.length > 0) {
+      db.updateFuelPrices(fuelPrices);
+      updatedSections.push('Fuel');
+    }
+    if (psx && typeof psx === 'object') {
+      db.updatePsxData({ ...db.getData().psx, ...psx, lastUpdated: new Date().toISOString() });
+      updatedSections.push('PSX');
+    }
+
+    if (updatedSections.length === 0) {
+      return res.status(400).json({ success: false, error: 'Provide goldRates, currencyRates, fuelPrices, or psx payload.' });
+    }
+
+    db.logAudit(actor, 'Financial Rates Updated', `Updated: ${updatedSections.join(', ')}`);
+    const data = db.getData();
+    return res.json({
+      success: true,
+      goldRates: data.goldRates,
+      currencyRates: data.currencyRates,
+      fuelPrices: data.fuelPrices,
+      psx: data.psx,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed updating financial rates.' });
+  }
+});
+
 app.get('/api/cricket/matches', (_req, res) => {
   triggerStaleProviders(['cricket-feed']);
   res.json({ success: true, matches: db.getData().cricketMatches });

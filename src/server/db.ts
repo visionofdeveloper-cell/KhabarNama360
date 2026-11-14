@@ -2388,6 +2388,11 @@ class DatabaseManager {
     this.saveDatabase(this.data);
   }
 
+  public updatePsxData(psx: PSXData) {
+    this.data.psx = psx;
+    this.saveDatabase(this.data);
+  }
+
   public updateWeatherData(weather: WeatherData[]) {
     this.data.weather = weather;
     this.saveDatabase(this.data);
