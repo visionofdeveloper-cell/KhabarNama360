@@ -1,0 +1,398 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 1. GLOBAL SAFETY NET (Default Deny)
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 2. REUSABLE HARDENED PRIMITIVES
+    // =========================================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email == 'visionofdeveloper@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (
+          isVerifiedUser()
+          && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+          && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'active'
+        );
+    }
+
+    // =========================================================================
+    // 3. ENTITY VALIDATION BLUEPRINTS
+    // =========================================================================
+    function isValidPortalArticle(data) {
+      return data.keys().hasAll([
+          'id', 'slug', 'titleEn', 'titleUr', 'category',
+          'status', 'isBreaking', 'authorUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'slug', 'titleEn', 'titleUr', 'summaryEn', 'summaryUr',
+          'category', 'status', 'isBreaking', 'authorUid', 'publishedAt',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 180 && data.slug.matches('^[a-z0-9\\-]+$')
+        && data.titleEn is string && data.titleEn.size() >= 3 && data.titleEn.size() <= 300
+        && data.titleUr is string && data.titleUr.size() >= 2 && data.titleUr.size() <= 400
+        && (!('summaryEn' in data) || (data.summaryEn is string && data.summaryEn.size() <= 1200))
+        && (!('summaryUr' in data) || (data.summaryUr is string && data.summaryUr.size() <= 1500))
+        && data.category is string && data.category.size() >= 2 && data.category.size() <= 64
+        && data.status in ['draft', 'in_review', 'scheduled', 'published', 'archived']
+        && data.isBreaking is bool
+        && isValidId(data.authorUid)
+        && (!('publishedAt' in data) || (data.publishedAt is string && data.publishedAt.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCategoryConfig(data) {
+      return data.keys().hasAll(['id', 'slug', 'nameEn', 'nameUr', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'slug', 'nameEn', 'nameUr', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 64 && data.slug.matches('^[a-z0-9\\-]+$')
+        && data.nameEn is string && data.nameEn.size() >= 2 && data.nameEn.size() <= 120
+        && data.nameUr is string && data.nameUr.size() >= 2 && data.nameUr.size() <= 160
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidSiteConfig(data) {
+      return data.keys().hasAll(['siteNameEn', 'siteNameUr', 'primaryColor', 'breakingNewsEnabled', 'updatedAt'])
+        && data.keys().hasOnly([
+          'siteNameEn', 'siteNameUr', 'taglineEn', 'taglineUr',
+          'primaryColor', 'breakingNewsEnabled', 'updatedAt'
+        ])
+        && data.siteNameEn is string && data.siteNameEn.size() >= 2 && data.siteNameEn.size() <= 120
+        && data.siteNameUr is string && data.siteNameUr.size() >= 2 && data.siteNameUr.size() <= 160
+        && (!('taglineEn' in data) || (data.taglineEn is string && data.taglineEn.size() <= 240))
+        && (!('taglineUr' in data) || (data.taglineUr is string && data.taglineUr.size() <= 300))
+        && data.primaryColor is string && data.primaryColor.size() >= 4 && data.primaryColor.size() <= 32
+        && data.breakingNewsEnabled is bool
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAdminProfile(data) {
+      return data.keys().hasAll(['uid', 'role', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'role', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.role in ['Super Admin', 'Managing Editor', 'Reporter', 'SEO Specialist', 'Advertising Manager']
+        && data.status in ['active', 'suspended']
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidUserPublicProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'preferredLang', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'preferredLang', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.preferredLang in ['en', 'ur']
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidReaderBookmark(data) {
+      return data.keys().hasAll(['uid', 'articleId', 'slug', 'titleEn', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'articleId', 'slug', 'titleEn', 'titleUr', 'category', 'createdAt'])
+        && isValidId(data.uid)
+        && isValidId(data.articleId)
+        && data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 180
+        && data.titleEn is string && data.titleEn.size() >= 1 && data.titleEn.size() <= 300
+        && (!('titleUr' in data) || (data.titleUr is string && data.titleUr.size() <= 400))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 64))
+        && data.createdAt == request.time;
+    }
+
+    function isValidPushPreference(data) {
+      return data.keys().hasAll(['uid', 'breakingNews', 'cricketScores', 'language', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'breakingNews', 'cricketScores', 'dailyBriefing', 'language', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.breakingNews is bool
+        && data.cricketScores is bool
+        && (!('dailyBriefing' in data) || data.dailyBriefing is bool)
+        && data.language in ['en', 'ur', 'both']
+        && data.status in ['active', 'unsubscribed']
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAuditEntry(data) {
+      return data.keys().hasAll(['actorUid', 'action', 'details', 'createdAt'])
+        && data.keys().hasOnly(['actorUid', 'action', 'details', 'createdAt'])
+        && isValidId(data.actorUid)
+        && data.action is string && data.action.size() >= 2 && data.action.size() <= 160
+        && data.details is string && data.details.size() <= 1000
+        && data.createdAt == request.time;
+    }
+
+    // =========================================================================
+    // 4. COLLECTION SECURITY RULES
+    // =========================================================================
+
+    // Health check connection probe (boot verification)
+    match /test/connection {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    // News Articles
+    match /articles/{articleId} {
+      allow get: if isValidId(articleId)
+        && (resource.data.status == 'published' || isAdmin());
+      allow list: if resource.data.status == 'published' || isBootstrappedAdmin();
+      allow create: if isVerifiedUser()
+        && isValidId(articleId)
+        && isValidPortalArticle(incoming())
+        && incoming().id == articleId
+        && incoming().authorUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && isAdmin();
+      allow update: if isVerifiedUser()
+        && isValidId(articleId)
+        && isValidPortalArticle(incoming())
+        && incoming().id == existing().id
+        && incoming().authorUid == existing().authorUid
+        && incoming().createdAt == existing().createdAt
+        && (existing().status != 'archived' || isAdmin())
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'slug', 'titleEn', 'titleUr', 'summaryEn', 'summaryUr',
+          'category', 'status', 'isBreaking', 'publishedAt', 'updatedAt'
+        ]);
+      allow delete: if isVerifiedUser()
+        && isValidId(articleId)
+        && isAdmin();
+    }
+
+    // News Categories
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isVerifiedUser()
+        && isValidId(categoryId)
+        && isValidCategoryConfig(incoming())
+        && incoming().id == categoryId
+        && incoming().createdAt == request.time
+        && isAdmin();
+      allow update: if isVerifiedUser()
+        && isValidId(categoryId)
+        && isValidCategoryConfig(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['slug', 'nameEn', 'nameUr', 'updatedAt']);
+      allow delete: if isVerifiedUser()
+        && isValidId(categoryId)
+        && isAdmin();
+    }
+
+    // Public Portal Configuration
+    match /siteSettings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if true;
+      allow create: if isVerifiedUser()
+        && isValidId(settingId)
+        && isValidSiteConfig(incoming())
+        && isAdmin();
+      allow update: if isVerifiedUser()
+        && isValidId(settingId)
+        && isValidSiteConfig(incoming())
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'siteNameEn', 'siteNameUr', 'taglineEn', 'taglineUr',
+          'primaryColor', 'breakingNewsEnabled', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Admin Registry
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerifiedUser()
+        && isValidId(adminId)
+        && isValidAdminProfile(incoming())
+        && incoming().uid == adminId
+        && incoming().createdAt == request.time
+        && isBootstrappedAdmin();
+      allow update: if isVerifiedUser()
+        && isValidId(adminId)
+        && isValidAdminProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && isBootstrappedAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'updatedAt']);
+      allow delete: if isVerifiedUser()
+        && isValidId(adminId)
+        && isBootstrappedAdmin();
+    }
+
+    // Split User Profile (Public Non-PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublicProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserPublicProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || (
+            isOwner(userId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'preferredLang', 'updatedAt'])
+          )
+        );
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && (isOwner(userId) || isAdmin());
+
+      // Isolated Private PII Subcollection
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isOwner(userId)
+          && docId == 'info'
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && (
+            isAdmin()
+            || (
+              isOwner(userId)
+              && docId == 'info'
+              && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt'])
+            )
+          );
+        allow delete: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && (isOwner(userId) || isAdmin());
+      }
+
+      // Reader Bookmarks Subcollection (Master Gate checks parent /users/{userId})
+      match /bookmarks/{bookmarkId} {
+        allow get: if isValidId(userId) && isValidId(bookmarkId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(bookmarkId)
+          && isOwner(userId)
+          && isValidReaderBookmark(incoming())
+          && incoming().uid == request.auth.uid
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if false;
+        allow delete: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(bookmarkId)
+          && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // Reader Web Push Notification Preferences
+    match /pushPreferences/{prefId} {
+      allow get: if isValidId(prefId)
+        && isSignedIn()
+        && (resource.data.uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isVerifiedUser()
+        && isValidId(prefId)
+        && prefId == request.auth.uid
+        && isValidPushPreference(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(prefId)
+        && isValidPushPreference(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || (
+            existing().uid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'breakingNews', 'cricketScores', 'dailyBriefing', 'language', 'status', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerifiedUser()
+        && isValidId(prefId)
+        && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    // Immutable Admin Audit Logs
+    match /auditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerifiedUser()
+        && isValidId(logId)
+        && isValidAuditEntry(incoming())
+        && incoming().actorUid == request.auth.uid
+        && isAdmin();
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

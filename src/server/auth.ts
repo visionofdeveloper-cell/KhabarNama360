@@ -7,6 +7,9 @@
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { db } from './db.ts';
+import { adminAuth } from '../lib/firebase-admin.ts';
+
+const BOOTSTRAPPED_ADMIN_EMAIL = 'visionofdeveloper@gmail.com';
 
 export interface AdminSession {
   sessionId: string;
@@ -229,22 +232,92 @@ export function listActiveSessions(): AdminSession[] {
   return list;
 }
 
+export async function authenticateAdminWithFirebase(
+  idToken: string,
+  ipAddress: string,
+  userAgent: string
+): Promise<{ success: boolean; session?: AdminSession; error?: string }> {
+  try {
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    const email = (decoded.email || '').trim().toLowerCase();
+    if (!email || !decoded.email_verified) {
+      return { success: false, error: 'Verified Google email is required for admin access.' };
+    }
+
+    const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+    const isAuthorized = email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active');
+
+    if (!isAuthorized) {
+      db.logAudit(email, 'Blocked Firebase Admin Login', `Unauthorized Google sign-in attempt from IP ${ipAddress}`);
+      return { success: false, error: 'This Google account is not authorized for 360Khabarnama Admin.' };
+    }
+
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    const session: AdminSession = {
+      sessionId,
+      userId: decoded.uid,
+      email,
+      nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
+      role: staffUser?.role || 'Super Admin',
+      mfaVerified: true,
+      ipAddress,
+      userAgent,
+      createdAt: new Date().toISOString(),
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    };
+
+    activeSessions.set(sessionId, session);
+    db.logAudit(email, 'Admin Firebase Login Success', `Authenticated Google session ${sessionId.slice(0, 8)}... from IP ${ipAddress}`);
+
+    return { success: true, session };
+  } catch (err) {
+    console.error('[Auth] Firebase ID token verification failed:', err);
+    return { success: false, error: 'Invalid or expired Firebase ID token.' };
+  }
+}
+
 // Express middleware to protect all /api/admin/* endpoints
-export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   // Allow auth endpoints without existing session
   if (req.path.startsWith('/auth/')) {
     return next();
   }
 
   const session = getSessionFromRequest(req);
-  if (!session) {
-    return res.status(401).json({
-      success: false,
-      error: 'Authentication required. Please sign in to 360Khabarnama Admin.',
-    });
+  if (session) {
+    (req as any).adminSession = session;
+    return next();
   }
 
-  // Attach session to request for downstream RBAC
-  (req as any).adminSession = session;
-  next();
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    try {
+      const decoded = await adminAuth.verifyIdToken(token);
+      const email = (decoded.email || '').trim().toLowerCase();
+      const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
+        (req as any).adminSession = {
+          sessionId: `fb-${decoded.uid}`,
+          userId: decoded.uid,
+          email,
+          nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
+          role: staffUser?.role || 'Super Admin',
+          mfaVerified: true,
+          ipAddress: req.ip || '127.0.0.1',
+          userAgent: req.headers['user-agent'] || 'Unknown',
+          createdAt: new Date().toISOString(),
+          expiresAt: Date.now() + SESSION_TTL_MS,
+        };
+        return next();
+      }
+    } catch {
+      // Fall through to 401 below
+    }
+  }
+
+  return res.status(401).json({
+    success: false,
+    error: 'Authentication required. Please sign in to 360Khabarnama Admin.',
+  });
 }

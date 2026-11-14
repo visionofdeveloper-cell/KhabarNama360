@@ -1742,6 +1742,30 @@ class DatabaseManager {
         if (!parsed.notifications || parsed.notifications.length === 0) parsed.notifications = defaultNotifications;
         if (!parsed.pushSubscriptions) parsed.pushSubscriptions = [];
         if (!parsed.homepageConfig) parsed.homepageConfig = defaultHomepageConfig;
+        let migrated = false;
+        if ('epaperPages' in parsed) {
+          delete parsed.epaperPages;
+          migrated = true;
+        }
+        if (!parsed.siteSettings || parsed.siteSettings.siteNameEn === 'Pakistan Digital Portal') {
+          parsed.siteSettings = {
+            ...defaultSiteSettings,
+            ...(parsed.siteSettings || {}),
+            siteNameEn: '360Khabarnama',
+            siteNameUr: '360 خبرنامہ',
+            taglineEn: defaultSiteSettings.taglineEn,
+            taglineUr: defaultSiteSettings.taglineUr,
+            contactEmail: 'editor@360khabarnama.com',
+            googleAnalyticsId:
+              parsed.siteSettings?.googleAnalyticsId === 'G-PAKPORTAL2026'
+                ? defaultSiteSettings.googleAnalyticsId
+                : parsed.siteSettings?.googleAnalyticsId || defaultSiteSettings.googleAnalyticsId,
+          };
+          migrated = true;
+        }
+        if (migrated) {
+          this.saveDatabase(parsed);
+        }
         return parsed;
       }
     } catch (e) {
@@ -1799,7 +1823,9 @@ class DatabaseManager {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(DB_FILE, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      const tmpFile = `${DB_FILE}.tmp`;
+      fs.writeFileSync(tmpFile, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      fs.renameSync(tmpFile, DB_FILE);
     } catch (e) {
       console.error('Failed to write database to disk:', e);
     }

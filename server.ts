@@ -7,6 +7,7 @@ import { scheduler } from './src/server/automation/scheduler.ts';
 import {
   requireAdminAuth,
   authenticateAdmin,
+  authenticateAdminWithFirebase,
   provisionFirstAdmin,
   isBootstrapRequired,
   getSessionFromRequest,
@@ -147,6 +148,31 @@ app.post('/api/admin/auth/login', (req, res) => {
   res.json({
     success: true,
     mfaRequired: result.mfaRequired,
+    session: {
+      email: result.session.email,
+      nameEn: result.session.nameEn,
+      role: result.session.role,
+      expiresAt: result.session.expiresAt,
+    },
+  });
+});
+
+app.post('/api/admin/auth/firebase', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const idToken = req.body?.idToken || bearerToken;
+  if (!idToken) {
+    return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+  }
+  const ip = req.ip || req.socket.remoteAddress || '127.0.0.1';
+  const ua = req.headers['user-agent'] || 'Unknown';
+  const result = await authenticateAdminWithFirebase(idToken, ip, ua);
+  if (!result.success || !result.session) {
+    return res.status(401).json({ success: false, error: result.error });
+  }
+  setSessionCookie(res, result.session.sessionId);
+  res.json({
+    success: true,
     session: {
       email: result.session.email,
       nameEn: result.session.nameEn,

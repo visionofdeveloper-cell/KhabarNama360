@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
+import { useFirebase } from '../context/FirebaseContext.tsx';
 import { Article } from '../types/index.ts';
 import { ReadingProgressBar } from '../components/ReadingProgressBar.tsx';
 import {
@@ -8,6 +9,7 @@ import {
   Calendar,
   Share2,
   Bookmark,
+  Link2,
   Volume2,
   ChevronRight,
   ArrowLeft,
@@ -31,8 +33,10 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
   onBack
 }) => {
   const { isUrdu, t, navigateTo } = useLanguage();
+  const { isBookmarked, toggleBookmark } = useFirebase();
   const articleRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [savingBookmark, setSavingBookmark] = useState(false);
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -194,7 +198,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
             </button>
           </div>
 
-          {/* Share Buttons */}
+          {/* Share & Bookmark Buttons */}
           <div className="flex items-center gap-1 pl-2">
             <button
               onClick={handleShareWhatsApp}
@@ -206,9 +210,30 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
             <button
               onClick={handleCopyLink}
               className="p-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-xl transition-colors"
-              title="Copy Link"
+              title={isUrdu ? 'لنک کاپی کریں' : 'Copy Link'}
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Bookmark className="w-4 h-4" />}
+              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Link2 className="w-4 h-4" />}
+            </button>
+            <button
+              disabled={savingBookmark}
+              onClick={async () => {
+                setSavingBookmark(true);
+                try {
+                  await toggleBookmark(article);
+                } catch (err) {
+                  console.warn('[Bookmark] Failed to update bookmark:', err);
+                } finally {
+                  setSavingBookmark(false);
+                }
+              }}
+              className={`p-2 rounded-xl transition-colors ${
+                isBookmarked(article.id)
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              title={isUrdu ? 'محفوظ کریں' : isBookmarked(article.id) ? 'Saved' : 'Save Article'}
+            >
+              <Bookmark className="w-4 h-4" />
             </button>
           </div>
         </div>

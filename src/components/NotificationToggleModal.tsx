@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
+import { useFirebase } from '../context/FirebaseContext.tsx';
 import {
   PushNotificationClient,
   playAlertChime,
@@ -31,6 +32,7 @@ export const NotificationToggleModal: React.FC<NotificationToggleModalProps> = (
   onClose,
 }) => {
   const { isUrdu, language, navigateTo } = useLanguage();
+  const { syncPushPreferences } = useFirebase();
   const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [loading, setLoading] = useState<boolean>(false);
@@ -59,12 +61,14 @@ export const NotificationToggleModal: React.FC<NotificationToggleModalProps> = (
       const ok = await PushNotificationClient.unsubscribe();
       if (ok) {
         setIsSubscribed(false);
+        syncPushPreferences(topics, language, 'unsubscribed').catch(() => {});
       }
     } else {
       const res = await PushNotificationClient.subscribe(topics, language);
       if (res.success) {
         setIsSubscribed(true);
         setPermission('granted');
+        syncPushPreferences(topics, language, 'active').catch(() => {});
         setTestStatus(
           isUrdu
             ? 'آپ کامیابی سے 360 خبرنامہ الرٹس میں رجسٹر ہو چکے ہیں!'
@@ -85,6 +89,7 @@ export const NotificationToggleModal: React.FC<NotificationToggleModalProps> = (
     setTopics(updated);
     if (isSubscribed) {
       await PushNotificationClient.updatePreferences(updated, language);
+      syncPushPreferences(updated, language, 'active').catch(() => {});
     }
   };
 

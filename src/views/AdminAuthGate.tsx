@@ -6,10 +6,12 @@
 
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, CheckCircle2, LogOut } from 'lucide-react';
+import { useFirebase } from '../context/FirebaseContext.tsx';
 
 const AdminView = lazy(() => import('./AdminView.tsx').then(m => ({ default: m.AdminView })));
 
 export const AdminAuthGate: React.FC = () => {
+  const { signInWithGoogle, signOutFirebase } = useFirebase();
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
@@ -88,8 +90,39 @@ export const AdminAuthGate: React.FC = () => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const fbUser = await signInWithGoogle();
+      const idToken = await fbUser.getIdToken();
+      const res = await fetch('/api/admin/auth/firebase', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ idToken }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await checkAuthStatus();
+      } else {
+        await signOutFirebase();
+        setError(data.error || 'Google account is not authorized for admin access.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Google sign-in failed or was cancelled.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleLogout = async () => {
     await fetch('/api/admin/auth/logout', { method: 'POST' });
+    try {
+      await signOutFirebase();
+    } catch {}
     setAuthenticated(false);
     setSession(null);
     setPassword('');
@@ -222,6 +255,22 @@ export const AdminAuthGate: React.FC = () => {
             </span>
           </button>
         </form>
+
+        <div className="relative flex items-center py-1">
+          <div className="flex-grow border-t border-gray-800" />
+          <span className="shrink mx-3 text-[11px] uppercase tracking-wider text-gray-500 font-bold">OR</span>
+          <div className="flex-grow border-t border-gray-800" />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={submitting}
+          className="w-full py-3 bg-white hover:bg-gray-100 text-gray-900 font-bold text-xs rounded-xl shadow transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-700" />
+          <span>Sign in with Google (Authorized Admin)</span>
+        </button>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { LanguageProvider, useLanguage } from './context/LanguageContext.tsx';
+import { FirebaseProvider } from './context/FirebaseContext.tsx';
 import { Header } from './components/Header.tsx';
 import { Footer } from './components/Footer.tsx';
 import { Article } from './types/index.ts';
@@ -125,8 +126,10 @@ function MainPortal() {
 
 export default function App() {
   return (
-    <LanguageProvider>
-      <MainPortal />
-    </LanguageProvider>
+    <FirebaseProvider>
+      <LanguageProvider>
+        <MainPortal />
+      </LanguageProvider>
+    </FirebaseProvider>
   );
 }

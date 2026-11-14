@@ -1,0 +1,405 @@
+{
+  "entities": {
+    "PortalArticle": {
+      "title": "PortalArticle",
+      "description": "Bilingual English and Urdu news article published on 360Khabarnama.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique article document identifier."
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 180,
+          "pattern": "^[a-z0-9\\-]+$",
+          "description": "URL-safe article slug."
+        },
+        "titleEn": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "English headline."
+        },
+        "titleUr": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 400,
+          "description": "Urdu headline."
+        },
+        "summaryEn": {
+          "type": "string",
+          "maxLength": 1200,
+          "description": "English article summary."
+        },
+        "summaryUr": {
+          "type": "string",
+          "maxLength": 1500,
+          "description": "Urdu article summary."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "description": "Category slug."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "in_review", "scheduled", "published", "archived"],
+          "description": "Editorial workflow state."
+        },
+        "isBreaking": {
+          "type": "boolean",
+          "description": "Breaking news ticker flag."
+        },
+        "authorUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the author/editor who published the article."
+        },
+        "publishedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO publish timestamp."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["id", "slug", "titleEn", "titleUr", "category", "status", "authorUid", "createdAt", "updatedAt"]
+    },
+    "CategoryConfig": {
+      "title": "CategoryConfig",
+      "description": "Bilingual news category metadata.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "nameEn": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "nameUr": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "slug", "nameEn", "nameUr", "createdAt", "updatedAt"]
+    },
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "Global portal branding and public configuration.",
+      "type": "object",
+      "properties": {
+        "siteNameEn": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "siteNameUr": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "taglineEn": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "taglineUr": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "primaryColor": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "breakingNewsEnabled": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["siteNameEn", "siteNameUr", "primaryColor", "breakingNewsEnabled", "updatedAt"]
+    },
+    "AdminProfile": {
+      "title": "AdminProfile",
+      "description": "Authorized portal administrator registry document.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Super Admin", "Managing Editor", "Reporter", "SEO Specialist", "Advertising Manager"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "role", "status", "createdAt", "updatedAt"]
+    },
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Public non-PII user display profile (split from private PII collection).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "preferredLang": {
+          "type": "string",
+          "enum": ["en", "ur"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "preferredLang", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Strictly isolated PII document for a signed-in user (email and private account flags).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "ReaderBookmark": {
+      "title": "ReaderBookmark",
+      "description": "Saved news article bookmark belonging to an authenticated reader.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "articleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "titleEn": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "titleUr": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "articleId", "slug", "titleEn", "createdAt"]
+    },
+    "PushPreference": {
+      "title": "PushPreference",
+      "description": "Notification subscription preferences for breaking news and live cricket updates.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "breakingNews": {
+          "type": "boolean"
+        },
+        "cricketScores": {
+          "type": "boolean"
+        },
+        "dailyBriefing": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "ur", "both"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "unsubscribed"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "breakingNews", "cricketScores", "language", "status", "createdAt", "updatedAt"]
+    },
+    "AuditEntry": {
+      "title": "AuditEntry",
+      "description": "Private admin security and editorial audit event.",
+      "type": "object",
+      "properties": {
+        "actorUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "action": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["actorUid", "action", "details", "createdAt"]
+    },
+    "HealthCheckDoc": {
+      "title": "HealthCheckDoc",
+      "description": "Read-only connection check document.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "maxLength": 32
+        }
+      },
+      "required": ["status"]
+    }
+  },
+  "firestore": {
+    "/articles/{articleId}": {
+      "schema": { "$ref": "#/entities/PortalArticle" },
+      "description": "Published bilingual news articles readable publicly; drafts and writes restricted to verified admins."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/CategoryConfig" },
+      "description": "Bilingual portal categories readable publicly; writable only by verified admins."
+    },
+    "/siteSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/SiteConfig" },
+      "description": "Portal branding and public settings readable publicly; writable only by verified admins."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminProfile" },
+      "description": "Trusted administrator lookup registry; strictly admin-only access."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Public non-PII user display profile; writable only by the owner."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated user PII (email); readable and writable only by the owner or verified admins."
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/ReaderBookmark" },
+      "description": "Reader article bookmarks; strictly isolated to the owning user and parent user profile existence."
+    },
+    "/pushPreferences/{prefId}": {
+      "schema": { "$ref": "#/entities/PushPreference" },
+      "description": "Per-user breaking news and cricket alert preferences; owner-scoped reads/queries and updates."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditEntry" },
+      "description": "Immutable admin audit logs; readable and creatable only by verified admins."
+    },
+    "/test/connection": {
+      "schema": { "$ref": "#/entities/HealthCheckDoc" },
+      "description": "Connection probe document for boot-time getDocFromServer check."
+    }
+  }
+}
