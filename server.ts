@@ -229,29 +229,34 @@ app.post('/api/admin/auth/login', (req, res) => {
 });
 
 app.post('/api/admin/auth/firebase', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const idToken = req.body?.idToken || bearerToken;
-  if (!idToken) {
-    return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+  try {
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    const idToken = req.body?.idToken || bearerToken;
+    if (!idToken) {
+      return res.status(400).json({ success: false, error: 'Firebase ID token is required.' });
+    }
+    const ip = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const ua = req.headers['user-agent'] || 'Unknown';
+    const result = await authenticateAdminWithFirebase(idToken, ip, ua);
+    if (!result.success || !result.session) {
+      return res.status(401).json({ success: false, error: result.error });
+    }
+    setSessionCookie(res, result.session);
+    return res.json({
+      success: true,
+      session: {
+        email: result.session.email,
+        nameEn: result.session.nameEn,
+        role: result.session.role,
+        permissions: result.session.permissions,
+        expiresAt: result.session.expiresAt,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Auth] /api/admin/auth/firebase error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Firebase authentication failed.' });
   }
-  const ip = req.ip || req.socket.remoteAddress || '127.0.0.1';
-  const ua = req.headers['user-agent'] || 'Unknown';
-  const result = await authenticateAdminWithFirebase(idToken, ip, ua);
-  if (!result.success || !result.session) {
-    return res.status(401).json({ success: false, error: result.error });
-  }
-  setSessionCookie(res, result.session);
-  return res.json({
-    success: true,
-    session: {
-      email: result.session.email,
-      nameEn: result.session.nameEn,
-      role: result.session.role,
-      permissions: result.session.permissions,
-      expiresAt: result.session.expiresAt,
-    },
-  });
 });
 
 app.post('/api/admin/auth/logout', (req, res) => {
@@ -1177,19 +1182,23 @@ app.post('/api/admin/audience/notifications', requirePermission('audience:manage
 });
 
 app.post('/api/admin/notifications/broadcast', requirePermission('audience:manage'), async (req, res) => {
-  const { title, titleUr, body, bodyUr, url, topic } = req.body || {};
-  if (!title || !body) {
-    return res.status(400).json({ success: false, error: 'Title and body are required' });
+  try {
+    const { title, titleUr, body, bodyUr, url, topic } = req.body || {};
+    if (!title || !body) {
+      return res.status(400).json({ success: false, error: 'Title and body are required' });
+    }
+    const result = await pushNotificationService.broadcast({
+      title,
+      titleUr,
+      body,
+      bodyUr,
+      url: url || SitemapManager.getBaseUrl(),
+      topic: topic || 'breakingNews',
+    });
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Broadcast failed.' });
   }
-  const result = await pushNotificationService.broadcast({
-    title,
-    titleUr,
-    body,
-    bodyUr,
-    url: url || SitemapManager.getBaseUrl(),
-    topic: topic || 'breakingNews',
-  });
-  return res.json({ success: true, result });
 });
 
 // Web Push Public Endpoints
@@ -1235,10 +1244,14 @@ app.post('/api/notifications/preferences', (req, res) => {
 });
 
 app.post('/api/notifications/test', async (req, res) => {
-  const { type, endpoint } = req.body || {};
-  const alertType = type === 'cricketScores' ? 'cricketScores' : 'breakingNews';
-  const result = await pushNotificationService.sendTestAlert(alertType, endpoint);
-  res.json({ success: true, result });
+  try {
+    const { type, endpoint } = req.body || {};
+    const alertType = type === 'cricketScores' ? 'cricketScores' : 'breakingNews';
+    const result = await pushNotificationService.sendTestAlert(alertType, endpoint);
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Test alert failed.' });
+  }
 });
 
 app.get('/api/notifications/history', (_req, res) => {
@@ -1363,8 +1376,12 @@ app.post('/api/admin/seo/gsc/service-account', requirePermission('seo:manage'), 
 });
 
 app.post('/api/admin/seo/gsc/test', requirePermission('seo:manage'), async (req, res) => {
-  const outcome = await SearchConsoleService.testAndVerifyConnection(getActor(req, 'SEO Manager'));
-  res.json({ success: outcome.status === 'Authorized', ...outcome });
+  try {
+    const outcome = await SearchConsoleService.testAndVerifyConnection(getActor(req, 'SEO Manager'));
+    return res.json({ success: outcome.status === 'Authorized', ...outcome });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Search Console check failed.' });
+  }
 });
 
 app.post('/api/admin/seo/gsc/sync', requirePermission('seo:manage'), async (req, res) => {
@@ -1447,24 +1464,28 @@ app.get('/api/admin/seo/opportunities', requirePermission('seo:manage'), (_req, 
 });
 
 app.post('/api/admin/links/scan', requirePermission('seo:manage'), async (_req, res) => {
-  const { LinkAuditEngine } = await import('./services/seo/LinkAuditEngine.ts');
-  const baseUrl = `http://localhost:${PORT}`;
-  const paths = [
-    '/',
-    '/robots.txt',
-    '/sitemap.xml',
-    '/en/feed.xml',
-    '/ur/feed.xml',
-    '/llms.txt',
-    '/en/about',
-    '/ur/about',
-    '/en/privacy-policy',
-    '/ur/privacy-policy',
-    '/en/contact',
-    '/ur/contact',
-  ];
-  const report = await LinkAuditEngine.runAudit(baseUrl, paths);
-  res.json({ success: true, report });
+  try {
+    const { LinkAuditEngine } = await import('./services/seo/LinkAuditEngine.ts');
+    const baseUrl = `http://localhost:${PORT}`;
+    const paths = [
+      '/',
+      '/robots.txt',
+      '/sitemap.xml',
+      '/en/feed.xml',
+      '/ur/feed.xml',
+      '/llms.txt',
+      '/en/about',
+      '/ur/about',
+      '/en/privacy-policy',
+      '/ur/privacy-policy',
+      '/en/contact',
+      '/ur/contact',
+    ];
+    const report = await LinkAuditEngine.runAudit(baseUrl, paths);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Link scan failed.' });
+  }
 });
 
 // ================= REPORTS CENTER (12 ENTERPRISE REPORTS) =================
@@ -2191,7 +2212,8 @@ app.use((req, res, next) => {
 
 async function setupVite() {
   if (!isProduction) {
-    const { createServer } = await import('vite');
+    const vitePkg = 'vite';
+    const { createServer } = await import(/* @vite-ignore */ vitePkg);
     const vite = await createServer({
       server: { middlewareMode: true },
       appType: 'custom',
@@ -2242,7 +2264,7 @@ async function setupVite() {
   });
 }
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
   setupVite().catch(err => {
     console.error('Server startup error:', err);
   });

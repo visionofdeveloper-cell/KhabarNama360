@@ -38,12 +38,23 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadCategory(false);
     };
+    const onLiveData = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (!detail || !active) return;
+      if (categorySlug === 'world' && Array.isArray(detail.worldNews) && detail.worldNews.length > 0) {
+        setArticles(detail.worldNews);
+      } else if (categorySlug === 'sports' && Array.isArray(detail.sportsNews) && detail.sportsNews.length > 0) {
+        setArticles(detail.sportsNews);
+      }
+    };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('360kn:live-data-updated', onLiveData);
 
     return () => {
       active = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('360kn:live-data-updated', onLiveData);
     };
   }, [categorySlug]);
 

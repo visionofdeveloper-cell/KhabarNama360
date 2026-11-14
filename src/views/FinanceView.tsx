@@ -49,10 +49,20 @@ export const FinanceView: React.FC = () => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadRates();
     };
+    const onLiveData = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (!detail) return;
+      if (detail.goldRates?.length > 0) setGoldRates(detail.goldRates);
+      if (detail.currencyRates?.length > 0) setCurrencyRates(detail.currencyRates);
+      if (detail.fuelPrices?.length > 0) setFuelPrices(detail.fuelPrices);
+      if (detail.psx) setPsx(detail.psx);
+    };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('360kn:live-data-updated', onLiveData);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('360kn:live-data-updated', onLiveData);
     };
   }, []);
 

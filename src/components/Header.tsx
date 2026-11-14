@@ -89,11 +89,24 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
         void loadHeaderData();
       }
     };
+    const onLiveData = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (!detail) return;
+      if (Array.isArray(detail.goldRates) && detail.goldRates[0]?.tolaPkr) {
+        setLiveGold24k(detail.goldRates[0].tolaPkr);
+      }
+      if (Array.isArray(detail.weather) && detail.weather.length > 0) {
+        setWeatherCities(detail.weather.slice(0, 2));
+      }
+    };
+
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('360kn:live-data-updated', onLiveData);
 
     return () => {
       clearInterval(refreshInterval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('360kn:live-data-updated', onLiveData);
     };
   }, []);
 

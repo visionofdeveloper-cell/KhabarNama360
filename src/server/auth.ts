@@ -598,47 +598,55 @@ export async function authenticateAdminWithFirebase(
 }
 
 export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.path.startsWith('/auth/')) {
-    return next();
-  }
+  try {
+    if (req.path.startsWith('/auth/')) {
+      return next();
+    }
 
-  const session = getSessionFromRequest(req);
-  if (session) {
-    (req as any).adminSession = session;
-    return next();
-  }
+    const session = getSessionFromRequest(req);
+    if (session) {
+      (req as any).adminSession = session;
+      return next();
+    }
 
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7).trim();
-    try {
-      const decoded = await adminAuth.verifyIdToken(token);
-      const email = (decoded.email || '').trim().toLowerCase();
-      const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
-      if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
-        const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
-        (req as any).adminSession = {
-          sessionId: `fb-${decoded.uid}`,
-          userId: decoded.uid,
-          email,
-          nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
-          role: assignedRole,
-          permissions: getPermissionsForRole(assignedRole),
-          mfaVerified: true,
-          ipAddress: req.ip || '127.0.0.1',
-          userAgent: req.headers['user-agent'] || 'Unknown',
-          createdAt: new Date().toISOString(),
-          expiresAt: Date.now() + SESSION_TTL_MS,
-        };
-        return next();
-      }
-    } catch {}
-  }
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+      try {
+        const decoded = await adminAuth.verifyIdToken(token);
+        const email = (decoded.email || '').trim().toLowerCase();
+        const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+        if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
+          const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
+          (req as any).adminSession = {
+            sessionId: `fb-${decoded.uid}`,
+            userId: decoded.uid,
+            email,
+            nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
+            role: assignedRole,
+            permissions: getPermissionsForRole(assignedRole),
+            mfaVerified: true,
+            ipAddress: req.ip || '127.0.0.1',
+            userAgent: req.headers['user-agent'] || 'Unknown',
+            createdAt: new Date().toISOString(),
+            expiresAt: Date.now() + SESSION_TTL_MS,
+          };
+          return next();
+        }
+      } catch {}
+    }
 
-  return res.status(401).json({
-    success: false,
-    error: 'Authentication required. Please sign in to 360Khabarnama Admin.',
-  });
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required. Please sign in to 360Khabarnama Admin.',
+    });
+  } catch (err: any) {
+    console.error('[Auth] Middleware verification error:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Authentication verification failed.',
+    });
+  }
 }
 
 export function requirePermission(permission: AdminPermission) {

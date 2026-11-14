@@ -1,6 +1,8 @@
-import * as webpush from 'web-push';
+import * as webpushNamespace from 'web-push';
 import { db } from './db.ts';
 import { PushAlertPayload, WebPushSubscription, Article, CricketMatch } from '../types/index.ts';
+
+const webpush: any = (webpushNamespace as any)?.default || webpushNamespace;
 
 class PushNotificationService {
   private vapidPublicKey: string = '';
@@ -8,7 +10,11 @@ class PushNotificationService {
   private initialized: boolean = false;
 
   constructor() {
-    this.initVapid();
+    try {
+      this.initVapid();
+    } catch (err) {
+      console.warn('[WebPush] Deferred VAPID init due to environment constraint:', err);
+    }
   }
 
   private initVapid() {
@@ -27,7 +33,7 @@ class PushNotificationService {
       if (savedKeys && savedKeys.publicKey && savedKeys.privateKey) {
         this.vapidPublicKey = savedKeys.publicKey;
         this.vapidPrivateKey = savedKeys.privateKey;
-      } else {
+      } else if (typeof webpush?.generateVAPIDKeys === 'function') {
         // 3. Generate a stable VAPID keypair and persist in database
         try {
           const generated = webpush.generateVAPIDKeys();
@@ -41,7 +47,7 @@ class PushNotificationService {
       }
     }
 
-    if (this.vapidPublicKey && this.vapidPrivateKey) {
+    if (this.vapidPublicKey && this.vapidPrivateKey && typeof webpush?.setVapidDetails === 'function') {
       const contactEmail = process.env.VAPID_CONTACT_EMAIL || 'mailto:alerts@360khabarnama.com';
       try {
         webpush.setVapidDetails(contactEmail, this.vapidPublicKey, this.vapidPrivateKey);

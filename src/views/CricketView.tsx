@@ -25,10 +25,16 @@ export const CricketView: React.FC = () => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadMatches();
     };
+    const onLiveData = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (detail?.cricketMatches?.length > 0) setMatches(detail.cricketMatches);
+    };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('360kn:live-data-updated', onLiveData);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('360kn:live-data-updated', onLiveData);
     };
   }, []);
 

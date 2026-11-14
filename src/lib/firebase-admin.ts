@@ -6,43 +6,55 @@
 
 import fs from 'fs';
 import path from 'path';
-import { initializeApp, getApps } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp, getApps, App } from 'firebase-admin/app';
+import { getAuth, Auth } from 'firebase-admin/auth';
 
-function loadFirebaseConfig(): { projectId: string; firestoreDatabaseId?: string } {
-  const fallback = {
-    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'gen-lang-client-0094029776',
-    firestoreDatabaseId:
-      process.env.FIRESTORE_DATABASE_ID ||
-      'ai-studio-360khabarnama-91785bb5-94ed-4005-bd25-9b4d9b8b10ba',
-  };
+function loadFirebaseConfig(): { projectId: string } {
+  const fallbackProjectId =
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    'gen-lang-client-0094029776';
 
-  try {
-    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(configPath)) {
-      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return {
-        projectId: parsed.projectId || fallback.projectId,
-        firestoreDatabaseId: parsed.firestoreDatabaseId || fallback.firestoreDatabaseId,
-      };
+  const candidates = [
+    path.resolve(process.cwd(), 'firebase-applet-config.json'),
+    path.resolve('/var/task/firebase-applet-config.json'),
+  ];
+
+  for (const configPath of candidates) {
+    try {
+      if (fs.existsSync(configPath)) {
+        const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (parsed?.projectId) {
+          return { projectId: parsed.projectId };
+        }
+      }
+    } catch (err) {
+      console.warn('[FirebaseAdmin] Config read warning:', (err as any)?.message);
     }
-  } catch (err) {
-    console.warn('[FirebaseAdmin] Falling back to environment config:', (err as any)?.message);
   }
-  return fallback;
+
+  return { projectId: fallbackProjectId };
 }
 
-const firebaseConfig = loadFirebaseConfig();
+let cachedAuth: Auth | null = null;
 
-const adminApp =
-  getApps().length > 0
-    ? getApps()[0]
-    : initializeApp({
-        projectId: firebaseConfig.projectId,
-      });
+function getFirebaseAdminAuth(): Auth {
+  if (cachedAuth) return cachedAuth;
+  const firebaseConfig = loadFirebaseConfig();
+  const existingApps: App[] = getApps();
+  const adminApp =
+    existingApps.length > 0
+      ? existingApps[0]
+      : initializeApp({
+          projectId: firebaseConfig.projectId,
+        });
+  cachedAuth = getAuth(adminApp);
+  return cachedAuth;
+}
 
-export const adminAuth = getAuth(adminApp);
-export const adminDb = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(adminApp, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(adminApp);
+export const adminAuth = {
+  verifyIdToken: async (idToken: string) => {
+    const auth = getFirebaseAdminAuth();
+    return auth.verifyIdToken(idToken);
+  },
+};

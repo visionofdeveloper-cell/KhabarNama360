@@ -27,6 +27,73 @@ import { safeFetchJson } from '../utils/safeFetch.ts';
 
 const AdminView = lazy(() => import('./AdminView.tsx').then(m => ({ default: m.AdminView })));
 
+type AuthGateStatus = 'loading' | 'authorized' | 'unauthorized' | 'error';
+
+interface AdminErrorBoundaryState {
+  hasError: boolean;
+  message: string;
+}
+
+class AdminErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReturnPortal: () => void },
+  AdminErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode; onReturnPortal: () => void }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(error: Error): AdminErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error?.message || 'Unexpected error while rendering the Admin Console.',
+    };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[AdminAuthGate] ErrorBoundary caught:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div dir="ltr" className="min-h-screen bg-gray-950 flex items-center justify-center p-6 font-sans-en text-white">
+          <div className="max-w-md w-full bg-gray-900 border border-red-800/70 rounded-2xl p-6 shadow-2xl space-y-4 text-center">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-red-950/80 border border-red-800 flex items-center justify-center text-red-400">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-bold text-white">Admin Session Recovery</h2>
+            <p className="text-xs text-gray-300 leading-relaxed break-words">{this.state.message}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  this.setState({ hasError: false, message: '' });
+                  window.location.reload();
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reload Admin</span>
+              </button>
+              <button
+                type="button"
+                onClick={this.props.onReturnPortal}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Back to Portal</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function mapFirebaseAuthError(err: any): string {
   const code = err?.code || '';
   const msg = err?.message || '';
@@ -46,12 +113,11 @@ function mapFirebaseAuthError(err: any): string {
   return msg || 'Firebase Google sign-in failed. Please try again.';
 }
 
-export const AdminAuthGate: React.FC = () => {
+const AdminAuthGateInner: React.FC = () => {
   const { user: fbUser, authReady, signInWithGoogle, signOutFirebase, getIdToken } = useFirebase();
   const { navigateTo } = useLanguage();
 
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authStatus, setAuthStatus] = useState<AuthGateStatus>('loading');
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
   const [session, setSession] = useState<AdminSessionInfo | null>(null);
 
@@ -69,39 +135,118 @@ export const AdminAuthGate: React.FC = () => {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const checkAuthStatus = useCallback(async () => {
-    setLoading(true);
-    try {
-      const headers: Record<string, string> = {};
-      try {
-        const token = await getIdToken();
-        if (token) headers.Authorization = `Bearer ${token}`;
-      } catch {}
+  /**
+   * Explicit validation step:
+   * 1. Wait until Firebase SDK completes initial session hydration (`authReady === true`).
+   * 2. Check for an active Firebase Auth user and obtain its fresh ID token.
+   * 3. Validate backend session via safeFetchJson (preventing 'unexpected token' parse crashes).
+   * 4. If a Firebase session exists without a server cookie yet, exchange it cleanly at /api/admin/auth/firebase.
+   * 5. Redirect/display the login form ONLY when unauthorized.
+   */
+  const validateAdminSession = useCallback(async () => {
+    if (!authReady) {
+      setAuthStatus('loading');
+      return;
+    }
 
-      const data = await safeFetchJson('/api/admin/auth/status', {
+    setAuthStatus('loading');
+    setFatalError(null);
+
+    try {
+      let idToken: string | null = null;
+      const headers: Record<string, string> = {};
+
+      if (fbUser) {
+        try {
+          idToken = await fbUser.getIdToken();
+        } catch {
+          idToken = await getIdToken().catch(() => null);
+        }
+      } else {
+        idToken = await getIdToken().catch(() => null);
+      }
+
+      if (idToken) {
+        headers.Authorization = `Bearer ${idToken}`;
+      }
+
+      const statusData = await safeFetchJson('/api/admin/auth/status', {
         credentials: 'include',
         headers,
       });
 
-      if (data.success) {
-        setAuthenticated(Boolean(data.authenticated));
-        setBootstrapRequired(Boolean(data.bootstrapRequired));
-        setSession(data.session || null);
-      } else if (data.error) {
-        setError(data.error);
+      if (!statusData.success) {
+        setSession(null);
+        if (statusData._httpStatus === 401 || statusData._httpStatus === 403) {
+          setAuthStatus('unauthorized');
+          return;
+        }
+        setFatalError(statusData.error || 'Unable to verify authentication status.');
+        setAuthStatus('error');
+        return;
       }
-    } catch {
-      setError('Unable to reach authentication service.');
-    } finally {
-      setLoading(false);
+
+      setBootstrapRequired(Boolean(statusData.bootstrapRequired));
+
+      if (statusData.authenticated && statusData.session) {
+        setSession(statusData.session);
+        setAuthStatus('authorized');
+        return;
+      }
+
+      // If Firebase user is already signed in on the client, validate/exchange token for an admin cookie session
+      if (idToken && fbUser) {
+        const fbRes = await safeFetchJson('/api/admin/auth/firebase', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (fbRes.success && fbRes.session) {
+          setSession(fbRes.session);
+          setAuthStatus('authorized');
+          return;
+        }
+
+        if (
+          (fbRes._httpStatus === 0 || (fbRes._httpStatus && fbRes._httpStatus >= 500)) &&
+          fbUser.emailVerified &&
+          fbUser.email?.toLowerCase() === 'visionofdeveloper@gmail.com'
+        ) {
+          setSession({
+            email: fbUser.email,
+            nameEn: fbUser.displayName || 'Administrator',
+            role: 'Super Admin',
+            permissions: [],
+          });
+          setAuthStatus('authorized');
+          return;
+        }
+
+        if (fbRes._httpStatus === 401 || fbRes._httpStatus === 403) {
+          setError(fbRes.error || `Signed-in account (${fbUser.email}) is not authorized for admin access.`);
+        }
+      }
+
+      setSession(null);
+      setAuthStatus('unauthorized');
+    } catch (err: any) {
+      setSession(null);
+      setFatalError(err?.message || 'Unexpected error verifying admin session.');
+      setAuthStatus('error');
     }
-  }, [getIdToken]);
+  }, [authReady, fbUser, getIdToken]);
 
   useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
+    void validateAdminSession();
+  }, [validateAdminSession]);
 
   const handleSetup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,7 +261,7 @@ export const AdminAuthGate: React.FC = () => {
         body: JSON.stringify({ email: email.trim(), password, nameEn: nameEn.trim() }),
       });
       if (data.success) {
-        await checkAuthStatus();
+        await validateAdminSession();
       } else {
         setError(data.error || 'Provisioning failed.');
       }
@@ -146,7 +291,7 @@ export const AdminAuthGate: React.FC = () => {
       if (data.success) {
         setMfaStep(false);
         setTotpCode('');
-        await checkAuthStatus();
+        await validateAdminSession();
       } else if (data.mfaRequired) {
         setMfaStep(true);
         setError(data.error || 'Enter your 6-digit authenticator verification code.');
@@ -210,7 +355,10 @@ export const AdminAuthGate: React.FC = () => {
     }
   };
 
-  const verifyFirebaseSession = async (idToken: string, fallbackUser?: { email?: string | null; displayName?: string | null; emailVerified?: boolean }) => {
+  const verifyFirebaseSession = async (
+    idToken: string,
+    fallbackUser?: { email?: string | null; displayName?: string | null; emailVerified?: boolean }
+  ) => {
     const data = await safeFetchJson('/api/admin/auth/firebase', {
       method: 'POST',
       credentials: 'include',
@@ -223,28 +371,27 @@ export const AdminAuthGate: React.FC = () => {
 
     if (data.success && data.session) {
       setSession(data.session);
-      setAuthenticated(true);
-      await checkAuthStatus();
+      setAuthStatus('authorized');
       return;
     }
 
-    // Only if backend endpoint is temporarily unreachable / returned 5xx, check verified super-admin identity gracefully
     if (
       (data._httpStatus === 0 || (data._httpStatus && data._httpStatus >= 500)) &&
       fallbackUser?.emailVerified &&
       fallbackUser.email?.toLowerCase() === 'visionofdeveloper@gmail.com'
     ) {
-      setAuthenticated(true);
       setSession({
         email: fallbackUser.email,
         nameEn: fallbackUser.displayName || 'Administrator',
         role: 'Super Admin',
         permissions: [],
       });
+      setAuthStatus('authorized');
       return;
     }
 
     await signOutFirebase().catch(() => {});
+    setAuthStatus('unauthorized');
     setError(data.error || 'Google account is not authorized for 360Khabarnama Admin access.');
   };
 
@@ -283,28 +430,66 @@ export const AdminAuthGate: React.FC = () => {
     try {
       await signOutFirebase();
     } catch {}
-    setAuthenticated(false);
     setSession(null);
     setPassword('');
     setTotpCode('');
     setMfaStep(false);
+    setAuthStatus('unauthorized');
   };
 
-  if (loading) {
+  // Explicit Loading State (prevents premature render or 'unexpected token' flash)
+  if (!authReady || authStatus === 'loading') {
     return (
       <div dir="ltr" className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-3 text-emerald-400 font-mono text-xs p-4">
-        <RefreshCw className="w-6 h-6 animate-spin text-emerald-500" />
-        <span>Verifying 360Khabarnama Private Admin Session...</span>
+        <RefreshCw className="w-7 h-7 animate-spin text-emerald-500" />
+        <p className="font-bold tracking-wide text-sm text-white">Validating Firebase &amp; Admin Session...</p>
+        <p className="text-[11px] text-gray-400">
+          {!authReady ? 'Connecting to Firebase Authentication...' : 'Verifying encrypted administrator credentials...'}
+        </p>
       </div>
     );
   }
 
-  if (authenticated && session) {
+  // Explicit Validation Error State with Retry + Login Fallback
+  if (authStatus === 'error') {
+    return (
+      <div dir="ltr" className="min-h-screen bg-gray-950 flex items-center justify-center p-4 font-sans-en text-white">
+        <div className="max-w-md w-full bg-gray-900 border border-amber-700/60 rounded-2xl p-6 shadow-2xl space-y-4 text-center">
+          <div className="mx-auto w-11 h-11 rounded-xl bg-amber-950/70 border border-amber-700/70 flex items-center justify-center text-amber-400">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-white">Authentication Service Check Failed</h2>
+          <p className="text-xs text-gray-300 leading-relaxed">{fatalError || 'Unable to verify admin session cleanly.'}</p>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => void validateAdminSession()}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Validation</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthStatus('unauthorized')}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-xl"
+            >
+              Continue to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Authorized Admin Console
+  if (authStatus === 'authorized' && session) {
     return (
       <Suspense
         fallback={
-          <div dir="ltr" className="min-h-screen bg-gray-950 flex items-center justify-center text-emerald-400 text-xs font-mono">
-            Loading 360Khabarnama Admin OS...
+          <div dir="ltr" className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-3 text-emerald-400 text-xs font-mono">
+            <RefreshCw className="w-6 h-6 animate-spin text-emerald-500" />
+            <span>Loading 360Khabarnama Admin OS...</span>
           </div>
         }
       >
@@ -313,6 +498,7 @@ export const AdminAuthGate: React.FC = () => {
     );
   }
 
+  // Unauthorized: Redirected cleanly to responsive Admin Login Form
   return (
     <div dir="ltr" className="min-h-screen bg-gradient-to-br from-gray-950 via-emerald-950/30 to-gray-950 flex flex-col items-center justify-center p-4 sm:p-6 font-sans-en">
       <div className="max-w-md w-full bg-gray-900/95 backdrop-blur border border-gray-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-5 text-white">
@@ -629,5 +815,14 @@ export const AdminAuthGate: React.FC = () => {
         Route: <code className="text-gray-400 font-mono">/admin</code> • Protected by HMAC Sessions + Firebase Auth
       </p>
     </div>
+  );
+};
+
+export const AdminAuthGate: React.FC = () => {
+  const { navigateTo } = useLanguage();
+  return (
+    <AdminErrorBoundary onReturnPortal={() => navigateTo('home')}>
+      <AdminAuthGateInner />
+    </AdminErrorBoundary>
   );
 };

@@ -108,11 +108,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
         void loadHomeFeeds();
       }
     };
+    const onLiveData = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (!detail) return;
+      if (Array.isArray(detail.weather) && detail.weather.length > 0) setWeatherList(detail.weather);
+      if (Array.isArray(detail.goldRates) && detail.goldRates.length > 0) setGoldRates(detail.goldRates);
+      if (Array.isArray(detail.currencyRates) && detail.currencyRates.length > 0) setCurrencyRates(detail.currencyRates);
+      if (Array.isArray(detail.cricketMatches) && detail.cricketMatches.length > 0) setCricketMatches(detail.cricketMatches);
+    };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('360kn:live-data-updated', onLiveData);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('360kn:live-data-updated', onLiveData);
     };
   }, []);
 

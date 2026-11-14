@@ -59,9 +59,19 @@ import {
   AutomationSettings
 } from './automation/types.ts';
 
-const SEED_DATA_DIR = path.resolve(process.cwd(), 'data');
-const SEED_DB_FILE = path.join(SEED_DATA_DIR, 'portal_database.json');
-const DATA_DIR = process.env.VERCEL ? '/tmp/360khabarnama_data' : SEED_DATA_DIR;
+const SEED_DATA_CANDIDATES = [
+  path.resolve(process.cwd(), 'data', 'portal_database.json'),
+  path.resolve('/var/task/data/portal_database.json'),
+];
+const SEED_DB_FILE = SEED_DATA_CANDIDATES.find(p => fs.existsSync(p)) || SEED_DATA_CANDIDATES[0];
+const IS_SERVERLESS = Boolean(
+  process.env.VERCEL ||
+  process.env.VERCEL_ENV ||
+  process.env.VERCEL_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.NOW_REGION
+);
+const DATA_DIR = IS_SERVERLESS ? '/tmp/360khabarnama_data' : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'portal_database.json');
 
 interface DatabaseSchema {
@@ -1854,8 +1864,12 @@ class DatabaseManager {
 
   private loadDatabase(): DatabaseSchema {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      try {
+        if (!fs.existsSync(DATA_DIR)) {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+      } catch (mkdirErr) {
+        console.warn('[DB] Cannot create data directory, using in-memory / seed read-only:', mkdirErr);
       }
       const sourceFile = fs.existsSync(DB_FILE)
         ? DB_FILE
