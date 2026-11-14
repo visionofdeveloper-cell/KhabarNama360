@@ -187,6 +187,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const [editingArticleId, setEditingArticleId] = useState<string | null>(null);
   const [manualSlugEdited, setManualSlugEdited] = useState(false);
   const [composerLang, setComposerLang] = useState<'ur' | 'en'>('ur');
+  const [composerCredentialId, setComposerCredentialId] = useState<string>('');
+  const [composerTelemetry, setComposerTelemetry] = useState<any>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [headlineChoices, setHeadlineChoices] = useState<{
     headlinesEn?: string[];
@@ -267,6 +269,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       }
       if (logRes.success) setLogs(logRes.logs || []);
       if (catRes.success) setCategoryPages(catRes.categories || []);
+      const aiRes = await safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }).catch(() => null);
+      if (aiRes?.success) setAiProviders(aiRes.providers || []);
     } catch {
       // ignore initial non-blocking error
     }
@@ -294,9 +298,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         ]);
         if (sRes.success) setSubscribers(sRes.subscribers || []);
         if (nRes.success) setNotificationsList(nRes.notifications || []);
-      } else if (mod === 'ai-studio') {
+      } else if (mod === 'ai-studio' || mod === 'composer') {
         const [pRes, dRes] = await Promise.all([
-          safeFetchJson('/api/admin/ai/providers', { credentials: 'include' }),
+          safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }),
           safeFetchJson('/api/admin/ai/editorial-drafts', { credentials: 'include' }),
         ]);
         if (pRes.success) setAiProviders(pRes.providers || []);
@@ -485,13 +489,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           topic: formData.category,
           summary: (composerLang === 'ur' ? formData.summaryUr : formData.summaryEn) || formData.titleEn || formData.titleUr,
           language: composerLang,
+          credentialId: composerCredentialId || undefined,
         }),
       });
       const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success) {
         setHeadlineChoices({ headlinesEn: d.headlinesEn || [], headlinesUr: d.headlinesUr || [] });
+        if (d.telemetry) setComposerTelemetry(d.telemetry);
       } else {
-        notify(d.error || 'AI provider unavailable. Configure keys in AI Keys & Routing.', 'error');
+        notify(d.error || 'AI provider unavailable. Configure keys in AI & API Providers.', 'error');
       }
     } catch {
       notify('Network error contacting AI router.', 'error');
@@ -521,6 +527,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           summary: sourceSummary,
           text: sourceText || sourceTitle,
           targetLanguage: target,
+          credentialId: composerCredentialId || undefined,
         }),
       });
       const { data: d } = await safeParseResponse(res);
@@ -531,6 +538,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           translatedSummary: d.translatedSummary,
           translatedBody: d.translation || '',
         });
+        if (d.telemetry) setComposerTelemetry(d.telemetry);
       } else {
         notify(d.error || 'AI translation failed or unconfigured.', 'error');
       }
@@ -554,7 +562,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content }),
+        body: JSON.stringify({
+          title,
+          content,
+          credentialId: composerCredentialId || undefined,
+        }),
       });
       const { data: d } = await safeParseResponse(res);
       if (res.ok && d.success && d.seo) {
@@ -569,6 +581,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
             focusKeywords: Array.isArray(d.seo.tags) ? d.seo.tags : prev.seo?.focusKeywords,
           },
         }));
+        if (d.telemetry) setComposerTelemetry(d.telemetry);
         notify(`Applied ${d.seo.tags?.length || 0} SEO tags & meta description.`);
       } else {
         notify(d.error || 'SEO tag extraction failed.', 'error');
@@ -1142,37 +1155,73 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           </div>
 
           {/* AI Toolbar */}
-          <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3">
-            <span className="font-black text-emerald-950 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-700" />
-              <span>AI Editorial Assistant (Vault-Routed)</span>
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={aiBusy}
-                onClick={handleSuggestHeadlines}
-                className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
-              >
-                {aiBusy ? 'Working...' : 'Suggest Headlines'}
-              </button>
-              <button
-                type="button"
-                disabled={aiBusy}
-                onClick={handleTranslateComposer}
-                className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
-              >
-                Translate to {composerLang === 'en' ? 'Urdu' : 'English'}
-              </button>
-              <button
-                type="button"
-                disabled={aiBusy}
-                onClick={handleGenerateSeoTags}
-                className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
-              >
-                Generate SEO Tags & Meta
-              </button>
+          <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="font-black text-emerald-950 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-700" />
+                <span>AI Editorial Assistant (Live Provider-Routed)</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={composerCredentialId}
+                  onChange={e => setComposerCredentialId(e.target.value)}
+                  className="px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg text-[11px] font-semibold text-gray-800 max-w-[230px]"
+                  title="Select verified Gemini or Grok provider"
+                >
+                  <option value="">Default Task Router</option>
+                  {aiProviders
+                    .filter(p => p.enabled)
+                    .map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.label} ({p.providerType} • {p.model})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={aiBusy || aiProviders.filter(p => p.enabled).length === 0}
+                  onClick={handleSuggestHeadlines}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
+                >
+                  {aiBusy ? 'Working...' : 'Suggest Headlines'}
+                </button>
+                <button
+                  type="button"
+                  disabled={aiBusy || aiProviders.filter(p => p.enabled).length === 0}
+                  onClick={handleTranslateComposer}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
+                >
+                  Translate to {composerLang === 'en' ? 'Urdu' : 'English'}
+                </button>
+                <button
+                  type="button"
+                  disabled={aiBusy || aiProviders.filter(p => p.enabled).length === 0}
+                  onClick={handleGenerateSeoTags}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
+                >
+                  Generate SEO Tags & Meta
+                </button>
+              </div>
             </div>
+            {aiProviders.filter(p => p.enabled).length === 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-950 flex items-center justify-between gap-2">
+                <span>No active AI provider connected. Add and verify a Gemini or Grok API key to unlock AI writing tools.</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveModule('ai-keys')}
+                  className="px-2.5 py-1 bg-amber-900 text-white font-bold rounded text-[10px] shrink-0"
+                >
+                  Open AI & API Providers →
+                </button>
+              </div>
+            )}
+            {composerTelemetry && (
+              <div className="text-[10px] font-mono text-emerald-900 flex flex-wrap gap-3">
+                <span>Executed via: {composerTelemetry.providerType}</span>
+                <span>Model: {composerTelemetry.model}</span>
+                <span>Latency: {composerTelemetry.latencyMs}ms</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1439,7 +1488,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       {activeModule === 'automation' && (
         <AutomationManager userRole={session.role} onJumpToAiKeys={() => setActiveModule('ai-keys')} />
       )}
-      {activeModule === 'ai-keys' && <APIKeyManager onNotify={msg => notify(msg)} />}
+      {activeModule === 'ai-keys' && (
+        <APIKeyManager
+          onNotify={msg => notify(msg)}
+          onProvidersChanged={() => loadCoreData()}
+        />
+      )}
       {activeModule === 'settings' && (
         <GlobalSettings
           settings={settings}
@@ -1471,6 +1525,18 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                 <span>API Keys & Routing</span>
               </button>
             </div>
+            {aiProviders.filter(p => p.enabled).length === 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 flex items-center justify-between gap-2">
+                <span>No connected AI provider found. Validate a Gemini or Grok key first before running generation tasks.</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveModule('ai-keys')}
+                  className="px-3 py-1 bg-amber-900 text-white font-bold rounded-lg shrink-0"
+                >
+                  Configure Provider →
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>

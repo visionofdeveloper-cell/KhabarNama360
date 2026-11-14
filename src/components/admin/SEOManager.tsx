@@ -25,6 +25,7 @@ import {
   Edit3,
   Power,
   X,
+  Sparkles,
 } from 'lucide-react';
 import {
   Article,
@@ -96,6 +97,7 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const [selectedArticleId, setSelectedArticleId] = useState<string>(articles[0]?.id || '');
   const [linkSuggestions, setLinkSuggestions] = useState<any[]>([]);
   const [schemaPreview, setSchemaPreview] = useState<any>(null);
+  const [aiSeoBusy, setAiSeoBusy] = useState(false);
 
   const [banner, setBanner] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -145,6 +147,72 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
       onRefreshParent?.();
     } else {
       setBanner({ ok: false, msg: d.error || 'Failed to save SEO page.' });
+    }
+  };
+
+  const handleAiSuggestPageMeta = async () => {
+    if (!editingPage) return;
+    setAiSeoBusy(true);
+    try {
+      const d = await safeFetchJson('/api/admin/ai/seo-tags', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editingPage.titleEn || editingPage.path,
+          content: `Route: ${editingPage.path}. Focus keyword: ${editingPage.focusKeyword || ''}. Existing summary: ${editingPage.metaDescEn || ''}`,
+        }),
+      });
+      if (d.success && d.seo) {
+        setEditingPage(prev =>
+          prev
+            ? {
+                ...prev,
+                titleEn: d.seo.metaTitleEn || prev.titleEn,
+                metaDescEn: d.seo.metaDescription || prev.metaDescEn,
+                focusKeyword: Array.isArray(d.seo.tags) ? d.seo.tags.join(', ') : prev.focusKeyword,
+              }
+            : prev
+        );
+        setBanner({
+          ok: true,
+          msg: `AI generated SEO title & description${d.telemetry ? ` (${d.telemetry.providerType} • ${d.telemetry.model})` : ''}.`,
+        });
+      } else {
+        setBanner({ ok: false, msg: d.error || 'No working AI provider configured. Connect one in Settings → AI & API Providers.' });
+      }
+    } finally {
+      setAiSeoBusy(false);
+    }
+  };
+
+  const handleAiSuggestInternalLinks = async () => {
+    const art = articles.find(a => a.id === selectedArticleId);
+    if (!art) return;
+    setAiSeoBusy(true);
+    try {
+      const d = await safeFetchJson('/api/admin/ai/seo-internal-links', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId: art.id,
+          titleEn: art.titleEn,
+          category: art.category,
+          contentEn: art.contentEn,
+        }),
+      });
+      if (d.success) {
+        setLinkSuggestions(d.suggestions || []);
+        setBanner({
+          ok: true,
+          msg: `AI suggested ${(d.suggestions || []).length} internal links${d.telemetry ? ` via ${d.telemetry.model}` : ''}.`,
+        });
+      } else {
+        setBanner({ ok: false, msg: d.error || 'No working AI provider configured. Connect one in Settings → AI & API Providers.' });
+      }
+    } finally {
+      setAiSeoBusy(false);
     }
   };
 
@@ -966,6 +1034,15 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
               >
                 Analyze
               </button>
+              <button
+                type="button"
+                disabled={aiSeoBusy}
+                onClick={handleAiSuggestInternalLinks}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg inline-flex items-center gap-1 disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>{aiSeoBusy ? 'Thinking...' : 'AI Suggest Links'}</span>
+              </button>
             </div>
           </div>
 
@@ -1332,9 +1409,20 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
           <form onSubmit={handleSaveSeoPage} className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full p-6 space-y-4 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h3 className="text-sm font-black text-gray-900">Edit Page SEO Metadata ({editingPage.path})</h3>
-              <button type="button" onClick={() => setEditingPage(null)} className="text-gray-400 hover:text-gray-700">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={aiSeoBusy}
+                  onClick={handleAiSuggestPageMeta}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  <span>{aiSeoBusy ? 'Generating...' : 'AI Suggest Title & Meta'}</span>
+                </button>
+                <button type="button" onClick={() => setEditingPage(null)} className="text-gray-400 hover:text-gray-700">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

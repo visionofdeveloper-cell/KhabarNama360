@@ -45,6 +45,7 @@ import {
   AITaskType,
   AITaskRouting,
   AIUsageLog,
+  AIConnectionTestRecord,
   EditorialDraftRecord,
   SearchConsoleConnection,
   SitemapSettings,
@@ -130,6 +131,8 @@ interface DatabaseSchema {
   aiProviders?: AIProviderCredential[];
   aiTaskRoutes?: Record<string, AITaskRouting>;
   aiUsageLogs?: AIUsageLog[];
+  aiConnectionTests?: AIConnectionTestRecord[];
+  aiHealthStatus?: { lastCheckAt: string; summary: any } | null;
   editorialDrafts?: EditorialDraftRecord[];
   cronLocks?: Record<string, { lockedAt: string; lockedBy: string; expiresAt: string }>;
 }
@@ -1923,6 +1926,8 @@ class DatabaseManager {
         if (!parsed.aiProviders) parsed.aiProviders = [];
         if (!parsed.aiTaskRoutes) parsed.aiTaskRoutes = {};
         if (!parsed.aiUsageLogs) parsed.aiUsageLogs = [];
+        if (!parsed.aiConnectionTests) parsed.aiConnectionTests = [];
+        if (!('aiHealthStatus' in parsed)) parsed.aiHealthStatus = null;
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
 
@@ -2009,6 +2014,8 @@ class DatabaseManager {
       aiProviders: [],
       aiTaskRoutes: {},
       aiUsageLogs: [],
+      aiConnectionTests: [],
+      aiHealthStatus: null,
       editorialDrafts: [],
       cronLocks: {},
     };
@@ -2960,6 +2967,34 @@ class DatabaseManager {
 
   public getAiUsageLogs(limit: number = 100): AIUsageLog[] {
     return (this.data.aiUsageLogs || []).slice(0, limit);
+  }
+
+  public recordAiConnectionTest(entry: AIConnectionTestRecord): AIConnectionTestRecord {
+    if (!this.data.aiConnectionTests) this.data.aiConnectionTests = [];
+    this.data.aiConnectionTests.unshift(entry);
+    if (this.data.aiConnectionTests.length > 300) {
+      this.data.aiConnectionTests = this.data.aiConnectionTests.slice(0, 300);
+    }
+    this.saveDatabase(this.data);
+    return entry;
+  }
+
+  public getAiConnectionTests(credentialId?: string, limit: number = 50): AIConnectionTestRecord[] {
+    const all = this.data.aiConnectionTests || [];
+    const filtered = credentialId ? all.filter(t => t.credentialId === credentialId) : all;
+    return filtered.slice(0, limit);
+  }
+
+  public setAiHealthStatus(summary: any): void {
+    this.data.aiHealthStatus = {
+      lastCheckAt: new Date().toISOString(),
+      summary,
+    };
+    this.saveDatabase(this.data);
+  }
+
+  public getAiHealthStatus(): { lastCheckAt: string; summary: any } | null {
+    return this.data.aiHealthStatus || null;
   }
 
   // --- Editorial Studio Drafts ---

@@ -388,6 +388,87 @@ export interface AdminUser {
 
 export type AIProviderType = 'gemini' | 'grok' | 'custom' | 'custom_data';
 
+export type AIConnectionStatus =
+  | 'connected'
+  | 'authenticated_generation_unavailable'
+  | 'auth_failed'
+  | 'permission_denied'
+  | 'quota_exhausted'
+  | 'billing_required'
+  | 'endpoint_not_found'
+  | 'timeout'
+  | 'network_error'
+  | 'server_error'
+  | 'malformed_response'
+  | 'error'
+  | 'untested'
+  | 'disabled';
+
+export interface AIModelInfo {
+  id: string;
+  displayName?: string;
+  description?: string;
+  supportedMethods?: string[];
+  supportsTextGeneration: boolean;
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+}
+
+export interface AIDiagnosticError {
+  correlationId: string;
+  httpStatus?: number;
+  category:
+    | 'bad_request_400'
+    | 'auth_failed_401'
+    | 'permission_denied_403'
+    | 'not_found_404'
+    | 'quota_429'
+    | 'billing_required'
+    | 'timeout'
+    | 'network_error'
+    | 'server_error_5xx'
+    | 'malformed_response'
+    | 'unknown';
+  connectionStatus: AIConnectionStatus;
+  title: string;
+  diagnosis: string;
+  suggestedAction: string;
+  providerMessage?: string;
+}
+
+export interface AIConnectionTestRecord {
+  id: string;
+  credentialId?: string;
+  providerType: AIProviderType;
+  modelTested?: string;
+  stage: 'model_list' | 'generation_test' | 'health_check';
+  ok: boolean;
+  connectionStatus: AIConnectionStatus;
+  modelListOk: boolean;
+  generationOk: boolean;
+  modelsDiscoveredCount: number;
+  latencyMs: number;
+  sampleOutput?: string;
+  diagnostic?: AIDiagnosticError;
+  actor: string;
+  timestamp: string;
+}
+
+export interface AIValidationResult {
+  ok: boolean;
+  authenticated: boolean;
+  generationVerified: boolean;
+  connectionStatus: AIConnectionStatus;
+  message: string;
+  latencyMs: number;
+  providerType: AIProviderType;
+  selectedModel: string;
+  availableModels: AIModelInfo[];
+  sampleOutput?: string;
+  diagnostic?: AIDiagnosticError;
+  correlationId: string;
+}
+
 export type AITaskType =
   | 'headline_generation'
   | 'translation'
@@ -421,9 +502,24 @@ export interface AIProviderCredential {
   dailyTokensUsed: number;
   monthlyBudgetUsd: number;
   monthlySpendUsd: number;
+  availableModels?: AIModelInfo[];
+  connectionStatus?: AIConnectionStatus;
+  modelListStatus?: 'ok' | 'error' | 'untested';
+  generationTestStatus?: 'ok' | 'error' | 'untested';
   lastTestedAt?: string | null;
+  lastSuccessfulVerificationAt?: string | null;
+  lastSuccessfulGenerationAt?: string | null;
+  lastFailureAt?: string | null;
   lastTestStatus?: 'connected' | 'error' | 'untested';
   lastTestMessage?: string;
+  lastDiagnostic?: AIDiagnosticError | null;
+  lastLatencyMs?: number;
+  lastCorrelationId?: string;
+  rateLimitInfo?: {
+    remainingRequests?: number;
+    remainingTokens?: number;
+    resetAt?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -454,6 +550,7 @@ export interface AIUsageLog {
   latencyMs: number;
   status: 'success' | 'error';
   errorMessage?: string;
+  correlationId?: string;
   actor: string;
 }
 

@@ -60,6 +60,7 @@ export class AIUsageTracker {
     latencyMs: number;
     status: 'success' | 'error';
     errorMessage?: string;
+    correlationId?: string;
     actor: string;
   }): AIUsageLog {
     const totalTokens = (params.promptTokens || 0) + (params.completionTokens || 0);
@@ -83,6 +84,7 @@ export class AIUsageTracker {
       latencyMs: params.latencyMs,
       status: params.status,
       errorMessage: params.errorMessage,
+      correlationId: params.correlationId,
       actor: params.actor,
     };
 

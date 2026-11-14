@@ -2,11 +2,13 @@ import { db } from '../db.ts';
 import { SyncJobRun } from './types.ts';
 import { ProviderRegistry } from '../../../services/automation/ProviderRegistry.ts';
 import { JobScheduler } from '../../../services/automation/JobScheduler.ts';
+import { AIProviderManager } from '../../../services/ai/AIProviderManager.ts';
 
 class AutomationScheduler {
   private isRunning: boolean = false;
   private intervalTimer: NodeJS.Timeout | null = null;
   private activeJobs: Set<string> = new Set();
+  private lastAiHealthCheckAt: number = 0;
 
   public start() {
     if (this.isRunning) return;
@@ -19,6 +21,14 @@ class AutomationScheduler {
     // Master evaluation tick every 5 minutes (aligned with shared hosting cron interval)
     this.intervalTimer = setInterval(() => {
       JobScheduler.runDueJobs('scheduler').catch(console.error);
+      // Lightweight AI provider health check every 30 minutes (model-list check only — zero paid inference)
+      const now = Date.now();
+      if (now - this.lastAiHealthCheckAt >= 30 * 60 * 1000 && db.getAiProviders().some(p => p.enabled)) {
+        this.lastAiHealthCheckAt = now;
+        AIProviderManager.runLightweightHealthCheck('Central Sync Scheduler').catch(err =>
+          console.warn('[Automation] AI health check skipped:', err?.message || err)
+        );
+      }
     }, 5 * 60 * 1000);
   }
 

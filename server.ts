@@ -39,6 +39,7 @@ import { ProviderRegistry } from './services/automation/ProviderRegistry.ts';
 import { JobScheduler } from './services/automation/JobScheduler.ts';
 import { PageTemplateEngine } from './services/pages/PageTemplateEngine.ts';
 import { AIProviderRouter, AIUnavailableError } from './services/ai/AIProviderRouter.ts';
+import { AIProviderManager } from './services/ai/AIProviderManager.ts';
 import { AIUsageTracker } from './services/ai/AIUsageTracker.ts';
 import { pushNotificationService } from './src/server/pushNotificationService.ts';
 import { runDueCronJobs } from './server/jobs/cron-dispatcher.ts';
@@ -155,6 +156,7 @@ app.get('/api/health', (_req, res) => {
 // Note: requireAdminAuth permits unauthenticated /api/admin/auth/* requests so status/login/setup work;
 // protected /auth/* mutations explicitly enforce requireAdminAuth (+ requirePermission where needed).
 app.use('/api/admin', requireAdminAuth);
+app.use('/api/v1/admin', requireAdminAuth);
 
 app.get('/api/admin/auth/status', (req, res) => {
   const session = getSessionFromRequest(req);
@@ -1660,6 +1662,136 @@ app.get('/api/admin/reports/:reportId', requirePermission('reports:view'), (req,
 });
 
 // ================= MULTI-PROVIDER AI VAULT, ROUTER & EDITORIAL STUDIO =================
+
+// --- Standardized v1 Provider Management, Validation & Diagnostics API ---
+app.post('/api/v1/admin/ai/providers/validate', requirePermission('ai:keys'), async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const body = req.body || {};
+    const providerType = body.providerType || 'gemini';
+    const result = await AIProviderManager.validateCandidateKey(
+      {
+        providerType,
+        apiKey: body.apiKey,
+        credentialId: body.credentialId,
+        endpointUrl: body.endpointUrl,
+        model: body.model,
+        runGenerationTest: body.runGenerationTest !== false,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Validation failed.' });
+  }
+});
+
+app.get('/api/v1/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
+  res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
+});
+
+app.post('/api/v1/admin/ai/providers', requirePermission('ai:keys'), (req, res) => {
+  try {
+    const saved = AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
+    return res.json({ success: true, provider: saved });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed saving AI credential.' });
+  }
+});
+
+app.patch('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, res) => {
+  try {
+    const updated = AIProviderManager.updateCredentialPartial(
+      req.params.id,
+      req.body || {},
+      getActor(req, 'Super Admin')
+    );
+    return res.json({ success: true, provider: updated });
+  } catch (err: any) {
+    const status = String(err?.message || '').toLowerCase().includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: err?.message || 'Failed updating AI credential.' });
+  }
+});
+
+app.delete('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, res) => {
+  const success = db.deleteAiProvider(req.params.id, getActor(req, 'Super Admin'));
+  res.json({ success });
+});
+
+app.post('/api/v1/admin/ai/providers/:id/test', requirePermission('ai:keys'), async (req, res) => {
+  try {
+    const result = await AIProviderManager.testSavedCredential(req.params.id, getActor(req, 'Super Admin'));
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Provider test failed.' });
+  }
+});
+
+app.get('/api/v1/admin/ai/providers/:id/models', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
+  try {
+    const discovery = await AIProviderManager.discoverModelsForCredential(req.params.id, getActor(req, 'Super Admin'));
+    return res.json({ success: true, ...discovery });
+  } catch (err: any) {
+    const diag = err?.diagnostic;
+    return res.status(diag?.httpStatus || 400).json({
+      success: false,
+      error: diag?.diagnosis || err?.message || 'Failed discovering models.',
+      diagnostic: diag,
+    });
+  }
+});
+
+app.get('/api/v1/admin/ai/providers/:id/logs', requirePermission('ai:keys'), (req, res) => {
+  const logs = AIProviderManager.getCredentialLogs(req.params.id);
+  res.json({ success: true, ...logs });
+});
+
+app.get('/api/v1/admin/ai/task-routes', requirePermission('ai:keys'), (_req, res) => {
+  res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
+});
+
+app.put('/api/v1/admin/ai/task-routes', requirePermission('ai:keys'), (req, res) => {
+  const body = req.body || {};
+  const actor = getActor(req, 'Super Admin');
+  if (Array.isArray(body.routes)) {
+    for (const r of body.routes) {
+      if (r?.task) db.setAiTaskRoute(r.task, r, actor);
+    }
+  } else if (body.task) {
+    db.setAiTaskRoute(body.task, body, actor);
+  } else {
+    return res.status(400).json({ success: false, error: 'Task routing payload is required.' });
+  }
+  return res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
+});
+
+app.get('/api/v1/admin/ai/diagnostics', requirePermission('ai:keys'), async (_req, res) => {
+  try {
+    const diagnostics = await AIProviderManager.getDiagnostics();
+    return res.json({ success: true, ...diagnostics });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Diagnostics check failed.' });
+  }
+});
+
+app.post('/api/v1/admin/ai/health-check', requirePermission('ai:keys'), async (req, res) => {
+  try {
+    const summary = await AIProviderManager.runLightweightHealthCheck(getActor(req, 'Super Admin'));
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Health check failed.' });
+  }
+});
+
+app.get('/api/v1/admin/ai/usage', requirePermission('ai:keys'), (_req, res) => {
+  res.json({ success: true, usage: AIUsageTracker.getSummary() });
+});
+
+// --- Backward-compatible /api/admin/ai/* aliases ---
 app.get('/api/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
   res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
 });
@@ -1712,13 +1844,18 @@ app.get('/api/admin/ai/usage', requirePermission('ai:keys'), (_req, res) => {
 
 function handleAiError(res: Response, err: any) {
   if (err instanceof AIUnavailableError) {
-    return res.status(err.statusCode).json({ success: false, code: err.code, error: err.message });
+    return res.status(err.statusCode).json({
+      success: false,
+      code: err.code,
+      error: err.message,
+      diagnostic: err.diagnostic,
+    });
   }
   return res.status(500).json({ success: false, error: err?.message || 'AI execution failed' });
 }
 
 app.post('/api/admin/ai/suggest-headline', requirePermission('ai:use'), async (req, res) => {
-  const { summary, topic, language } = req.body || {};
+  const { summary, topic, language, credentialId, model } = req.body || {};
   try {
     const prompt = `You are a chief news editor for 360Khabarnama, a leading Pakistani bilingual digital publication.
 Suggest 3 crisp, journalistically accurate news headlines in BOTH English and Urdu for this topic/summary:
@@ -1732,9 +1869,11 @@ Return ONLY JSON:
   "headlinesUr": ["اردو سرخی 1", "اردو سرخی 2", "اردو سرخی 3"]
 }`;
 
-    const { data } = await AIProviderRouter.executeJsonTask<{ headlinesEn: string[]; headlinesUr: string[] }>({
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{ headlinesEn: string[]; headlinesUr: string[] }>({
       task: 'headline_generation',
       prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
       actor: getActor(req),
     });
 
@@ -1744,6 +1883,7 @@ Return ONLY JSON:
       success: true,
       headlinesEn,
       headlinesUr,
+      telemetry: meta,
       text: (language === 'ur' ? headlinesUr : headlinesEn).map(h => `- ${h}`).join('\n'),
     });
   } catch (err) {
@@ -1752,7 +1892,7 @@ Return ONLY JSON:
 });
 
 app.post('/api/admin/ai/translate', requirePermission('ai:use'), async (req, res) => {
-  const { title, summary, text, targetLanguage } = req.body || {};
+  const { title, summary, text, targetLanguage, credentialId, model } = req.body || {};
   try {
     const target =
       targetLanguage === 'ur'
@@ -1771,13 +1911,15 @@ Return ONLY valid JSON:
   "translation": "..."
 }`;
 
-    const { data } = await AIProviderRouter.executeJsonTask<{
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{
       translatedTitle?: string;
       translatedSummary?: string;
       translation?: string;
     }>({
       task: 'translation',
       prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
       actor: getActor(req),
     });
 
@@ -1786,6 +1928,7 @@ Return ONLY valid JSON:
       translatedTitle: data.translatedTitle || '',
       translatedSummary: data.translatedSummary || '',
       translation: data.translation || '',
+      telemetry: meta,
     });
   } catch (err) {
     return handleAiError(res, err);
@@ -1793,7 +1936,7 @@ Return ONLY valid JSON:
 });
 
 app.post('/api/admin/ai/seo-tags', requirePermission('ai:use'), async (req, res) => {
-  const { title, content } = req.body || {};
+  const { title, content, credentialId, model } = req.body || {};
   try {
     const prompt = `Analyze this Pakistani digital news article and produce search optimization metadata:
 Title: ${title || ''}
@@ -1807,13 +1950,85 @@ Return ONLY valid JSON:
   "slugSuggestion": "url-friendly-lowercase-slug"
 }`;
 
-    const { data } = await AIProviderRouter.executeJsonTask({
+    const { data, meta } = await AIProviderRouter.executeJsonTask({
+      task: 'seo_metadata',
+      prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
+      actor: getActor(req),
+    });
+
+    return res.json({ success: true, seo: data, telemetry: meta });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
+
+app.post('/api/admin/ai/seo-internal-links', requirePermission('ai:use'), async (req, res) => {
+  const { articleId, titleEn, category, contentEn } = req.body || {};
+  try {
+    const articles = db.getData().articles.filter(a => a.status === 'published' && a.id !== articleId).slice(0, 30);
+    const catalog = articles.map(a => ({
+      id: a.id,
+      slug: a.slug,
+      titleEn: a.titleEn,
+      category: a.category,
+    }));
+    const prompt = `You are an SEO architect for 360Khabarnama.
+Source Article:
+Title: ${titleEn || ''}
+Category: ${category || ''}
+Content snippet: ${String(contentEn || '').slice(0, 600)}
+
+Candidate Target Articles:
+${JSON.stringify(catalog)}
+
+Select up to 5 most relevant internal linking opportunities strictly from the provided candidate list.
+Return ONLY valid JSON:
+{
+  "suggestions": [
+    {
+      "targetTitle": "Exact candidate title",
+      "targetUrl": "/en/news/candidate-slug",
+      "anchorText": "Natural 2-5 word anchor text",
+      "relevanceReason": "Short reason"
+    }
+  ]
+}`;
+
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{ suggestions?: any[] }>({
       task: 'seo_metadata',
       prompt,
       actor: getActor(req),
     });
+    return res.json({ success: true, suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [], telemetry: meta });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
 
-    return res.json({ success: true, seo: data });
+app.post('/api/admin/ai/newsroom-classify', requirePermission('ai:use'), async (req, res) => {
+  const { headline, body } = req.body || {};
+  try {
+    const prompt = `Classify and summarize this breaking news item for 360Khabarnama AI Newsroom.
+Headline: ${headline || ''}
+Body: ${String(body || '').slice(0, 1200)}
+
+Return ONLY valid JSON:
+{
+  "category": "pakistan|politics|business|sports|education|technology|world|entertainment|islamic|health",
+  "titleUr": "Urdu headline",
+  "summaryEn": "2-sentence English summary",
+  "summaryUr": "2-sentence Urdu summary",
+  "tags": ["Tag1", "Tag2", "Tag3"]
+}`;
+
+    const { data, meta } = await AIProviderRouter.executeJsonTask({
+      task: 'category_tagging',
+      prompt,
+      actor: getActor(req),
+    });
+    return res.json({ success: true, classification: data, telemetry: meta });
   } catch (err) {
     return handleAiError(res, err);
   }
@@ -1822,7 +2037,9 @@ Return ONLY valid JSON:
 app.post('/api/admin/ai/editorial-studio', requirePermission('ai:use'), async (req, res) => {
   const { template, topic, inputText, category, tone, credentialId } = req.body || {};
   const controller = new AbortController();
-  req.on('close', () => controller.abort());
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
 
   const taskMap: Record<string, any> = {
     bilingual_article: 'article_drafting',

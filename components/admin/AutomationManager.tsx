@@ -117,6 +117,8 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
   const [provNotes, setProvNotes] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
 
+  const [aiHealth, setAiHealth] = useState<any>(null);
+
   const loadAllData = () => {
     setLoading(true);
     Promise.all([
@@ -124,12 +126,14 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
       fetch('/api/admin/automation/history?limit=60', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/admin/automation/drafts', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/admin/automation/settings', { credentials: 'include' }).then(r => r.json()),
+      fetch('/api/v1/admin/ai/diagnostics', { credentials: 'include' }).then(r => r.json()).catch(() => null),
     ])
-      .then(([statusRes, historyRes, draftsRes, settingsRes]) => {
+      .then(([statusRes, historyRes, draftsRes, settingsRes, aiDiagRes]) => {
         if (statusRes.success) setProviders(statusRes.providers || []);
         if (historyRes.success) setSyncHistory(historyRes.runs || []);
         if (draftsRes.success) setAiDrafts(draftsRes.drafts || []);
         if (settingsRes.success) setSettings(settingsRes.settings || null);
+        if (aiDiagRes?.success) setAiHealth(aiDiagRes);
       })
       .catch(err => {
         setFeedback({ ok: false, text: err?.message || 'Failed to load automation state.' });
@@ -1147,17 +1151,50 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                 Routed automatically via the central AI Provider Router & encrypted API Key Vault (task: breaking_alerts).
               </p>
             </div>
-            {onJumpToAiKeys && (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={onJumpToAiKeys}
-                className="px-3.5 py-2 bg-slate-900 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+                onClick={async () => {
+                  const res = await fetch('/api/v1/admin/ai/health-check', { method: 'POST', credentials: 'include' }).then(r => r.json());
+                  if (res.success && res.summary) {
+                    setFeedback({
+                      ok: res.summary.failingCount === 0,
+                      text: `AI Provider Health Check: ${res.summary.healthyCount}/${res.summary.credentialsChecked} healthy.`,
+                    });
+                    loadAllData();
+                  }
+                }}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-lg inline-flex items-center gap-1.5"
               >
-                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                <span>Manage AI Keys & Models</span>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Run AI Health Check</span>
               </button>
-            )}
+              {onJumpToAiKeys && (
+                <button
+                  type="button"
+                  onClick={onJumpToAiKeys}
+                  className="px-3.5 py-2 bg-slate-900 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Manage AI Keys & Models</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {aiHealth?.connectivity && (
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <span>
+                <strong>Outbound AI Endpoints:</strong>{' '}
+                {aiHealth.connectivity.overallOk ? 'Gemini & Grok HTTPS Reachable' : 'Connectivity Warning — check Diagnostics'}
+              </span>
+              {aiHealth.lastHealthCheck?.lastCheckAt && (
+                <span className="font-mono text-gray-500">
+                  Last Health Check: {new Date(aiHealth.lastHealthCheck.lastCheckAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <label className="p-4 bg-gray-50 border rounded-xl flex items-center justify-between">

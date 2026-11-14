@@ -11,242 +11,137 @@
  */
 
 import { db } from '../../src/server/db.ts';
-import { encryptSecret, decryptSecret, maskSecret } from '../../src/server/crypto.ts';
-import { AIProviderCredential, AIProviderType, AITaskRouting, AITaskType } from '../../src/types/index.ts';
+import {
+  AIConnectionStatus,
+  AIDiagnosticError,
+  AIProviderCredential,
+  AIProviderType,
+  AITaskRouting,
+  AITaskType,
+} from '../../src/types/index.ts';
 import { GeminiProvider, AIExecutionResponse } from './GeminiProvider.ts';
 import { GrokProvider } from './GrokProvider.ts';
 import { AIUsageTracker } from './AIUsageTracker.ts';
+import { AIProviderManager } from './AIProviderManager.ts';
+import {
+  classifyProviderError,
+  ProviderExecutionError,
+} from './AIConnectionValidator.ts';
+import { maskSecret } from '../../src/server/crypto.ts';
 
 export class AIUnavailableError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
+  public readonly diagnostic?: AIDiagnosticError;
 
-  constructor(message: string, statusCode: number = 503, code: string = 'AI_UNAVAILABLE') {
+  constructor(
+    message: string,
+    statusCode: number = 503,
+    code: string = 'AI_UNAVAILABLE',
+    diagnostic?: AIDiagnosticError
+  ) {
     super(message);
     this.name = 'AIUnavailableError';
     this.statusCode = statusCode;
     this.code = code;
+    this.diagnostic = diagnostic;
   }
 }
 
 export const AI_TASK_CATALOG: { task: AITaskType; label: string; defaultModel: string }[] = [
-  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-4-argon' },
-  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-3.1-flash-lite' },
-  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-3.1-flash-lite' },
-  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-4-argon' },
-  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-3.5-flash' },
+  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-3.5-flash' },
+  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-3.5-flash' },
+  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-3.5-flash' },
+  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-3.5-flash-lite' },
 ];
 
 export class AIProviderRouter {
-  /**
-   * Resolves all stored credentials plus runtime environment keys (without mutating user's DB unnecessarily).
-   */
   public static getAllCredentialsSanitized() {
     const dbCreds = db.getAiProviders();
-    const list = dbCreds.map(c => ({
-      ...c,
-      encryptedSecret: undefined, // Never expose encrypted ciphertext or raw key to UI
-    }));
+    const routes = this.getTaskRoutesRaw(dbCreds);
+    const list = dbCreds.map(c => AIProviderManager.sanitizeCredential(c, routes));
 
     const hasEnvGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
     const hasEnvGrok = Boolean(process.env.XAI_API_KEY && process.env.XAI_API_KEY.trim());
 
     if (hasEnvGemini && !dbCreds.some(c => c.id === 'env-gemini-default')) {
-      list.unshift({
-        id: 'env-gemini-default',
-        providerType: 'gemini',
-        label: 'Server Environment GEMINI_API_KEY',
-        projectId: process.env.GOOGLE_CLOUD_PROJECT || 'env-gemini-project',
-        model: 'gemini-4-hydrogen',
-        maskedKey: maskSecret(process.env.GEMINI_API_KEY!),
-        enabled: true,
-        priority: 1,
-        dailyTokenLimit: 1000000,
-        dailyTokensUsed: 0,
-        monthlyBudgetUsd: 50,
-        monthlySpendUsd: 0,
-        lastTestedAt: null,
-        lastTestStatus: 'connected',
-        lastTestMessage: 'Loaded from server environment secret',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        encryptedSecret: undefined,
-      } as any);
+      list.unshift(
+        AIProviderManager.sanitizeCredential(
+          {
+            id: 'env-gemini-default',
+            providerType: 'gemini',
+            label: 'Server Environment GEMINI_API_KEY',
+            projectId: process.env.GOOGLE_CLOUD_PROJECT || 'env-gemini-project',
+            model: 'gemini-3.5-flash-lite',
+            encryptedSecret: '',
+            maskedKey: maskSecret(process.env.GEMINI_API_KEY!),
+            enabled: true,
+            priority: 1,
+            dailyTokenLimit: 1000000,
+            dailyTokensUsed: 0,
+            monthlyBudgetUsd: 50,
+            monthlySpendUsd: 0,
+            connectionStatus: 'untested',
+            modelListStatus: 'untested',
+            generationTestStatus: 'untested',
+            lastTestedAt: null,
+            lastTestStatus: 'untested',
+            lastTestMessage: 'Loaded from server environment secret (click Test to verify live models)',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          routes
+        )
+      );
     }
 
     if (hasEnvGrok && !dbCreds.some(c => c.id === 'env-grok-default')) {
-      list.push({
-        id: 'env-grok-default',
-        providerType: 'grok',
-        label: 'Server Environment XAI_API_KEY',
-        projectId: 'env-xai-project',
-        endpointUrl: 'https://api.x.ai/v1/chat/completions',
-        model: 'grok-3-mini',
-        maskedKey: maskSecret(process.env.XAI_API_KEY!),
-        enabled: true,
-        priority: 2,
-        dailyTokenLimit: 500000,
-        dailyTokensUsed: 0,
-        monthlyBudgetUsd: 50,
-        monthlySpendUsd: 0,
-        lastTestedAt: null,
-        lastTestStatus: 'connected',
-        lastTestMessage: 'Loaded from server environment secret',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        encryptedSecret: undefined,
-      } as any);
+      list.push(
+        AIProviderManager.sanitizeCredential(
+          {
+            id: 'env-grok-default',
+            providerType: 'grok',
+            label: 'Server Environment XAI_API_KEY',
+            projectId: 'env-xai-project',
+            endpointUrl: 'https://api.x.ai/v1',
+            model: 'grok-3-mini',
+            encryptedSecret: '',
+            maskedKey: maskSecret(process.env.XAI_API_KEY!),
+            enabled: true,
+            priority: 2,
+            dailyTokenLimit: 500000,
+            dailyTokensUsed: 0,
+            monthlyBudgetUsd: 50,
+            monthlySpendUsd: 0,
+            connectionStatus: 'untested',
+            modelListStatus: 'untested',
+            generationTestStatus: 'untested',
+            lastTestedAt: null,
+            lastTestStatus: 'untested',
+            lastTestMessage: 'Loaded from server environment secret (click Test to verify live models)',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          routes
+        )
+      );
     }
 
     return list;
   }
 
-  private static resolveRawCredential(credId: string): { cred: AIProviderCredential; rawKey: string } | null {
-    if (credId === 'env-gemini-default' && process.env.GEMINI_API_KEY) {
-      const rawKey = process.env.GEMINI_API_KEY.trim();
-      return {
-        cred: {
-          id: 'env-gemini-default',
-          providerType: 'gemini',
-          label: 'Server Environment GEMINI_API_KEY',
-          projectId: process.env.GOOGLE_CLOUD_PROJECT || 'env-gemini-project',
-          model: 'gemini-4-hydrogen',
-          encryptedSecret: '',
-          maskedKey: maskSecret(rawKey),
-          enabled: true,
-          priority: 1,
-          dailyTokenLimit: 1000000,
-          dailyTokensUsed: 0,
-          monthlyBudgetUsd: 50,
-          monthlySpendUsd: 0,
-          createdAt: '',
-          updatedAt: '',
-        },
-        rawKey,
-      };
-    }
-    if (credId === 'env-grok-default' && process.env.XAI_API_KEY) {
-      const rawKey = process.env.XAI_API_KEY.trim();
-      return {
-        cred: {
-          id: 'env-grok-default',
-          providerType: 'grok',
-          label: 'Server Environment XAI_API_KEY',
-          projectId: 'env-xai-project',
-          endpointUrl: 'https://api.x.ai/v1/chat/completions',
-          model: 'grok-3-mini',
-          encryptedSecret: '',
-          maskedKey: maskSecret(rawKey),
-          enabled: true,
-          priority: 2,
-          dailyTokenLimit: 500000,
-          dailyTokensUsed: 0,
-          monthlyBudgetUsd: 50,
-          monthlySpendUsd: 0,
-          createdAt: '',
-          updatedAt: '',
-        },
-        rawKey,
-      };
-    }
-
-    const found = db.getAiProviders().find(p => p.id === credId);
-    if (!found) return null;
-    const rawKey = decryptSecret(found.encryptedSecret);
-    return { cred: found, rawKey };
-  }
-
-  public static addOrUpdateCredential(
-    input: {
-      id?: string;
-      providerType: AIProviderType;
-      label: string;
-      projectId: string;
-      endpointUrl?: string;
-      model: string;
-      apiKey?: string;
-      enabled?: boolean;
-      priority?: number;
-      dailyTokenLimit?: number;
-      monthlyBudgetUsd?: number;
-    },
-    actor: string
-  ): AIProviderCredential {
-    const existing = input.id ? db.getAiProviders().find(p => p.id === input.id) : undefined;
-    if (!existing && (!input.apiKey || !input.apiKey.trim())) {
-      throw new Error('API key is required when adding a new credential.');
-    }
-    if (!input.label?.trim() || !input.projectId?.trim()) {
-      throw new Error('Label and Project ID are required.');
-    }
-
-    const now = new Date().toISOString();
-    const rawKey = input.apiKey?.trim();
-    const record: AIProviderCredential = {
-      id: existing?.id || `aik-${input.providerType}-${Date.now()}`,
-      providerType: input.providerType,
-      label: input.label.trim(),
-      projectId: input.projectId.trim(),
-      endpointUrl:
-        input.endpointUrl?.trim() ||
-        (input.providerType === 'grok' ? 'https://api.x.ai/v1/chat/completions' : undefined),
-      model: input.model?.trim() || (input.providerType === 'grok' ? 'grok-3-mini' : 'gemini-4-hydrogen'),
-      encryptedSecret: rawKey ? encryptSecret(rawKey) : existing!.encryptedSecret,
-      maskedKey: rawKey ? maskSecret(rawKey) : existing!.maskedKey,
-      enabled: input.enabled ?? existing?.enabled ?? true,
-      priority: Number(input.priority ?? existing?.priority ?? 10),
-      dailyTokenLimit: Number(input.dailyTokenLimit ?? existing?.dailyTokenLimit ?? 500000),
-      dailyTokensUsed: existing?.dailyTokensUsed ?? 0,
-      monthlyBudgetUsd: Number(input.monthlyBudgetUsd ?? existing?.monthlyBudgetUsd ?? 25),
-      monthlySpendUsd: existing?.monthlySpendUsd ?? 0,
-      lastTestedAt: rawKey ? null : existing?.lastTestedAt ?? null,
-      lastTestStatus: rawKey ? 'untested' : existing?.lastTestStatus ?? 'untested',
-      lastTestMessage: rawKey ? 'Replaced key; awaiting verification test' : existing?.lastTestMessage,
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-    };
-
-    const saved = db.upsertAiProvider(record, actor);
-    return { ...saved, encryptedSecret: '' };
-  }
-
-  public static async testCredential(credId: string, actor: string) {
-    const resolved = this.resolveRawCredential(credId);
-    if (!resolved) {
-      throw new Error('AI credential not found.');
-    }
-    const { cred, rawKey } = resolved;
-    const result =
-      cred.providerType === 'gemini'
-        ? await GeminiProvider.testConnection(rawKey, cred.model)
-        : await GrokProvider.testConnection(rawKey, cred.model, cred.endpointUrl);
-
-    if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
-      db.upsertAiProvider(
-        {
-          ...cred,
-          lastTestedAt: new Date().toISOString(),
-          lastTestStatus: result.ok ? 'connected' : 'error',
-          lastTestMessage: result.message,
-          updatedAt: new Date().toISOString(),
-        },
-        actor
-      );
-    }
-
-    return result;
-  }
-
-  public static getTaskRoutes(): AITaskRouting[] {
+  private static getTaskRoutesRaw(dbCreds: AIProviderCredential[]): AITaskRouting[] {
     const saved = db.getAiTaskRoutes();
-    const creds = this.getAllCredentialsSanitized();
-    const defaultCredId = creds.find(c => c.enabled)?.id || '';
+    const defaultCred = dbCreds.find(c => c.enabled);
+    const defaultCredId = defaultCred?.id || '';
+    const defaultModel = defaultCred?.model || '';
 
     return AI_TASK_CATALOG.map(spec => {
       const existing = saved[spec.task];
@@ -255,7 +150,39 @@ export class AIProviderRouter {
         task: spec.task,
         label: spec.label,
         primaryCredentialId: defaultCredId,
-        primaryModel: spec.defaultModel,
+        primaryModel: defaultModel || spec.defaultModel,
+        fallbackCredentialId: '',
+        fallbackModel: '',
+        temperature: spec.task === 'fact_check_prep' || spec.task === 'translation' ? 0.2 : 0.5,
+        maxTokens: spec.task === 'article_drafting' ? 4096 : 3072,
+      };
+    });
+  }
+
+  public static addOrUpdateCredential(
+    input: Parameters<typeof AIProviderManager.addOrUpdateCredential>[0],
+    actor: string
+  ): AIProviderCredential {
+    return AIProviderManager.addOrUpdateCredential(input, actor);
+  }
+
+  public static async testCredential(credId: string, actor: string) {
+    return AIProviderManager.testSavedCredential(credId, actor);
+  }
+
+  public static getTaskRoutes(): AITaskRouting[] {
+    const saved = db.getAiTaskRoutes();
+    const creds = this.getAllCredentialsSanitized();
+    const defaultCred = creds.find((c: any) => c.enabled && c.connectionStatus === 'connected') || creds.find((c: any) => c.enabled);
+
+    return AI_TASK_CATALOG.map(spec => {
+      const existing = saved[spec.task];
+      if (existing) return existing;
+      return {
+        task: spec.task,
+        label: spec.label,
+        primaryCredentialId: defaultCred?.id || '',
+        primaryModel: defaultCred?.model || spec.defaultModel,
         fallbackCredentialId: '',
         fallbackModel: '',
         temperature: spec.task === 'fact_check_prep' || spec.task === 'translation' ? 0.2 : 0.5,
@@ -282,11 +209,11 @@ export class AIProviderRouter {
     const actor = params.actor || 'System';
     const routes = this.getTaskRoutes();
     const route = routes.find(r => r.task === params.task);
-    const allSanitized = this.getAllCredentialsSanitized().filter(c => c.enabled);
+    const allSanitized = this.getAllCredentialsSanitized().filter((c: any) => c.enabled);
 
     if (allSanitized.length === 0) {
       throw new AIUnavailableError(
-        'No active AI API key is configured. Add a Gemini, Grok, or Custom provider key in Admin -> Settings & AI Keys.',
+        'No active AI API provider is configured. Open Admin -> Settings -> AI & API Providers to validate and connect a Gemini or Grok key.',
         503,
         'NO_AI_KEY'
       );
@@ -309,8 +236,16 @@ export class AIProviderRouter {
         modelOverride: route.fallbackModel,
       });
     }
-    // Add remaining enabled credentials sorted by priority, checking unique projectIds later
-    for (const c of [...allSanitized].sort((a, b) => a.priority - b.priority)) {
+
+    // Prefer already verified/connected credentials next, sorted by priority
+    const sortedRemaining = [...allSanitized].sort((a: any, b: any) => {
+      const aConn = a.connectionStatus === 'connected' ? 0 : 1;
+      const bConn = b.connectionStatus === 'connected' ? 0 : 1;
+      if (aConn !== bConn) return aConn - bConn;
+      return (a.priority || 10) - (b.priority || 10);
+    });
+
+    for (const c of sortedRemaining) {
       if (!candidateSpecs.some(x => x.credId === c.id)) {
         candidateSpecs.push({ credId: c.id, modelOverride: params.preferredModel || c.model });
       }
@@ -318,13 +253,14 @@ export class AIProviderRouter {
 
     const attemptedProjectKeys = new Set<string>();
     const errors: string[] = [];
+    let lastDiagnostic: AIDiagnosticError | undefined;
 
     for (const spec of candidateSpecs) {
-      const resolved = this.resolveRawCredential(spec.credId);
-      if (!resolved) continue;
+      const resolved = AIProviderManager.resolveRawCredential(spec.credId);
+      if (!resolved || !resolved.cred.enabled) continue;
       const { cred, rawKey } = resolved;
 
-      // Enforce single-project isolation: never try a second key from the same provider+projectId
+      // Enforce single-project isolation: never rotate keys inside the same provider+projectId
       const projectSignature = `${cred.providerType}:${cred.projectId.toLowerCase()}`;
       if (attemptedProjectKeys.has(projectSignature)) {
         continue;
@@ -360,6 +296,7 @@ export class AIProviderRouter {
                 apiKey: rawKey,
                 model: modelToUse,
                 endpointUrl: cred.endpointUrl,
+                providerType: cred.providerType,
                 prompt: params.prompt,
                 systemInstruction: params.systemInstruction,
                 jsonMode: params.jsonMode,
@@ -367,6 +304,22 @@ export class AIProviderRouter {
                 maxTokens: effectiveMaxTokens,
                 signal: params.signal,
               });
+
+        const now = new Date().toISOString();
+        if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
+          db.upsertAiProvider(
+            {
+              ...cred,
+              connectionStatus: 'connected',
+              generationTestStatus: 'ok',
+              lastTestStatus: 'connected',
+              lastSuccessfulGenerationAt: now,
+              lastLatencyMs: execResult.latencyMs,
+              updatedAt: now,
+            },
+            actor
+          );
+        }
 
         AIUsageTracker.record({
           task: params.task,
@@ -388,8 +341,47 @@ export class AIProviderRouter {
           projectId: cred.projectId,
         };
       } catch (err: any) {
-        const msg = err?.message || 'Execution failed';
-        errors.push(`[${cred.label}] ${msg}`);
+        if (params.signal?.aborted) {
+          throw new AIUnavailableError('Generation request cancelled by user.', 499, 'ABORTED');
+        }
+
+        const diag =
+          err instanceof ProviderExecutionError
+            ? err.diagnostic
+            : classifyProviderError({
+                providerType: cred.providerType,
+                err,
+                model: modelToUse,
+                stage: 'inference',
+                authenticated: cred.modelListStatus === 'ok',
+                secretToRedact: rawKey,
+              });
+
+        lastDiagnostic = diag;
+        errors.push(`[${cred.label} | ${diag.correlationId}] ${diag.diagnosis}`);
+
+        if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
+          const now = new Date().toISOString();
+          const nextStatus: AIConnectionStatus =
+            cred.modelListStatus === 'ok' && diag.connectionStatus !== 'auth_failed'
+              ? 'authenticated_generation_unavailable'
+              : diag.connectionStatus;
+          db.upsertAiProvider(
+            {
+              ...cred,
+              connectionStatus: nextStatus,
+              generationTestStatus: 'error',
+              lastFailureAt: now,
+              lastTestStatus: 'error',
+              lastTestMessage: diag.diagnosis,
+              lastDiagnostic: diag,
+              lastCorrelationId: diag.correlationId,
+              updatedAt: now,
+            },
+            actor
+          );
+        }
+
         AIUsageTracker.record({
           task: params.task,
           credentialId: cred.id,
@@ -400,20 +392,20 @@ export class AIProviderRouter {
           completionTokens: 0,
           latencyMs: 0,
           status: 'error',
-          errorMessage: msg,
+          errorMessage: `[${diag.correlationId}] ${diag.diagnosis}`,
+          correlationId: diag.correlationId,
           actor,
         });
-        // If user aborted explicitly, do not try fallback
-        if (params.signal?.aborted) {
-          throw new AIUnavailableError('Generation request cancelled by user.', 499, 'ABORTED');
-        }
       }
     }
 
     throw new AIUnavailableError(
       errors.length > 0 ? errors.join(' | ') : 'All configured AI providers failed or exceeded quota.',
-      502,
-      'AI_PROVIDER_FAILED'
+      lastDiagnostic?.httpStatus && lastDiagnostic.httpStatus >= 400 && lastDiagnostic.httpStatus < 600
+        ? lastDiagnostic.httpStatus
+        : 502,
+      lastDiagnostic?.category?.toUpperCase() || 'AI_PROVIDER_FAILED',
+      lastDiagnostic
     );
   }
 
@@ -513,14 +505,12 @@ export class AIProviderRouter {
       throw new Error('Empty response text');
     }
 
-    // 1. Direct parse
     try {
       return JSON.parse(clean) as T;
     } catch {
       // Continue to fenced / balanced extraction
     }
 
-    // 2. Extract from fenced ```json ... ``` anywhere in text
     const fencedMatch = clean.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fencedMatch && fencedMatch[1]) {
       clean = fencedMatch[1].trim();
@@ -531,7 +521,6 @@ export class AIProviderRouter {
       }
     }
 
-    // 3. Extract outermost balanced JSON object/array
     const balanced = this.extractBalancedJson(clean) || this.extractBalancedJson(rawText) || clean;
     const candidates = [
       balanced,
@@ -583,7 +572,6 @@ export class AIProviderRouter {
       if (params.signal?.aborted) {
         throw new AIUnavailableError('Generation request cancelled by user.', 499, 'ABORTED');
       }
-      // Single clean retry with higher token limit and low temperature to recover from truncation or formatting drift
       res = await this.executeTask({
         ...params,
         systemInstruction: baseSystem,
