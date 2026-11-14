@@ -573,12 +573,12 @@
       "provinceEn": "Sindh",
       "provinceUr": "سندھ",
       "tempC": 29,
-      "conditionEn": "Mainly Clear",
-      "conditionUr": "زیادہ تر صاف",
+      "conditionEn": "Drizzle",
+      "conditionUr": "ہلکی بونداباندی",
       "highC": 30,
       "lowC": 24,
-      "humidity": 64,
-      "windKmh": 6,
+      "humidity": 63,
+      "windKmh": 8,
       "aqi": 86,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
@@ -587,27 +587,27 @@
       "sunset": "05:45 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 24,
-          "condition": "Clear Sky"
+          "condition": "Dense Fog / Smog"
         },
         {
-          "time": "09:00",
-          "tempC": 27,
-          "condition": "Clear Sky"
+          "time": "10:00",
+          "tempC": 28,
+          "condition": "Mainly Clear"
         },
         {
-          "time": "12:00",
-          "tempC": 30,
+          "time": "13:00",
+          "tempC": 29,
           "condition": "Drizzle"
         },
         {
-          "time": "15:00",
-          "tempC": 29,
-          "condition": "Clear Sky"
+          "time": "16:00",
+          "tempC": 28,
+          "condition": "Drizzle"
         },
         {
-          "time": "18:00",
+          "time": "19:00",
           "tempC": 27,
           "condition": "Clear Sky"
         }
@@ -661,43 +661,43 @@
       "nameUr": "لاہور",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 26,
+      "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 28,
       "lowC": 17,
-      "humidity": 53,
+      "humidity": 44,
       "windKmh": 1,
       "aqi": 158,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 27,
+      "feelsLikeC": 29,
       "sunrise": "06:29 AM",
       "sunset": "05:04 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 17,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 21,
+          "time": "10:00",
+          "tempC": 24,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
-          "tempC": 27,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "15:00",
+          "time": "13:00",
           "tempC": 28,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 24,
+          "time": "16:00",
+          "tempC": 27,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "19:00",
+          "tempC": 23,
           "condition": "Clear Sky"
         }
       ],
@@ -750,44 +750,44 @@
       "nameUr": "اسلام آباد",
       "provinceEn": "Federal Capital",
       "provinceUr": "وفاقی دارالحکومت",
-      "tempC": 22,
+      "tempC": 23,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 24,
       "lowC": 13,
-      "humidity": 50,
+      "humidity": 46,
       "windKmh": 5,
       "aqi": 99,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 22,
+      "feelsLikeC": 23,
       "sunrise": "06:38 AM",
       "sunset": "05:05 PM",
       "hourly": [
         {
-          "time": "06:00",
-          "tempC": 14,
+          "time": "07:00",
+          "tempC": 13,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 18,
+          "time": "10:00",
+          "tempC": 20,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
-          "tempC": 23,
+          "time": "13:00",
+          "tempC": 24,
           "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
-          "tempC": 23,
+          "time": "16:00",
+          "tempC": 22,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 18,
-          "condition": "Clear Sky"
+          "time": "19:00",
+          "tempC": 17,
+          "condition": "Mainly Clear"
         }
       ],
       "daily": [
@@ -839,43 +839,43 @@
       "nameUr": "راولپنڈی",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 22,
+      "tempC": 24,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 24,
       "lowC": 14,
-      "humidity": 53,
+      "humidity": 47,
       "windKmh": 6,
       "aqi": 99,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 22,
+      "feelsLikeC": 23,
       "sunrise": "06:38 AM",
       "sunset": "05:05 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 14,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
+          "time": "10:00",
+          "tempC": 20,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "13:00",
+          "tempC": 24,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "16:00",
+          "tempC": 22,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "19:00",
           "tempC": 18,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "12:00",
-          "tempC": 23,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "15:00",
-          "tempC": 23,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "18:00",
-          "tempC": 19,
           "condition": "Mainly Clear"
         }
       ],
@@ -928,13 +928,13 @@
       "nameUr": "پشاور",
       "provinceEn": "Khyber Pakhtunkhwa",
       "provinceUr": "خیبر پختونخوا",
-      "tempC": 21,
+      "tempC": 23,
       "conditionEn": "Mainly Clear",
       "conditionUr": "زیادہ تر صاف",
       "highC": 24,
       "lowC": 12,
-      "humidity": 62,
-      "windKmh": 5,
+      "humidity": 46,
+      "windKmh": 9,
       "aqi": 155,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
@@ -943,28 +943,28 @@
       "sunset": "05:10 PM",
       "hourly": [
         {
-          "time": "06:00",
-          "tempC": 13,
+          "time": "07:00",
+          "tempC": 12,
           "condition": "Dense Fog / Smog"
         },
         {
-          "time": "09:00",
-          "tempC": 16,
+          "time": "10:00",
+          "tempC": 19,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
           "tempC": 23,
           "condition": "Mainly Clear"
         },
         {
-          "time": "15:00",
-          "tempC": 24,
+          "time": "16:00",
+          "tempC": 22,
           "condition": "Mainly Clear"
         },
         {
-          "time": "18:00",
-          "tempC": 19,
+          "time": "19:00",
+          "tempC": 18,
           "condition": "Clear Sky"
         }
       ],
@@ -1017,14 +1017,14 @@
       "nameUr": "کوئٹہ",
       "provinceEn": "Balochistan",
       "provinceUr": "بلوچستان",
-      "tempC": 16,
+      "tempC": 17,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 17,
       "lowC": 8,
-      "humidity": 25,
-      "windKmh": 10,
-      "aqi": 56,
+      "humidity": 16,
+      "windKmh": 14,
+      "aqi": 55,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
       "feelsLikeC": 13,
@@ -1032,28 +1032,28 @@
       "sunset": "05:36 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 8,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 13,
+          "time": "10:00",
+          "tempC": 15,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
           "tempC": 17,
           "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
-          "tempC": 16,
+          "time": "16:00",
+          "tempC": 15,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 11,
+          "time": "19:00",
+          "tempC": 10,
           "condition": "Clear Sky"
         }
       ],
@@ -1106,43 +1106,43 @@
       "nameUr": "ملتان",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 26,
+      "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 29,
       "lowC": 19,
-      "humidity": 51,
-      "windKmh": 10,
-      "aqi": 185,
+      "humidity": 40,
+      "windKmh": 8,
+      "aqi": 184,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 27,
+      "feelsLikeC": 28,
       "sunrise": "06:38 AM",
       "sunset": "05:18 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 19,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 22,
+          "time": "10:00",
+          "tempC": 24,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
-          "tempC": 28,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "15:00",
+          "time": "13:00",
           "tempC": 29,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 25,
+          "time": "16:00",
+          "tempC": 28,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "19:00",
+          "tempC": 24,
           "condition": "Clear Sky"
         }
       ],
@@ -1200,42 +1200,42 @@
       "nameUr": "فیصل آباد",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 24,
+      "tempC": 26,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 27,
       "lowC": 17,
-      "humidity": 57,
-      "windKmh": 4,
-      "aqi": 183,
+      "humidity": 52,
+      "windKmh": 3,
+      "aqi": 182,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 25,
+      "feelsLikeC": 27,
       "sunrise": "06:34 AM",
       "sunset": "05:09 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 17,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 20,
+          "time": "10:00",
+          "tempC": 22,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
           "tempC": 26,
           "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
+          "time": "16:00",
           "tempC": 26,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
+          "time": "19:00",
           "tempC": 22,
           "condition": "Clear Sky"
         }
@@ -1294,43 +1294,43 @@
       "nameUr": "سیالکوٹ",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 25,
+      "tempC": 26,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 27,
       "lowC": 17,
-      "humidity": 41,
-      "windKmh": 2,
+      "humidity": 37,
+      "windKmh": 3,
       "aqi": 151,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 24,
+      "feelsLikeC": 26,
       "sunrise": "06:30 AM",
       "sunset": "05:01 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 17,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
+          "time": "10:00",
+          "tempC": 23,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "13:00",
+          "tempC": 26,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "16:00",
+          "tempC": 25,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "19:00",
           "tempC": 21,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "12:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "15:00",
-          "tempC": 26,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "18:00",
-          "tempC": 22,
           "condition": "Mainly Clear"
         }
       ],
@@ -1383,43 +1383,43 @@
       "nameUr": "حیدرآباد",
       "provinceEn": "Sindh",
       "provinceUr": "سندھ",
-      "tempC": 31,
+      "tempC": 32,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 33,
       "lowC": 23,
-      "humidity": 52,
-      "windKmh": 4,
+      "humidity": 43,
+      "windKmh": 3,
       "aqi": 80,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 34,
+      "feelsLikeC": 35,
       "sunrise": "06:42 AM",
       "sunset": "05:38 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 23,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 27,
+          "time": "10:00",
+          "tempC": 29,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
           "tempC": 32,
           "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
+          "time": "16:00",
           "tempC": 33,
           "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 31,
+          "time": "19:00",
+          "tempC": 29,
           "condition": "Clear Sky"
         }
       ],
@@ -1472,13 +1472,13 @@
       "nameUr": "مری",
       "provinceEn": "Punjab Hills",
       "provinceUr": "پنجاب / ملکہ کوہسار",
-      "tempC": 12,
+      "tempC": 13,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 13,
       "lowC": 3,
-      "humidity": 39,
-      "windKmh": 6,
+      "humidity": 37,
+      "windKmh": 7,
       "aqi": 83,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
@@ -1487,29 +1487,29 @@
       "sunset": "05:03 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 3,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 8,
+          "time": "10:00",
+          "tempC": 11,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
           "tempC": 13,
-          "condition": "Mainly Clear"
+          "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
-          "tempC": 12,
-          "condition": "Drizzle"
+          "time": "16:00",
+          "tempC": 11,
+          "condition": "Clear Sky"
         },
         {
-          "time": "18:00",
-          "tempC": 6,
-          "condition": "Mainly Clear"
+          "time": "19:00",
+          "tempC": 5,
+          "condition": "Clear Sky"
         }
       ],
       "daily": [
@@ -1561,43 +1561,43 @@
       "nameUr": "گوادر",
       "provinceEn": "Balochistan Coast",
       "provinceUr": "بلوچستان ساحل",
-      "tempC": 31,
+      "tempC": 33,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 34,
       "lowC": 23,
-      "humidity": 22,
-      "windKmh": 13,
-      "aqi": 57,
+      "humidity": 16,
+      "windKmh": 15,
+      "aqi": 58,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 29,
+      "feelsLikeC": 31,
       "sunrise": "07:06 AM",
       "sunset": "06:03 PM",
       "hourly": [
         {
-          "time": "06:00",
+          "time": "07:00",
           "tempC": 24,
           "condition": "Clear Sky"
         },
         {
-          "time": "09:00",
-          "tempC": 25,
+          "time": "10:00",
+          "tempC": 29,
           "condition": "Clear Sky"
         },
         {
-          "time": "12:00",
+          "time": "13:00",
+          "tempC": 34,
+          "condition": "Clear Sky"
+        },
+        {
+          "time": "16:00",
           "tempC": 32,
           "condition": "Clear Sky"
         },
         {
-          "time": "15:00",
-          "tempC": 33,
-          "condition": "Clear Sky"
-        },
-        {
-          "time": "18:00",
-          "tempC": 29,
+          "time": "19:00",
+          "tempC": 28,
           "condition": "Clear Sky"
         }
       ],
@@ -1650,29 +1650,29 @@
       "karat": "24K (Per Tola)",
       "tolaPkr": 286500,
       "tenGramPkr": 245632,
-      "changePkr": 1000,
-      "isPositive": false
+      "changePkr": 0,
+      "isPositive": true
     },
     {
       "karat": "22K (Per Tola)",
       "tolaPkr": 262600,
       "tenGramPkr": 225141,
-      "changePkr": 916,
-      "isPositive": false
+      "changePkr": 0,
+      "isPositive": true
     },
     {
       "karat": "21K (Per Tola)",
       "tolaPkr": 250700,
       "tenGramPkr": 214939,
-      "changePkr": 875,
-      "isPositive": false
+      "changePkr": 0,
+      "isPositive": true
     },
     {
       "karat": "18K (Per Tola)",
       "tolaPkr": 214900,
       "tenGramPkr": 184245,
-      "changePkr": 750,
-      "isPositive": false
+      "changePkr": 0,
+      "isPositive": true
     }
   ],
   "currencyRates": [
@@ -1683,7 +1683,7 @@
       "buyingPkr": 277.71,
       "sellingPkr": 279.64,
       "interbankPkr": 276.6,
-      "change": -0.33,
+      "change": 0,
       "flag": "🇺🇸"
     },
     {
@@ -1693,7 +1693,7 @@
       "buyingPkr": 306.53,
       "sellingPkr": 308.67,
       "interbankPkr": 305.31,
-      "change": -2.44,
+      "change": 0,
       "flag": "🇪🇺"
     },
     {
@@ -1703,7 +1703,7 @@
       "buyingPkr": 367.12,
       "sellingPkr": 369.68,
       "interbankPkr": 365.66,
-      "change": -2.39,
+      "change": 0,
       "flag": "🇬🇧"
     },
     {
@@ -1713,7 +1713,7 @@
       "buyingPkr": 74.06,
       "sellingPkr": 74.57,
       "interbankPkr": 73.76,
-      "change": -0.09,
+      "change": 0,
       "flag": "🇸🇦"
     },
     {
@@ -1723,7 +1723,7 @@
       "buyingPkr": 75.62,
       "sellingPkr": 76.15,
       "interbankPkr": 75.32,
-      "change": -0.09,
+      "change": 0,
       "flag": "🇦🇪"
     },
     {
@@ -1733,7 +1733,7 @@
       "buyingPkr": 194.74,
       "sellingPkr": 196.09,
       "interbankPkr": 193.96,
-      "change": -0.52,
+      "change": 0,
       "flag": "🇨🇦"
     },
     {
@@ -1743,7 +1743,7 @@
       "buyingPkr": 188.26,
       "sellingPkr": 189.57,
       "interbankPkr": 187.51,
-      "change": -2.25,
+      "change": 0,
       "flag": "🇦🇺"
     },
     {
@@ -1753,7 +1753,7 @@
       "buyingPkr": 41.55,
       "sellingPkr": 41.84,
       "interbankPkr": 41.38,
-      "change": -0.04,
+      "change": 0,
       "flag": "🇨🇳"
     },
     {
@@ -1763,7 +1763,7 @@
       "buyingPkr": 892.1,
       "sellingPkr": 898.32,
       "interbankPkr": 888.55,
-      "change": -2.46,
+      "change": 0,
       "flag": "🇰🇼"
     }
   ],
@@ -2489,6 +2489,13 @@
   },
   "auditLogs": [
     {
+      "id": "log-1794642588666",
+      "timestamp": "2026-11-14T07:49:48.666Z",
+      "user": "Cron Dispatcher",
+      "action": "Automation Settings Updated",
+      "details": "Modified live sync intervals or engine flags"
+    },
+    {
       "id": "log-1794475593694",
       "timestamp": "2026-11-12T09:26:33.694Z",
       "user": "Editor",
@@ -2560,16 +2567,17 @@
       "endpoint": "https://open.er-api.com/v6/latest/USD",
       "status": "active",
       "intervalMinutes": 30,
-      "lastSyncAt": "2026-11-14T06:04:57.321Z",
-      "nextSyncAt": "2026-11-07T09:04:29.835Z",
+      "lastSyncAt": "2026-11-14T07:49:41.390Z",
+      "nextSyncAt": "2026-11-14T08:19:41.391Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "ExchangeRate-API & SBP Foreign Exchange Regulations",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 148,
-      "successfulSyncs": 148
+      "totalSyncs": 151,
+      "successfulSyncs": 151,
+      "dailyCallsUsed": 1
     },
     {
       "id": "weather-openmeteo",
@@ -2578,16 +2586,17 @@
       "endpoint": "https://api.open-meteo.com/v1/forecast",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-14T06:04:57.442Z",
-      "nextSyncAt": "2026-11-07T09:34:29.835Z",
+      "lastSyncAt": "2026-11-14T07:49:47.332Z",
+      "nextSyncAt": "2026-11-14T08:49:47.334Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Open-Meteo & Pakistan Meteorological Department (PMD)",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 104,
-      "successfulSyncs": 104
+      "totalSyncs": 109,
+      "successfulSyncs": 107,
+      "dailyCallsUsed": 1
     },
     {
       "id": "gold-bullion",
@@ -2596,16 +2605,17 @@
       "endpoint": "https://api.frankfurter.app/latest",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-14T06:05:03.260Z",
-      "nextSyncAt": "2026-11-07T09:34:29.835Z",
+      "lastSyncAt": "2026-11-14T07:49:47.428Z",
+      "nextSyncAt": "2026-11-14T08:49:47.430Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "All Pakistan Gem & Jewellers Association (APGJAA)",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 69,
-      "successfulSyncs": 69
+      "totalSyncs": 73,
+      "successfulSyncs": 73,
+      "dailyCallsUsed": 1
     },
     {
       "id": "fuel-ogra",
@@ -2614,16 +2624,17 @@
       "endpoint": "https://www.ogra.org.pk/petroleum-prices",
       "status": "active",
       "intervalMinutes": 360,
-      "lastSyncAt": "2026-11-14T06:05:03.378Z",
-      "nextSyncAt": "2026-11-07T14:34:29.835Z",
+      "lastSyncAt": "2026-11-14T07:49:47.442Z",
+      "nextSyncAt": "2026-11-14T13:49:47.444Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Oil & Gas Regulatory Authority (OGRA) Official Gazette",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 29,
-      "successfulSyncs": 29
+      "totalSyncs": 32,
+      "successfulSyncs": 32,
+      "dailyCallsUsed": 1
     },
     {
       "id": "cricket-feed",
@@ -2632,19 +2643,259 @@
       "endpoint": "https://www.pcb.com.pk/live-scores",
       "status": "active",
       "intervalMinutes": 10,
-      "lastSyncAt": "2026-11-14T06:05:03.384Z",
-      "nextSyncAt": "2026-11-07T08:44:29.835Z",
+      "lastSyncAt": "2026-11-14T07:49:47.452Z",
+      "nextSyncAt": "2026-11-14T07:59:47.454Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Pakistan Cricket Board (PCB) & International Cricket Council",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 185,
-      "successfulSyncs": 185
+      "totalSyncs": 191,
+      "successfulSyncs": 191,
+      "dailyCallsUsed": 1
     }
   ],
   "syncJobRuns": [
+    {
+      "id": "run-cricket-feed-1794642587452",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-14T07:49:47.452Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 6,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-fuel-ogra-1794642587442",
+      "providerId": "fuel-ogra",
+      "providerName": "OGRA Petroleum Notification Gateway",
+      "category": "fuel",
+      "timestamp": "2026-11-14T07:49:47.442Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "OGRA POL Notification verified: Petrol Rs. 265.40/L, HSD Rs. 272.80/L. Effective: 01 Nov 2026.",
+      "changeSummaryUr": "اوگرا نوٹیفکیشن تصدیق شدہ: پیٹرول 265.40 روپے فی لیٹر، ڈیزل 272.80 روپے۔ نافذ العمل: 01 Nov 2026۔",
+      "durationMs": 9,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-gold-bullion-1794642587428",
+      "providerId": "gold-bullion",
+      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
+      "category": "gold",
+      "timestamp": "2026-11-14T07:49:47.428Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "Gold 24K per tola verified at Rs. 286,500 (+Rs. 0). APGJAA formula synchronized.",
+      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 286,500 روپے تصدیق شدہ (+0 روپے)۔ صرافہ مارکیٹ ڈیٹا ہم آہنگ۔",
+      "durationMs": 86,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1794642587332",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-14T07:49:47.332Z",
+      "status": "success",
+      "itemsProcessed": 12,
+      "changesDetected": true,
+      "changeSummaryEn": "Updated 12 cities. Smog alerts in: Multan (AQI 184), Faisalabad (AQI 182)",
+      "changeSummaryUr": "12 شہروں کا موسم اپ ڈیٹ ہوا۔ اسموگ وارننگ: Multan (AQI 184)، Faisalabad (AQI 182)",
+      "durationMs": 5939,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-currency-erapi-1794642581390",
+      "providerId": "currency-erapi",
+      "providerName": "ExchangeRate API & SBP Interbank Gateway",
+      "category": "currency",
+      "timestamp": "2026-11-14T07:49:41.390Z",
+      "status": "success",
+      "itemsProcessed": 9,
+      "changesDetected": false,
+      "changeSummaryEn": "Currency rates refreshed from live market. Values stable.",
+      "changeSummaryUr": "کرنسی مارکیٹ کے ریٹس مستحکم ہیں۔",
+      "durationMs": 87,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-cricket-feed-1794642220922",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-14T07:43:40.922Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 4,
+      "errorDetails": null
+    },
+    {
+      "id": "run-cricket-feed-1794641620914",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-14T07:33:40.914Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 3,
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1794641222955",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-14T07:27:02.955Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Refreshed live meteorological observations and forecasts for 2 Pakistani cities.",
+      "changeSummaryUr": "2 پاکستانی شہروں کے موسمی اعداد و شمار اور پیشن گوئی کامیابی سے اپ ڈیٹ ہو گئی۔",
+      "durationMs": 82047,
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1794641116923",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-14T07:25:16.923Z",
+      "status": "failed",
+      "itemsProcessed": 0,
+      "changesDetected": false,
+      "changeSummaryEn": "Weather sync failed, fallback to previous verified observations.",
+      "changeSummaryUr": "موسم کی اپ ڈیٹ ناکام، پچھلی تصدیق شدہ معلومات برقرار۔",
+      "durationMs": 96016,
+      "errorDetails": "Could not fetch live weather for any Pakistani cities."
+    },
+    {
+      "id": "run-cricket-feed-1794640997104",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-14T07:23:17.104Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 3,
+      "errorDetails": null
+    },
+    {
+      "id": "run-fuel-ogra-1794640997099",
+      "providerId": "fuel-ogra",
+      "providerName": "OGRA Petroleum Notification Gateway",
+      "category": "fuel",
+      "timestamp": "2026-11-14T07:23:17.099Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "OGRA POL Notification verified: Petrol Rs. 265.40/L, HSD Rs. 272.80/L. Effective: 01 Nov 2026.",
+      "changeSummaryUr": "اوگرا نوٹیفکیشن تصدیق شدہ: پیٹرول 265.40 روپے فی لیٹر، ڈیزل 272.80 روپے۔ نافذ العمل: 01 Nov 2026۔",
+      "durationMs": 6,
+      "errorDetails": null
+    },
+    {
+      "id": "run-gold-bullion-1794640997090",
+      "providerId": "gold-bullion",
+      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
+      "category": "gold",
+      "timestamp": "2026-11-14T07:23:17.090Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "Gold 24K per tola verified at Rs. 286,500 (+Rs. 0). APGJAA formula synchronized.",
+      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 286,500 روپے تصدیق شدہ (+0 روپے)۔ صرافہ مارکیٹ ڈیٹا ہم آہنگ۔",
+      "durationMs": 63,
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1794640997023",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-14T07:23:17.023Z",
+      "status": "failed",
+      "itemsProcessed": 0,
+      "changesDetected": false,
+      "changeSummaryEn": "Weather sync failed, fallback to previous verified observations.",
+      "changeSummaryUr": "موسم کی اپ ڈیٹ ناکام، پچھلی تصدیق شدہ معلومات برقرار۔",
+      "durationMs": 96053,
+      "errorDetails": "Could not fetch live weather for any Pakistani cities."
+    },
+    {
+      "id": "run-gold-bullion-1794640961017",
+      "providerId": "gold-bullion",
+      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
+      "category": "gold",
+      "timestamp": "2026-11-14T07:22:41.017Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "Gold 24K per tola verified at Rs. 286,500 (+Rs. 0). APGJAA formula synchronized.",
+      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 286,500 روپے تصدیق شدہ (+0 روپے)۔ صرافہ مارکیٹ ڈیٹا ہم آہنگ۔",
+      "durationMs": 110,
+      "errorDetails": null
+    },
+    {
+      "id": "run-cricket-feed-1794640960913",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-14T07:22:40.913Z",
+      "status": "success",
+      "itemsProcessed": 2,
+      "changesDetected": false,
+      "changeSummaryEn": "Synchronized live cricket scoreboard and Champions Trophy schedule.",
+      "changeSummaryUr": "لائیو کرکٹ اسکور بورڈ اور چیمپئنز ٹرافی شیڈول اپ ڈیٹ ہو گیا۔",
+      "durationMs": 4,
+      "errorDetails": null
+    },
+    {
+      "id": "run-currency-erapi-1794640900969",
+      "providerId": "currency-erapi",
+      "providerName": "ExchangeRate API & SBP Interbank Gateway",
+      "category": "currency",
+      "timestamp": "2026-11-14T07:21:40.969Z",
+      "status": "success",
+      "itemsProcessed": 9,
+      "changesDetected": false,
+      "changeSummaryEn": "Currency rates refreshed from live market. Values stable.",
+      "changeSummaryUr": "کرنسی مارکیٹ کے ریٹس مستحکم ہیں۔",
+      "durationMs": 78,
+      "errorDetails": null
+    },
     {
       "id": "run-cricket-feed-1794636303387",
       "providerId": "cricket-feed",
@@ -3025,6 +3276,259 @@
     }
   ],
   "historicalRates": [
+    {
+      "id": "fuel-petrol-1794642587435",
+      "type": "fuel",
+      "symbol": "PETROL",
+      "value": 265.4,
+      "previousValue": 265.4,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:47.433Z",
+      "source": "Ministry of Energy (Petroleum Division) & OGRA"
+    },
+    {
+      "id": "gold-24k-1794642587418",
+      "type": "gold",
+      "symbol": "GOLD_24K_TOLA",
+      "value": 286500,
+      "previousValue": 286500,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:47.343Z",
+      "source": "APGJAA Bullion Market / International XAU Parity"
+    },
+    {
+      "id": "curr-KWD-1794642581383",
+      "type": "currency",
+      "symbol": "KWD/PKR",
+      "value": 888.55,
+      "previousValue": 888.55,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CNY-1794642581381",
+      "type": "currency",
+      "symbol": "CNY/PKR",
+      "value": 41.38,
+      "previousValue": 41.38,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AUD-1794642581380",
+      "type": "currency",
+      "symbol": "AUD/PKR",
+      "value": 187.51,
+      "previousValue": 187.51,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CAD-1794642581378",
+      "type": "currency",
+      "symbol": "CAD/PKR",
+      "value": 193.96,
+      "previousValue": 193.96,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AED-1794642581376",
+      "type": "currency",
+      "symbol": "AED/PKR",
+      "value": 75.32,
+      "previousValue": 75.32,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-SAR-1794642581375",
+      "type": "currency",
+      "symbol": "SAR/PKR",
+      "value": 73.76,
+      "previousValue": 73.76,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-GBP-1794642581373",
+      "type": "currency",
+      "symbol": "GBP/PKR",
+      "value": 365.66,
+      "previousValue": 365.66,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-EUR-1794642581372",
+      "type": "currency",
+      "symbol": "EUR/PKR",
+      "value": 305.31,
+      "previousValue": 305.31,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-USD-1794642581370",
+      "type": "currency",
+      "symbol": "USD/PKR",
+      "value": 276.6,
+      "previousValue": 276.6,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:49:41.304Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "fuel-petrol-1794640997095",
+      "type": "fuel",
+      "symbol": "PETROL",
+      "value": 265.4,
+      "previousValue": 265.4,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:23:17.093Z",
+      "source": "Ministry of Energy (Petroleum Division) & OGRA"
+    },
+    {
+      "id": "gold-24k-1794640997087",
+      "type": "gold",
+      "symbol": "GOLD_24K_TOLA",
+      "value": 286500,
+      "previousValue": 286500,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:23:17.027Z",
+      "source": "APGJAA Bullion Market / International XAU Parity"
+    },
+    {
+      "id": "gold-24k-1794640960994",
+      "type": "gold",
+      "symbol": "GOLD_24K_TOLA",
+      "value": 286500,
+      "previousValue": 286500,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:22:40.907Z",
+      "source": "APGJAA Bullion Market / International XAU Parity"
+    },
+    {
+      "id": "curr-KWD-1794640900965",
+      "type": "currency",
+      "symbol": "KWD/PKR",
+      "value": 888.55,
+      "previousValue": 888.55,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CNY-1794640900963",
+      "type": "currency",
+      "symbol": "CNY/PKR",
+      "value": 41.38,
+      "previousValue": 41.38,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AUD-1794640900962",
+      "type": "currency",
+      "symbol": "AUD/PKR",
+      "value": 187.51,
+      "previousValue": 187.51,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CAD-1794640900960",
+      "type": "currency",
+      "symbol": "CAD/PKR",
+      "value": 193.96,
+      "previousValue": 193.96,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AED-1794640900959",
+      "type": "currency",
+      "symbol": "AED/PKR",
+      "value": 75.32,
+      "previousValue": 75.32,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-SAR-1794640900957",
+      "type": "currency",
+      "symbol": "SAR/PKR",
+      "value": 73.76,
+      "previousValue": 73.76,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-GBP-1794640900956",
+      "type": "currency",
+      "symbol": "GBP/PKR",
+      "value": 365.66,
+      "previousValue": 365.66,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-EUR-1794640900954",
+      "type": "currency",
+      "symbol": "EUR/PKR",
+      "value": 305.31,
+      "previousValue": 305.31,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-USD-1794640900953",
+      "type": "currency",
+      "symbol": "USD/PKR",
+      "value": 276.6,
+      "previousValue": 276.6,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-14T07:21:40.891Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
     {
       "id": "fuel-petrol-1794636303379",
       "type": "fuel",
@@ -4001,7 +4505,8 @@
     "cricketSyncIntervalMin": 10,
     "fuelCheckIntervalMin": 360,
     "geminiCooldownMin": 20,
-    "lastGeminiCallAt": "2026-11-11T06:21:07.706Z"
+    "lastGeminiCallAt": "2026-11-11T06:21:07.706Z",
+    "lastCronRunAt": "2026-11-14T07:49:48.666Z"
   },
   "adminUsers": [
     {
@@ -4310,134 +4815,19 @@
     }
   ],
   "searchConsole": {
-    "connected": true,
-    "impressions": 1480240,
-    "clicks": 92410,
-    "ctr": 6.24,
-    "averagePosition": 8.4,
-    "topQueries": [
-      {
-        "query": "gold rate in pakistan today",
-        "clicks": 28450,
-        "impressions": 340200,
-        "position": 2.1
-      },
-      {
-        "query": "dollar rate in pakistan today",
-        "clicks": 21300,
-        "impressions": 295000,
-        "position": 3.2
-      },
-      {
-        "query": "360Khabarnama news",
-        "clicks": 14200,
-        "impressions": 89000,
-        "position": 1
-      },
-      {
-        "query": "lahore smog aqi live",
-        "clicks": 9800,
-        "impressions": 164000,
-        "position": 4.5
-      },
-      {
-        "query": "live cricket score pakistan vs aus",
-        "clicks": 8700,
-        "impressions": 198000,
-        "position": 3.8
-      },
-      {
-        "query": "petrol price in pakistan ogra notification",
-        "clicks": 6400,
-        "impressions": 142000,
-        "position": 2.8
-      },
-      {
-        "query": "1500 prize bond draw result",
-        "clicks": 5800,
-        "impressions": 112000,
-        "position": 3.5
-      },
-      {
-        "query": "bise lahore matric result 2026",
-        "clicks": 5200,
-        "impressions": 98000,
-        "position": 4.1
-      }
-    ],
-    "topPages": [
-      {
-        "path": "/",
-        "clicks": 38400,
-        "impressions": 480000,
-        "ctr": 8
-      },
-      {
-        "path": "/business",
-        "clicks": 29800,
-        "impressions": 420000,
-        "ctr": 7.1
-      },
-      {
-        "path": "/weather",
-        "clicks": 12400,
-        "impressions": 210000,
-        "ctr": 5.9
-      },
-      {
-        "path": "/sports",
-        "clicks": 9200,
-        "impressions": 190000,
-        "ctr": 4.8
-      },
-      {
-        "path": "/education",
-        "clicks": 6800,
-        "impressions": 120000,
-        "ctr": 5.6
-      }
-    ],
-    "devices": [
-      {
-        "device": "Mobile",
-        "percent": 78.4
-      },
-      {
-        "device": "Desktop",
-        "percent": 18.2
-      },
-      {
-        "device": "Tablet",
-        "percent": 3.4
-      }
-    ],
-    "countries": [
-      {
-        "country": "Pakistan",
-        "percent": 84.2
-      },
-      {
-        "country": "United Arab Emirates",
-        "percent": 5.8
-      },
-      {
-        "country": "Saudi Arabia",
-        "percent": 4.6
-      },
-      {
-        "country": "United Kingdom",
-        "percent": 3.1
-      },
-      {
-        "country": "United States",
-        "percent": 1.5
-      },
-      {
-        "country": "Others",
-        "percent": 0.8
-      }
-    ],
-    "lastRefreshedAt": "2026-11-11T06:20:58.919Z"
+    "connected": false,
+    "diagnosticStatus": "Disconnected",
+    "diagnosticMessage": "Search Console is not connected yet. Configure OAuth or Service Account credentials to view real search data.",
+    "propertyUrl": "",
+    "impressions": 0,
+    "clicks": 0,
+    "ctr": 0,
+    "averagePosition": 0,
+    "topQueries": [],
+    "topPages": [],
+    "devices": [],
+    "countries": [],
+    "lastRefreshedAt": ""
   },
   "redirectRules": [
     {
@@ -4565,55 +4955,74 @@
   "homepageConfig": {
     "sections": [
       {
-        "id": "breaking_ticker",
-        "nameEn": "Breaking News Ticker",
-        "nameUr": "تازہ ترین بریکنگ نیوز بار",
+        "id": "live_widgets_bar",
+        "type": "live_widgets_bar",
+        "nameEn": "Live Cricket, Gold & Weather Bar",
+        "nameUr": "لائیو کرکٹ، سونا اور موسم بار",
+        "description": "Top 3-column live widgets strip featuring cricket match status, 24K gold & USD/PKR rates, and major city temperatures.",
         "enabled": true,
-        "order": 1
+        "order": 1,
+        "mobileOrder": 1,
+        "width": "contained",
+        "template": "cards",
+        "displayMode": "current_lang"
       },
       {
-        "id": "hero_lead",
-        "nameEn": "Lead Story & Featured Slider",
-        "nameUr": "لیڈ اسٹوری اور اہم خبریں",
+        "id": "hero_editorial_grid",
+        "type": "hero_editorial_grid",
+        "nameEn": "Hero Lead Story, Trending & Exam Lookup",
+        "nameUr": "مرکزی لیڈ اسٹوری، مقبول خبریں اور رزلٹ چیکر",
+        "description": "Primary 12-column editorial lead story paired with trending stories list and instant BISE exam result lookup box.",
         "enabled": true,
-        "order": 2
+        "order": 2,
+        "mobileOrder": 2,
+        "width": "contained",
+        "template": "lead-plus-list",
+        "articleSource": "featured",
+        "itemLimit": 5,
+        "displayMode": "current_lang"
       },
       {
-        "id": "market_rates",
-        "nameEn": "Live Financial Market Tickers (Gold & USD)",
-        "nameUr": "لائیو مارکیٹ ریٹس پینل",
+        "id": "ad_leaderboard_home",
+        "type": "ad_banner",
+        "nameEn": "Homepage Mid Leaderboard Ad Slot",
+        "nameUr": "مرکزی اشتہاری بینر",
+        "description": "Monetization placement between main hero coverage and Islamic daily digest.",
         "enabled": true,
-        "order": 3
+        "order": 3,
+        "mobileOrder": 3,
+        "width": "contained",
+        "adSlot": "leaderboard"
       },
       {
-        "id": "top_news_grid",
-        "nameEn": "National & World News Grid",
-        "nameUr": "قومی و بین الاقوامی خبریں",
+        "id": "islamic_prayer_digest",
+        "type": "islamic_prayer_digest",
+        "nameEn": "Daily Islamic Digest & Prayer Times",
+        "nameUr": "اسلامی معلومات و اوقاتِ نماز",
+        "description": "Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.",
         "enabled": true,
-        "order": 4
+        "order": 4,
+        "mobileOrder": 4,
+        "width": "contained",
+        "template": "cards"
       },
       {
-        "id": "weather_aqi",
-        "nameEn": "Live Weather & Smog Observations",
-        "nameUr": "موسم اور اسموگ ائیر کوالٹی ویجیٹ",
+        "id": "utilities_grid",
+        "type": "utilities_grid",
+        "nameEn": "Digital Citizen Tools & Calculators Grid",
+        "nameUr": "پاکستان ڈیجیٹل سروسز و آن لائن ٹولز",
+        "description": "Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.",
         "enabled": true,
-        "order": 5
-      },
-      {
-        "id": "cricket_hub",
-        "nameEn": "Live Cricket Scoreboard & Tournament News",
-        "nameUr": "لائیو کرکٹ اسکور بورڈ",
-        "enabled": true,
-        "order": 6
-      },
-      {
-        "id": "popular_utilities",
-        "nameEn": "Daily Utilities (Prayer, Currency, Calculators)",
-        "nameUr": "روزمرہ سہولیات و ٹولز",
-        "enabled": true,
-        "order": 7
+        "order": 5,
+        "mobileOrder": 5,
+        "width": "contained",
+        "template": "grid",
+        "itemLimit": 6
       }
-    ]
+    ],
+    "version": 1,
+    "updatedAt": "2026-11-14T07:49:39.030Z",
+    "updatedBy": "System"
   },
   "pushSubscriptions": [
     {
@@ -4638,5 +5047,1139 @@
   "vapidKeys": {
     "publicKey": "BE0bOtEWBpljjfDu1-Tb03h8mwyiVqm1DqvkSvOmTRdmdh84hBUgnnqsn96snnc9midCmBGwjERzf1BRqwf0Yfk",
     "privateKey": "81lZ5Brj2qFsa0FM3AlZRGDa77FOwCXnJbSiCIJzdvc"
-  }
+  },
+  "searchConsoleConnection": {
+    "authMode": "none",
+    "propertyUrl": "",
+    "diagnosticStatus": "Disconnected",
+    "diagnosticMessage": "Connect a Google Search Console OAuth 2.0 client or Service Account in Settings/SEO to retrieve live verified search analytics.",
+    "availableProperties": []
+  },
+  "homepageDraft": {
+    "sections": [
+      {
+        "id": "live_widgets_bar",
+        "type": "live_widgets_bar",
+        "nameEn": "Live Cricket, Gold & Weather Bar",
+        "nameUr": "لائیو کرکٹ، سونا اور موسم بار",
+        "description": "Top 3-column live widgets strip featuring cricket match status, 24K gold & USD/PKR rates, and major city temperatures.",
+        "enabled": true,
+        "order": 1,
+        "mobileOrder": 1,
+        "width": "contained",
+        "template": "cards",
+        "displayMode": "current_lang"
+      },
+      {
+        "id": "hero_editorial_grid",
+        "type": "hero_editorial_grid",
+        "nameEn": "Hero Lead Story, Trending & Exam Lookup",
+        "nameUr": "مرکزی لیڈ اسٹوری، مقبول خبریں اور رزلٹ چیکر",
+        "description": "Primary 12-column editorial lead story paired with trending stories list and instant BISE exam result lookup box.",
+        "enabled": true,
+        "order": 2,
+        "mobileOrder": 2,
+        "width": "contained",
+        "template": "lead-plus-list",
+        "articleSource": "featured",
+        "itemLimit": 5,
+        "displayMode": "current_lang"
+      },
+      {
+        "id": "ad_leaderboard_home",
+        "type": "ad_banner",
+        "nameEn": "Homepage Mid Leaderboard Ad Slot",
+        "nameUr": "مرکزی اشتہاری بینر",
+        "description": "Monetization placement between main hero coverage and Islamic daily digest.",
+        "enabled": true,
+        "order": 3,
+        "mobileOrder": 3,
+        "width": "contained",
+        "adSlot": "leaderboard"
+      },
+      {
+        "id": "islamic_prayer_digest",
+        "type": "islamic_prayer_digest",
+        "nameEn": "Daily Islamic Digest & Prayer Times",
+        "nameUr": "اسلامی معلومات و اوقاتِ نماز",
+        "description": "Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.",
+        "enabled": true,
+        "order": 4,
+        "mobileOrder": 4,
+        "width": "contained",
+        "template": "cards"
+      },
+      {
+        "id": "utilities_grid",
+        "type": "utilities_grid",
+        "nameEn": "Digital Citizen Tools & Calculators Grid",
+        "nameUr": "پاکستان ڈیجیٹل سروسز و آن لائن ٹولز",
+        "description": "Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.",
+        "enabled": true,
+        "order": 5,
+        "mobileOrder": 5,
+        "width": "contained",
+        "template": "grid",
+        "itemLimit": 6
+      }
+    ],
+    "version": 1,
+    "updatedAt": "2026-11-14T07:49:39.030Z",
+    "updatedBy": "System"
+  },
+  "homepageVersions": [],
+  "customBlocks": [],
+  "categoryPages": [
+    {
+      "id": "1",
+      "slug": "pakistan",
+      "nameEn": "Pakistan",
+      "nameUr": "پاکستان",
+      "descriptionEn": "National and provincial news across Pakistan",
+      "descriptionUr": "ملک بھر سے اہم قومی و صوبائی خبریں",
+      "iconName": "Flag",
+      "enabled": true,
+      "order": 1,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "Pakistan | 360Khabarnama",
+      "seoTitleUr": "پاکستان | 360 خبرنامہ",
+      "metaDescEn": "National and provincial news across Pakistan",
+      "metaDescUr": "ملک بھر سے اہم قومی و صوبائی خبریں",
+      "canonicalUrl": "https://360khabarnama.com/en/pakistan",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "pakistan-hero",
+          "type": "category_hero",
+          "titleEn": "Pakistan Hub",
+          "titleUr": "پاکستان پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "pakistan-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Pakistan Report",
+          "titleUr": "پاکستان کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "pakistan-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Pakistan Stories",
+          "titleUr": "پاکستان کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "pakistan-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "pakistan-hero",
+          "type": "category_hero",
+          "titleEn": "Pakistan Hub",
+          "titleUr": "پاکستان پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "pakistan-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Pakistan Report",
+          "titleUr": "پاکستان کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "pakistan-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Pakistan Stories",
+          "titleUr": "پاکستان کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "pakistan-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "2",
+      "slug": "politics",
+      "nameEn": "Politics",
+      "nameUr": "سیاست",
+      "descriptionEn": "Political updates, parliament, and national affairs",
+      "descriptionUr": "سیاسی صورتحال، پارلیمنٹ اور حکومتی فیصلے",
+      "iconName": "Building",
+      "enabled": true,
+      "order": 2,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "Politics | 360Khabarnama",
+      "seoTitleUr": "سیاست | 360 خبرنامہ",
+      "metaDescEn": "Political updates, parliament, and national affairs",
+      "metaDescUr": "سیاسی صورتحال، پارلیمنٹ اور حکومتی فیصلے",
+      "canonicalUrl": "https://360khabarnama.com/en/politics",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "politics-hero",
+          "type": "category_hero",
+          "titleEn": "Politics Hub",
+          "titleUr": "سیاست پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "politics-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Politics Report",
+          "titleUr": "سیاست کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "politics-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Politics Stories",
+          "titleUr": "سیاست کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "politics-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "politics-hero",
+          "type": "category_hero",
+          "titleEn": "Politics Hub",
+          "titleUr": "سیاست پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "politics-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Politics Report",
+          "titleUr": "سیاست کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "politics-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Politics Stories",
+          "titleUr": "سیاست کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "politics-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "3",
+      "slug": "business",
+      "nameEn": "Business & Economy",
+      "nameUr": "معیشت و تجارت",
+      "descriptionEn": "Financial markets, inflation, trade and economy",
+      "descriptionUr": "اسٹاک مارکیٹ، روپے کی قدر اور ملکی معیشت",
+      "iconName": "TrendingUp",
+      "enabled": true,
+      "order": 3,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "utility_hybrid",
+      "seoTitleEn": "Business & Economy | 360Khabarnama",
+      "seoTitleUr": "معیشت و تجارت | 360 خبرنامہ",
+      "metaDescEn": "Financial markets, inflation, trade and economy",
+      "metaDescUr": "اسٹاک مارکیٹ، روپے کی قدر اور ملکی معیشت",
+      "canonicalUrl": "https://360khabarnama.com/en/business",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "business-hero",
+          "type": "category_hero",
+          "titleEn": "Business & Economy Hub",
+          "titleUr": "معیشت و تجارت پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "business-widget",
+          "type": "live_rates_widget",
+          "titleEn": "Gold, Currency & PSX Markets",
+          "titleUr": "سونا، کرنسی اور اسٹاک ریٹس",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "business-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Business & Economy Stories",
+          "titleUr": "معیشت و تجارت کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "business-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "business-hero",
+          "type": "category_hero",
+          "titleEn": "Business & Economy Hub",
+          "titleUr": "معیشت و تجارت پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "business-widget",
+          "type": "live_rates_widget",
+          "titleEn": "Gold, Currency & PSX Markets",
+          "titleUr": "سونا، کرنسی اور اسٹاک ریٹس",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "business-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Business & Economy Stories",
+          "titleUr": "معیشت و تجارت کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "business-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "4",
+      "slug": "sports",
+      "nameEn": "Sports & Cricket",
+      "nameUr": "کھیل و کرکٹ",
+      "descriptionEn": "Cricket, PSL, hockey, and international sports",
+      "descriptionUr": "کرکٹ، پی ایس ایل، ہاکی اور بین الاقوامی کھیل",
+      "iconName": "Trophy",
+      "enabled": true,
+      "order": 4,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "utility_hybrid",
+      "seoTitleEn": "Sports & Cricket | 360Khabarnama",
+      "seoTitleUr": "کھیل و کرکٹ | 360 خبرنامہ",
+      "metaDescEn": "Cricket, PSL, hockey, and international sports",
+      "metaDescUr": "کرکٹ، پی ایس ایل، ہاکی اور بین الاقوامی کھیل",
+      "canonicalUrl": "https://360khabarnama.com/en/sports",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "sports-hero",
+          "type": "category_hero",
+          "titleEn": "Sports & Cricket Hub",
+          "titleUr": "کھیل و کرکٹ پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "sports-widget",
+          "type": "cricket_scoreboard_widget",
+          "titleEn": "Live Cricket & PSL Scores",
+          "titleUr": "لائیو کرکٹ اسکور",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "sports-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Sports & Cricket Stories",
+          "titleUr": "کھیل و کرکٹ کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "sports-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "sports-hero",
+          "type": "category_hero",
+          "titleEn": "Sports & Cricket Hub",
+          "titleUr": "کھیل و کرکٹ پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "sports-widget",
+          "type": "cricket_scoreboard_widget",
+          "titleEn": "Live Cricket & PSL Scores",
+          "titleUr": "لائیو کرکٹ اسکور",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "sports-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Sports & Cricket Stories",
+          "titleUr": "کھیل و کرکٹ کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "sports-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "5",
+      "slug": "education",
+      "nameEn": "Education",
+      "nameUr": "تعلیم و امتحانات",
+      "descriptionEn": "BISE board results, admissions and universities",
+      "descriptionUr": "تعلیمی بورڈز کے نتائج، امتحانات اور وظائف",
+      "iconName": "GraduationCap",
+      "enabled": true,
+      "order": 5,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "utility_hybrid",
+      "seoTitleEn": "Education | 360Khabarnama",
+      "seoTitleUr": "تعلیم و امتحانات | 360 خبرنامہ",
+      "metaDescEn": "BISE board results, admissions and universities",
+      "metaDescUr": "تعلیمی بورڈز کے نتائج، امتحانات اور وظائف",
+      "canonicalUrl": "https://360khabarnama.com/en/education",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "education-hero",
+          "type": "category_hero",
+          "titleEn": "Education Hub",
+          "titleUr": "تعلیم و امتحانات پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "education-widget",
+          "type": "education_board_results_widget",
+          "titleEn": "BISE Boards & Result Lookup",
+          "titleUr": "تعلیمی بورڈز اور رزلٹ سرچ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "education-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Education Stories",
+          "titleUr": "تعلیم و امتحانات کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "education-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "education-hero",
+          "type": "category_hero",
+          "titleEn": "Education Hub",
+          "titleUr": "تعلیم و امتحانات پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "education-widget",
+          "type": "education_board_results_widget",
+          "titleEn": "BISE Boards & Result Lookup",
+          "titleUr": "تعلیمی بورڈز اور رزلٹ سرچ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "education-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Education Stories",
+          "titleUr": "تعلیم و امتحانات کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "education-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "6",
+      "slug": "technology",
+      "nameEn": "Tech & Mobiles",
+      "nameUr": "ٹیکنالوجی و موبائلز",
+      "descriptionEn": "Smartphone reviews, gadgets and AI developments",
+      "descriptionUr": "جدید اسمارٹ فونز، آئی ٹی اور سائنسی خبریں",
+      "iconName": "Cpu",
+      "enabled": true,
+      "order": 6,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "Tech & Mobiles | 360Khabarnama",
+      "seoTitleUr": "ٹیکنالوجی و موبائلز | 360 خبرنامہ",
+      "metaDescEn": "Smartphone reviews, gadgets and AI developments",
+      "metaDescUr": "جدید اسمارٹ فونز، آئی ٹی اور سائنسی خبریں",
+      "canonicalUrl": "https://360khabarnama.com/en/technology",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "technology-hero",
+          "type": "category_hero",
+          "titleEn": "Tech & Mobiles Hub",
+          "titleUr": "ٹیکنالوجی و موبائلز پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "technology-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Tech & Mobiles Report",
+          "titleUr": "ٹیکنالوجی و موبائلز کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "technology-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Tech & Mobiles Stories",
+          "titleUr": "ٹیکنالوجی و موبائلز کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "technology-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "technology-hero",
+          "type": "category_hero",
+          "titleEn": "Tech & Mobiles Hub",
+          "titleUr": "ٹیکنالوجی و موبائلز پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "technology-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Tech & Mobiles Report",
+          "titleUr": "ٹیکنالوجی و موبائلز کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "technology-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Tech & Mobiles Stories",
+          "titleUr": "ٹیکنالوجی و موبائلز کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "technology-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "7",
+      "slug": "world",
+      "nameEn": "World News",
+      "nameUr": "عالمی خبریں",
+      "descriptionEn": "International affairs and global geopolitical events",
+      "descriptionUr": "بین الاقوامی امور اور عالمی سیاست",
+      "iconName": "Globe",
+      "enabled": true,
+      "order": 7,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "World News | 360Khabarnama",
+      "seoTitleUr": "عالمی خبریں | 360 خبرنامہ",
+      "metaDescEn": "International affairs and global geopolitical events",
+      "metaDescUr": "بین الاقوامی امور اور عالمی سیاست",
+      "canonicalUrl": "https://360khabarnama.com/en/world",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "world-hero",
+          "type": "category_hero",
+          "titleEn": "World News Hub",
+          "titleUr": "عالمی خبریں پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "world-featured",
+          "type": "featured_story",
+          "titleEn": "Featured World News Report",
+          "titleUr": "عالمی خبریں کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "world-grid",
+          "type": "news_grid",
+          "titleEn": "Latest World News Stories",
+          "titleUr": "عالمی خبریں کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "world-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "world-hero",
+          "type": "category_hero",
+          "titleEn": "World News Hub",
+          "titleUr": "عالمی خبریں پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "world-featured",
+          "type": "featured_story",
+          "titleEn": "Featured World News Report",
+          "titleUr": "عالمی خبریں کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "world-grid",
+          "type": "news_grid",
+          "titleEn": "Latest World News Stories",
+          "titleUr": "عالمی خبریں کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "world-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "8",
+      "slug": "entertainment",
+      "nameEn": "Entertainment",
+      "nameUr": "شوبز و تفریح",
+      "descriptionEn": "Dramas, cinema, music and celebrity updates",
+      "descriptionUr": "ڈرامے، فلمیں، موسیقی اور شوبز شخصیات",
+      "iconName": "Film",
+      "enabled": true,
+      "order": 8,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "Entertainment | 360Khabarnama",
+      "seoTitleUr": "شوبز و تفریح | 360 خبرنامہ",
+      "metaDescEn": "Dramas, cinema, music and celebrity updates",
+      "metaDescUr": "ڈرامے، فلمیں، موسیقی اور شوبز شخصیات",
+      "canonicalUrl": "https://360khabarnama.com/en/entertainment",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "entertainment-hero",
+          "type": "category_hero",
+          "titleEn": "Entertainment Hub",
+          "titleUr": "شوبز و تفریح پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "entertainment-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Entertainment Report",
+          "titleUr": "شوبز و تفریح کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "entertainment-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Entertainment Stories",
+          "titleUr": "شوبز و تفریح کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "entertainment-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "entertainment-hero",
+          "type": "category_hero",
+          "titleEn": "Entertainment Hub",
+          "titleUr": "شوبز و تفریح پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "entertainment-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Entertainment Report",
+          "titleUr": "شوبز و تفریح کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "entertainment-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Entertainment Stories",
+          "titleUr": "شوبز و تفریح کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "entertainment-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "9",
+      "slug": "islamic",
+      "nameEn": "Islamic Life",
+      "nameUr": "اسلامی دنیا",
+      "descriptionEn": "Prayer times, Quran, Hadith, Duas & Zakat",
+      "descriptionUr": "اوقاتِ نماز، قرآن، احادیث اور زکوٰۃ گائیڈ",
+      "iconName": "Moon",
+      "enabled": true,
+      "order": 9,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "utility_hybrid",
+      "seoTitleEn": "Islamic Life | 360Khabarnama",
+      "seoTitleUr": "اسلامی دنیا | 360 خبرنامہ",
+      "metaDescEn": "Prayer times, Quran, Hadith, Duas & Zakat",
+      "metaDescUr": "اوقاتِ نماز، قرآن، احادیث اور زکوٰۃ گائیڈ",
+      "canonicalUrl": "https://360khabarnama.com/en/islamic",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "islamic-hero",
+          "type": "category_hero",
+          "titleEn": "Islamic Life Hub",
+          "titleUr": "اسلامی دنیا پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "islamic-widget",
+          "type": "islamic_prayer_times_widget",
+          "titleEn": "Daily Prayer Times & Hijri Digest",
+          "titleUr": "اوقاتِ نماز اور اسلامی معلومات",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "islamic-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Islamic Life Stories",
+          "titleUr": "اسلامی دنیا کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "islamic-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "islamic-hero",
+          "type": "category_hero",
+          "titleEn": "Islamic Life Hub",
+          "titleUr": "اسلامی دنیا پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "islamic-widget",
+          "type": "islamic_prayer_times_widget",
+          "titleEn": "Daily Prayer Times & Hijri Digest",
+          "titleUr": "اوقاتِ نماز اور اسلامی معلومات",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "islamic-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Islamic Life Stories",
+          "titleUr": "اسلامی دنیا کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "islamic-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    },
+    {
+      "id": "10",
+      "slug": "health",
+      "nameEn": "Health & Science",
+      "nameUr": "صحت و طب",
+      "descriptionEn": "Wellness, medical advice and healthcare tips",
+      "descriptionUr": "طبی مشورے، صحت مند طرزِ زندگی اور ادویات",
+      "iconName": "HeartPulse",
+      "enabled": true,
+      "order": 10,
+      "showInNav": true,
+      "showInFooter": true,
+      "template": "standard_news",
+      "seoTitleEn": "Health & Science | 360Khabarnama",
+      "seoTitleUr": "صحت و طب | 360 خبرنامہ",
+      "metaDescEn": "Wellness, medical advice and healthcare tips",
+      "metaDescUr": "طبی مشورے، صحت مند طرزِ زندگی اور ادویات",
+      "canonicalUrl": "https://360khabarnama.com/en/health",
+      "robots": "index, follow",
+      "status": "published",
+      "blocks": [
+        {
+          "id": "health-hero",
+          "type": "category_hero",
+          "titleEn": "Health & Science Hub",
+          "titleUr": "صحت و طب پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "health-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Health & Science Report",
+          "titleUr": "صحت و طب کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "health-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Health & Science Stories",
+          "titleUr": "صحت و طب کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "health-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "draftBlocks": [
+        {
+          "id": "health-hero",
+          "type": "category_hero",
+          "titleEn": "Health & Science Hub",
+          "titleUr": "صحت و طب پورٹل",
+          "enabled": true,
+          "order": 1,
+          "width": "full"
+        },
+        {
+          "id": "health-featured",
+          "type": "featured_story",
+          "titleEn": "Featured Health & Science Report",
+          "titleUr": "صحت و طب کی خاص رپورٹ",
+          "enabled": true,
+          "order": 2,
+          "width": "full"
+        },
+        {
+          "id": "health-grid",
+          "type": "news_grid",
+          "titleEn": "Latest Health & Science Stories",
+          "titleUr": "صحت و طب کی تازہ خبریں",
+          "enabled": true,
+          "order": 3,
+          "width": "main",
+          "itemLimit": 9
+        },
+        {
+          "id": "health-ad",
+          "type": "ad_unit_slot",
+          "titleEn": "Category Sponsorship Slot",
+          "titleUr": "کیٹیگری اشتہار",
+          "enabled": true,
+          "order": 4,
+          "width": "full",
+          "adSlotId": "home_leaderboard"
+        }
+      ],
+      "updatedAt": "2026-11-14T07:49:40.217Z",
+      "updatedBy": "System Seed"
+    }
+  ],
+  "categoryPageVersions": {},
+  "robotsTxt": "# Robots.txt for 360Khabarnama (Pakistan Bilingual Digital Portal)\nUser-agent: *\nAllow: /\nAllow: /en/\nAllow: /ur/\nAllow: /assets/\nDisallow: /admin/\nDisallow: /api/\nDisallow: /epaper/\nDisallow: /en/epaper/\nDisallow: /ur/epaper/\n\nSitemap: https://360khabarnama.com/sitemap.xml\nSitemap: https://360khabarnama.com/sitemap-news.xml\n",
+  "sitemapConfig": {
+    "includeImages": true,
+    "includeNewsSitemap": true,
+    "includeCategories": true,
+    "defaultChangefreq": "daily",
+    "excludedPaths": [
+      "/admin",
+      "/api",
+      "/epaper"
+    ],
+    "lastGeneratedAt": "2026-11-14T07:49:39.030Z"
+  },
+  "seoAuditLogs": [],
+  "adminCredentials": {},
+  "aiProviders": [],
+  "aiTaskRoutes": {},
+  "aiUsageLogs": [],
+  "editorialDrafts": [],
+  "cronLocks": {}
 }

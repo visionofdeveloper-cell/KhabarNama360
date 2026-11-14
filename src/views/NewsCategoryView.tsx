@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
-import { Article } from '../types/index.ts';
-import { Clock, Eye, Calendar, ArrowRight, Tag } from 'lucide-react';
+import { Article, CategoryPageConfig } from '../types/index.ts';
+import { ArrowRight } from 'lucide-react';
+import { AdBanner } from '../components/AdBanner.tsx';
 
 interface NewsCategoryViewProps {
   categorySlug: string;
@@ -10,41 +11,56 @@ interface NewsCategoryViewProps {
 
 export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
   categorySlug,
-  onSelectArticle
+  onSelectArticle,
 }) => {
   const { isUrdu, t } = useLanguage();
   const [articles, setArticles] = useState<Article[]>([]);
+  const [pageConfig, setPageConfig] = useState<CategoryPageConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/news?category=${categorySlug}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setArticles(data.articles);
-        }
+    Promise.all([
+      fetch(`/api/news?category=${encodeURIComponent(categorySlug)}`).then(res => res.json()),
+      fetch(`/api/categories/${encodeURIComponent(categorySlug)}/page`).then(res => res.json()),
+    ])
+      .then(([newsRes, pageRes]) => {
+        if (newsRes.success) setArticles(newsRes.articles || []);
+        if (pageRes.success && pageRes.category) setPageConfig(pageRes.category);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [categorySlug]);
 
+  const title =
+    pageConfig && (isUrdu ? pageConfig.nameUr : pageConfig.nameEn)
+      ? isUrdu
+        ? pageConfig.nameUr
+        : pageConfig.nameEn
+      : `${categorySlug} ${isUrdu ? 'کی اہم خبریں' : 'Coverage'}`;
+
+  const subtitle =
+    pageConfig && (isUrdu ? pageConfig.descriptionUr : pageConfig.descriptionEn);
+
+  const hasAdBlock = pageConfig?.blocks?.some(b => b.enabled && b.type === 'ad_unit_slot');
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
       {/* Category Header */}
-      <div className="border-b-2 border-emerald-700 pb-4 flex items-center justify-between">
+      <div className="border-b-2 border-emerald-700 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <span className="text-xs font-black uppercase text-emerald-700 tracking-wider">
             {isUrdu ? 'نیوز کیٹیگری آرکائیو' : 'Category Archive'}
           </span>
-          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 capitalize mt-1">
-            {categorySlug} {isUrdu ? 'کی اہم خبریں' : 'Coverage'}
-          </h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 capitalize mt-1">{title}</h1>
+          {subtitle && <p className="text-xs text-gray-600 mt-1">{subtitle}</p>}
         </div>
-        <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded-full font-mono">
+        <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded-full font-mono self-start sm:self-auto">
           {articles.length} Stories
         </span>
       </div>
+
+      {hasAdBlock && <AdBanner slot="leaderboard" />}
 
       {loading ? (
         <div className="py-20 text-center text-gray-400 animate-pulse text-sm">
@@ -53,12 +69,14 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
       ) : articles.length === 0 ? (
         <div className="py-16 text-center text-gray-500 bg-white rounded-3xl border border-gray-200">
           <p className="text-base font-bold">
-            {isUrdu ? 'اس شعبے میں مزید خبریں جلد شائع کی جائیں گی۔' : 'No articles published in this category yet.'}
+            {isUrdu
+              ? 'اس شعبے میں مزید خبریں جلد شائع کی جائیں گی۔'
+              : 'No articles published in this category yet.'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((art) => (
+          {articles.map(art => (
             <div
               key={art.id}
               onClick={() => onSelectArticle(art)}
@@ -80,7 +98,9 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
                   <div className="flex items-center gap-3 text-[11px] text-gray-400">
                     <span>{new Date(art.publishedAt).toLocaleDateString()}</span>
                     <span>•</span>
-                    <span>{art.readingTimeMin} {t('common.minRead')}</span>
+                    <span>
+                      {art.readingTimeMin} {t('common.minRead')}
+                    </span>
                   </div>
 
                   <h3 className="font-extrabold text-base text-gray-900 group-hover:text-emerald-700 transition-colors line-clamp-2 leading-snug">

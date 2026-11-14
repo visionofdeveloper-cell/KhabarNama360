@@ -112,7 +112,12 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'role', 'status', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly(['uid', 'role', 'status', 'createdAt', 'updatedAt'])
         && isValidId(data.uid)
-        && data.role in ['Super Admin', 'Managing Editor', 'Reporter', 'SEO Specialist', 'Advertising Manager']
+        && data.role in [
+          'Super Admin', 'Administrator', 'Managing Editor', 'Editor',
+          'SEO Manager', 'Automation Manager', 'Advertising Manager',
+          'Content Contributor', 'Read-only Analyst',
+          'Reporter', 'SEO Specialist', 'Viewer'
+        ]
         && data.status in ['active', 'suspended']
         && data.createdAt is timestamp
         && data.updatedAt == request.time;

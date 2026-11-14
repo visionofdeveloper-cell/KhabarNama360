@@ -69,6 +69,9 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const parseRouteFromPath = (pathname: string): string => {
+    if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
+      return 'admin';
+    }
     if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'admin';
     const stripped = pathname.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
     if (!stripped) return 'home';
@@ -108,6 +111,12 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Apply HTML direction and language attributes
   useEffect(() => {
+    if (currentRoute === 'admin') {
+      document.documentElement.lang = 'en';
+      document.documentElement.dir = 'ltr';
+      document.body.classList.remove('font-urdu');
+      return;
+    }
     document.documentElement.lang = language;
     document.documentElement.dir = isUrdu ? 'rtl' : 'ltr';
     if (isUrdu) {
@@ -115,7 +124,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } else {
       document.body.classList.remove('font-urdu');
     }
-  }, [language, isUrdu]);
+  }, [language, isUrdu, currentRoute]);
 
   const t = (key: string): string => {
     const item = UI_TRANSLATIONS[key];

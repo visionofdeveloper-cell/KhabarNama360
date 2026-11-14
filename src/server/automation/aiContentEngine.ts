@@ -1,15 +1,12 @@
-import { GoogleGenAI } from '@google/genai';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Automated AI Content Engine (Routed via AIProviderRouter)
+ */
+
 import { db } from '../db.ts';
 import { AiContentDraft } from './types.ts';
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+import { AIProviderRouter } from '../../../services/ai/AIProviderRouter.ts';
 
 export async function processDataChangeWithGemini(
   category: 'gold' | 'currency' | 'fuel' | 'weather' | 'cricket',
@@ -18,8 +15,7 @@ export async function processDataChangeWithGemini(
 ): Promise<AiContentDraft | null> {
   const settings = db.getAutomationSettings();
 
-  // Guard: Feature toggle & cooldown check
-  if (!settings.aiDraftsEnabled || !process.env.GEMINI_API_KEY) {
+  if (!settings.aiDraftsEnabled) {
     return null;
   }
 
@@ -27,7 +23,6 @@ export async function processDataChangeWithGemini(
   if (settings.lastGeminiCallAt) {
     const elapsedMinutes = (now.getTime() - new Date(settings.lastGeminiCallAt).getTime()) / (1000 * 60);
     if (elapsedMinutes < settings.geminiCooldownMin) {
-      console.log(`[AI Engine] Gemini cooldown active (${elapsedMinutes.toFixed(1)}m < ${settings.geminiCooldownMin}m). Skipping automated draft.`);
       return null;
     }
   }
@@ -41,37 +36,39 @@ Verified Data Snapshot: ${JSON.stringify(snapshot, null, 2)}
 
 STRICT EDITORIAL RULES:
 1. Ground your entire summary exclusively in the provided numeric values. NEVER fabricate, estimate, or alter numbers.
-2. Produce:
+2. Produce valid JSON with exact keys:
    - titleEn: Professional, high-CTR English news headline.
    - titleUr: Natural, journalistic Urdu headline (نستعلیق انداز).
    - summaryEn: Concise 2-sentence standfirst for reader cards.
    - summaryUr: Factual Urdu summary.
-   - contentEn: 3 short paragraphs explaining the market context, verified prices, and impact on Pakistani consumers.
+   - contentEn: 3 short paragraphs explaining market context, verified prices, and impact on Pakistani consumers.
    - contentUr: 3 formal journalistic paragraphs in authentic Urdu.
-   - seoTags: Array of 5 relevant search tags (e.g. ["GoldRatePakistan", "APGJAA", "BusinessNews"]).
+   - seoTags: Array of 5 relevant search tags.`;
 
-Output exclusively valid JSON adhering to the specified keys.`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
+    const { data: rawParsed } = await AIProviderRouter.executeJsonTask({
+      task: 'breaking_alerts',
+      prompt,
+      systemInstruction:
+        'You are a bilingual Urdu/English newsroom editor. Output ONLY a single valid JSON object with keys titleEn, titleUr, summaryEn, summaryUr, contentEn, contentUr, seoTags.',
+      temperature: 0.2,
+      maxTokens: 4096,
+      actor: 'Automated Data Engine',
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = Array.isArray(rawParsed)
+      ? rawParsed[0]
+      : (rawParsed?.article || rawParsed?.data || rawParsed);
 
-    if (!parsed.titleEn || !parsed.titleUr) {
-      throw new Error('Gemini output missing required titles');
+    if (!parsed || (!parsed.titleEn && !parsed.titleUr)) {
+      throw new Error('AI output missing required bilingual titles.');
     }
 
     const draft: AiContentDraft = {
       id: `draft-${category}-${Date.now()}`,
       category,
       triggerReason,
-      titleEn: parsed.titleEn,
-      titleUr: parsed.titleUr,
+      titleEn: parsed.titleEn || parsed.titleUr || `${category.toUpperCase()} Market Update`,
+      titleUr: parsed.titleUr || parsed.titleEn || 'تازہ ترین اپڈیٹ',
       summaryEn: parsed.summaryEn || '',
       summaryUr: parsed.summaryUr || '',
       contentEn: parsed.contentEn || '',
@@ -82,15 +79,11 @@ Output exclusively valid JSON adhering to the specified keys.`;
       seoTags: Array.isArray(parsed.seoTags) ? parsed.seoTags : [category, 'PakistanNews', 'VerifiedRates'],
     };
 
-    // Save draft in persistent database
     db.saveAiDraft(draft);
-
-    // Update settings timestamp
     db.updateAutomationSettings({ lastGeminiCallAt: now.toISOString() }, 'AI Automation Engine');
-
     return draft;
   } catch (error: any) {
-    console.error('[AI Engine] Failed to generate automated content draft:', error.message);
+    console.error('[AI Engine] Automated draft skipped/failed:', error.message);
     return null;
   }
 }

@@ -21,7 +21,14 @@ export interface ArticleSeo {
   canonicalUrl?: string;
   focusKeywords?: string[];
   ogImage?: string;
+  ogTitleEn?: string;
+  ogTitleUr?: string;
+  ogDescriptionEn?: string;
+  ogDescriptionUr?: string;
   noIndex?: boolean;
+  schemaType?: string;
+  searchIntent?: string;
+  internalLinks?: { title: string; url: string; anchorText: string }[];
 }
 
 export interface Article {
@@ -75,6 +82,8 @@ export interface Category {
   descriptionEn: string;
   descriptionUr: string;
   iconName: string;
+  enabled?: boolean;
+  order?: number;
 }
 
 export interface EducationBoard {
@@ -330,11 +339,35 @@ export type UserRole =
   | 'Administrator'
   | 'Managing Editor'
   | 'Editor'
-  | 'Reporter'
-  | 'SEO Specialist'
+  | 'SEO Manager'
+  | 'Automation Manager'
   | 'Advertising Manager'
   | 'Content Contributor'
+  | 'Read-only Analyst'
+  // Legacy aliases kept for backwards compatibility
+  | 'Reporter'
+  | 'SEO Specialist'
   | 'Viewer';
+
+export type AdminPermission =
+  | 'overview:view'
+  | 'reports:view'
+  | 'articles:read'
+  | 'articles:write'
+  | 'articles:publish'
+  | 'articles:delete'
+  | 'categories:manage'
+  | 'homepage:manage'
+  | 'media:manage'
+  | 'seo:manage'
+  | 'ads:manage'
+  | 'automation:manage'
+  | 'ai:use'
+  | 'ai:keys'
+  | 'audience:manage'
+  | 'users:manage'
+  | 'settings:manage'
+  | 'health:view';
 
 export interface AdminUser {
   id: string;
@@ -350,6 +383,99 @@ export interface AdminUser {
   lastLogin?: string;
   createdAt: string;
 }
+
+// ================= AI PROVIDER & KEY MANAGEMENT =================
+
+export type AIProviderType = 'gemini' | 'grok' | 'custom' | 'custom_data';
+
+export type AITaskType =
+  | 'headline_generation'
+  | 'translation'
+  | 'urdu_to_english'
+  | 'english_to_urdu'
+  | 'summarization'
+  | 'article_summarization'
+  | 'article_drafting'
+  | 'content_rewriting'
+  | 'article_rewriting'
+  | 'seo_metadata'
+  | 'keyword_tag_extraction'
+  | 'category_tagging'
+  | 'breaking_alerts'
+  | 'public_qa'
+  | 'fact_check_prep'
+  | 'newsletter_social';
+
+export interface AIProviderCredential {
+  id: string;
+  providerType: AIProviderType;
+  label: string;
+  projectId: string; // Explicit GCP/xAI project reference to prevent multi-key bypass on same project
+  endpointUrl?: string;
+  model: string;
+  encryptedSecret: string; // Never sent unmasked to client
+  maskedKey: string;
+  enabled: boolean;
+  priority: number;
+  dailyTokenLimit: number;
+  dailyTokensUsed: number;
+  monthlyBudgetUsd: number;
+  monthlySpendUsd: number;
+  lastTestedAt?: string | null;
+  lastTestStatus?: 'connected' | 'error' | 'untested';
+  lastTestMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AITaskRouting {
+  task: AITaskType;
+  label: string;
+  primaryCredentialId: string;
+  primaryModel: string;
+  fallbackCredentialId?: string;
+  fallbackModel?: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+export interface AIUsageLog {
+  id: string;
+  timestamp: string;
+  task: AITaskType | string;
+  credentialId: string;
+  providerType: AIProviderType;
+  projectId: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  latencyMs: number;
+  status: 'success' | 'error';
+  errorMessage?: string;
+  actor: string;
+}
+
+export interface EditorialDraftRecord {
+  id: string;
+  template: string;
+  titleEn: string;
+  titleUr: string;
+  contentEn: string;
+  contentUr: string;
+  summaryEn?: string;
+  summaryUr?: string;
+  metadata?: Record<string, any>;
+  providerType?: string;
+  model?: string;
+  totalTokens?: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ================= MEDIA, SEO & SEARCH CONSOLE =================
 
 export interface MediaAsset {
   id: string;
@@ -373,28 +499,65 @@ export interface MediaAsset {
 export interface SeoPageConfig {
   id: string;
   path: string;
+  pageType?: 'home' | 'category' | 'static' | 'article';
   titleEn: string;
   titleUr: string;
   metaDescEn: string;
   metaDescUr: string;
   canonicalUrl: string;
   robotsDirectives: string; // e.g. 'index, follow'
+  ogTitleEn?: string;
+  ogTitleUr?: string;
+  ogDescEn?: string;
+  ogDescUr?: string;
   ogImage: string;
   schemaType: string;
   focusKeyword: string;
+  secondaryKeywords?: string[];
+  hreflangEn?: string;
+  hreflangUr?: string;
   lastAuditedAt: string;
+}
+
+export type SearchConsoleStatus =
+  | 'Disconnected'
+  | 'Authorized'
+  | 'Access Denied'
+  | 'Token Expired'
+  | 'Property Not Found'
+  | 'API Error'
+  | 'No Data Yet';
+
+export interface SearchConsoleConnection {
+  authMode: 'oauth2' | 'service_account' | 'none';
+  propertyUrl: string;
+  clientId?: string;
+  encryptedClientSecret?: string;
+  encryptedRefreshToken?: string;
+  encryptedAccessToken?: string;
+  encryptedServiceAccountJson?: string;
+  serviceAccountEmail?: string;
+  tokenExpiresAt?: string;
+  diagnosticStatus: SearchConsoleStatus;
+  diagnosticMessage?: string;
+  availableProperties?: string[];
+  lastCheckedAt?: string;
+  lastSyncedAt?: string;
 }
 
 export interface SearchConsoleMetrics {
   connected: boolean;
+  diagnosticStatus?: SearchConsoleStatus;
+  diagnosticMessage?: string;
+  propertyUrl?: string;
   impressions: number;
   clicks: number;
   ctr: number;
   averagePosition: number;
-  topQueries: { query: string; clicks: number; impressions: number; position: number }[];
-  topPages: { path: string; clicks: number; impressions: number; ctr: number }[];
-  devices: { device: string; percent: number }[];
-  countries: { country: string; percent: number }[];
+  topQueries: { query: string; clicks: number; impressions: number; ctr?: number; position: number }[];
+  topPages: { path: string; clicks: number; impressions: number; ctr: number; position?: number }[];
+  devices: { device: string; percent: number; clicks?: number; impressions?: number }[];
+  countries: { country: string; percent: number; clicks?: number; impressions?: number }[];
   lastRefreshedAt: string;
 }
 
@@ -405,6 +568,7 @@ export interface RedirectRule {
   statusCode: 301 | 302 | 410;
   hits: number;
   active: boolean;
+  notes?: string;
   createdAt: string;
 }
 
@@ -419,6 +583,27 @@ export interface BrokenLinkReport {
   discoveredAt: string;
   resolved: boolean;
 }
+
+export interface SitemapSettings {
+  includeImages: boolean;
+  includeNewsSitemap: boolean;
+  includeCategories: boolean;
+  defaultChangefreq: 'hourly' | 'daily' | 'weekly';
+  excludedPaths: string[];
+  lastGeneratedAt?: string;
+}
+
+export interface SeoAuditLogEntry {
+  id: string;
+  timestamp: string;
+  actor: string;
+  action: string;
+  target: string;
+  status: 'passed' | 'warning' | 'error';
+  details: string;
+}
+
+// ================= ADVERTISING & AUDIENCE =================
 
 export type AdSlotLocation =
   | 'header_banner'
@@ -436,7 +621,7 @@ export interface AdPlacement {
   name: string;
   location: AdSlotLocation;
   providerType: 'adsense' | 'ad_manager' | 'direct' | 'sponsored';
-  dimensions: string; // e.g. '728x90', '300x250'
+  dimensions: string;
   targetDevices: 'all' | 'desktop' | 'mobile';
   enabled: boolean;
   adCodeSnippet?: string;
@@ -521,14 +706,155 @@ export interface AudienceNotification {
   status?: 'sent' | 'scheduled' | 'draft';
 }
 
+// ================= HOMEPAGE BUILDER & UNIVERSAL CATEGORY PAGES =================
+
+export type HomepageSectionType =
+  | 'live_widgets_bar'
+  | 'hero_editorial_grid'
+  | 'ad_banner'
+  | 'islamic_prayer_digest'
+  | 'utilities_grid'
+  | 'category_news_grid'
+  | 'breaking_ticker'
+  | 'newsletter_box'
+  | 'custom_block';
+
+export interface HomepageSectionItem {
+  id: string;
+  type: HomepageSectionType;
+  nameEn: string;
+  nameUr: string;
+  description?: string;
+  enabled: boolean;
+  order: number;
+  mobileOrder?: number;
+  width?: 'full' | 'contained' | '2-col' | '3-col';
+  template?: 'grid' | 'lead-plus-list' | 'cards' | 'ticker' | 'compact';
+  categorySlug?: string;
+  articleSource?: 'latest' | 'featured' | 'trending' | 'breaking' | 'category';
+  itemLimit?: number;
+  displayMode?: 'bilingual' | 'current_lang';
+  adSlot?: string;
+  customHtmlEn?: string;
+  customHtmlUr?: string;
+  customBlockId?: string;
+}
+
 export interface HomepageLayoutConfig {
-  sections: {
-    id: string;
-    nameEn: string;
-    nameUr: string;
-    enabled: boolean;
-    order: number;
-  }[];
+  sections: HomepageSectionItem[];
+  updatedAt?: string;
+  updatedBy?: string;
+  version?: number;
+}
+
+export interface HomepageVersionSnapshot {
+  versionId: string;
+  savedAt: string;
+  savedBy: string;
+  note: string;
+  config: HomepageLayoutConfig;
+}
+
+export interface CustomReusableBlock {
+  id: string;
+  name: string;
+  titleEn: string;
+  titleUr: string;
+  bodyEn: string;
+  bodyUr: string;
+  ctaLabelEn?: string;
+  ctaLabelUr?: string;
+  ctaUrl?: string;
+  theme?: 'emerald' | 'slate' | 'amber' | 'white';
+  updatedAt: string;
+}
+
+export type CategoryBlockType =
+  | 'category_hero'
+  | 'featured_story'
+  | 'news_grid'
+  | 'news_list'
+  | 'trending_sidebar'
+  | 'live_rates_widget'
+  | 'weather_aqi_widget'
+  | 'cricket_scoreboard_widget'
+  | 'islamic_prayer_times_widget'
+  | 'education_board_results_widget'
+  | 'mobiles_catalogue'
+  | 'vehicles_catalogue'
+  | 'prize_bond_draw_lookup'
+  | 'dictionary_lookup'
+  | 'poetry_collection'
+  | 'recipe_collection'
+  | 'jobs_listings'
+  | 'utility_calculators_grid'
+  | 'ad_unit_slot'
+  | 'newsletter_signup_box'
+  | 'custom_editorial_banner';
+
+export interface CategoryPageBlock {
+  id: string;
+  type: CategoryBlockType;
+  titleEn: string;
+  titleUr: string;
+  enabled: boolean;
+  order: number;
+  width: 'full' | 'main' | 'sidebar' | 'half';
+  itemLimit?: number;
+  adSlotId?: string;
+  customTextEn?: string;
+  customTextUr?: string;
+}
+
+export interface CategoryPageConfig {
+  id: string;
+  slug: string;
+  nameEn: string;
+  nameUr: string;
+  descriptionEn: string;
+  descriptionUr: string;
+  heroTitleEn?: string;
+  heroTitleUr?: string;
+  heroSubtitleEn?: string;
+  heroSubtitleUr?: string;
+  heroImage?: string;
+  iconName: string;
+  enabled: boolean;
+  showInNav?: boolean;
+  showInHeader?: boolean;
+  showInFooter: boolean;
+  template?: 'standard_news' | 'utility_hybrid' | 'archive';
+  order: number;
+  seoTitleEn?: string;
+  seoTitleUr?: string;
+  metaDescEn?: string;
+  metaDescUr?: string;
+  canonicalUrl?: string;
+  robots?: string;
+  ogImage?: string;
+  seo?: {
+    metaTitleEn: string;
+    metaTitleUr: string;
+    metaDescEn: string;
+    metaDescUr: string;
+    canonicalUrl: string;
+    focusKeyword: string;
+    noIndex: boolean;
+  };
+  blocks: CategoryPageBlock[];
+  draftBlocks?: CategoryPageBlock[];
+  status: 'published' | 'draft';
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface CategoryPageVersion {
+  versionId: string;
+  slug: string;
+  savedAt: string;
+  savedBy: string;
+  note: string;
+  snapshot: CategoryPageConfig;
 }
 
 export interface SiteSettings {
@@ -542,9 +868,14 @@ export interface SiteSettings {
   faviconUrl?: string;
   primaryColor: string;
   secondaryColor?: string;
+  accentColor?: string;
   breakingNewsEnabled: boolean;
   contactEmail: string;
   contactPhone: string;
+  headerNavLinks?: { labelEn: string; labelUr: string; route: string; enabled: boolean }[];
+  showAskAiButton?: boolean;
+  showSearchInHeader?: boolean;
+  showLiveWidgetsBar?: boolean;
   socialLinks?: {
     facebook?: string;
     twitter?: string;
@@ -554,13 +885,58 @@ export interface SiteSettings {
   };
   footerTextEn?: string;
   footerTextUr?: string;
+  seoDefaultTitleSuffixEn?: string;
+  seoDefaultTitleSuffixUr?: string;
+  seoDefaultOgImage?: string;
+  defaultRobots?: string;
   adManagerEnabled: boolean;
   adsensePublisherId?: string;
   googleAnalyticsId: string;
   searchConsoleSiteUrl?: string;
   leaderboardAdUrl: string;
   sidebarAdUrl: string;
+  defaultLanguage?: 'en' | 'ur';
+  autoPublishSyncedWidgets?: boolean;
+  sessionTimeoutMinutes?: number;
+  mfaEnforcedForAdmins?: boolean;
   maintenanceMode?: boolean;
+  maintenanceMessageEn?: string;
+  maintenanceMessageUr?: string;
+  branding?: {
+    logoUrl: string;
+    faviconUrl: string;
+    primaryColor: string;
+    accentColor: string;
+  };
+  navigation?: {
+    showBreakingTicker: boolean;
+    showTopRatesBar: boolean;
+    stickyHeader: boolean;
+    showAskAiButton: boolean;
+  };
+  footer?: {
+    copyrightEn: string;
+    copyrightUr: string;
+    showNewsletterBox: boolean;
+    socialLinks: Record<string, string>;
+  };
+  seoDefaults?: {
+    titlePattern: string;
+    defaultMetaDescEn: string;
+    defaultMetaDescUr: string;
+    robotsDefault: string;
+    defaultOgImage: string;
+  };
+  security?: {
+    enforceMfaForSuperAdmin: boolean;
+    sessionTtlHours: number;
+    maxLoginAttempts: number;
+  };
+  maintenance?: {
+    enabled: boolean;
+    messageEn: string;
+    messageUr: string;
+  };
 }
 
 export interface AuditLog {

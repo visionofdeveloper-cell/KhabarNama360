@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { LanguageProvider, useLanguage } from './context/LanguageContext.tsx';
 import { FirebaseProvider } from './context/FirebaseContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
-import { Header } from './components/Header.tsx';
-import { Footer } from './components/Footer.tsx';
+import { PublicLayout } from './components/layout/PublicLayout.tsx';
 import { Article } from './types/index.ts';
 
 // Views
@@ -26,8 +25,6 @@ import { NewsCategoryView } from './views/NewsCategoryView.tsx';
 import { SearchView } from './views/SearchView.tsx';
 import { LegalPageView } from './views/LegalPageView.tsx';
 import { LEGAL_PAGE_SLUGS } from './data/legalPages.ts';
-import { CookieConsent } from './components/CookieConsent.tsx';
-import { NotificationToast } from './components/NotificationToast.tsx';
 
 const AdminAuthGate = React.lazy(() => import('./views/AdminAuthGate.tsx').then(m => ({ default: m.AdminAuthGate })));
 
@@ -46,8 +43,22 @@ function MainPortal() {
     navigateTo('search');
   };
 
-  const renderCurrentView = () => {
-    // If viewing an article
+  // Strict Route Separation: Private Admin OS NEVER mounts PublicLayout, public <Header>, or public <Footer>
+  if (currentRoute === 'admin') {
+    return (
+      <React.Suspense
+        fallback={
+          <div dir="ltr" className="min-h-screen bg-gray-950 flex items-center justify-center text-emerald-400 text-xs font-mono">
+            Loading Private Admin...
+          </div>
+        }
+      >
+        <AdminAuthGate />
+      </React.Suspense>
+    );
+  }
+
+  const renderPublicView = () => {
     if (currentRoute === 'article' && selectedArticle) {
       return (
         <ArticleDetailView
@@ -93,35 +104,16 @@ function MainPortal() {
         return <CricketView />;
       case 'search':
         return <SearchView initialQuery={searchQuery} onSelectArticle={handleSelectArticle} />;
-      case 'admin':
-        return (
-          <React.Suspense fallback={<div className="min-h-screen bg-gray-950 flex items-center justify-center text-emerald-400 text-xs font-mono">Loading Private Admin...</div>}>
-            <AdminAuthGate />
-          </React.Suspense>
-        );
-      // News Category Archives
-      case 'pakistan':
-      case 'politics':
-      case 'technology':
-      case 'world':
-      case 'entertainment':
-      case 'health':
-        return <NewsCategoryView categorySlug={currentRoute} onSelectArticle={handleSelectArticle} />;
       default:
-        return <HomeView onSelectArticle={handleSelectArticle} onSearch={handleSearch} />;
+        // Dynamic category coverage (builtin news categories OR newly created custom categories from Category Page Manager)
+        return <NewsCategoryView categorySlug={currentRoute} onSelectArticle={handleSelectArticle} />;
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
-      <Header onSearch={handleSearch} />
-      <main className="flex-1 w-full animate-in fade-in duration-300">
-        {renderCurrentView()}
-      </main>
-      <Footer />
-      <CookieConsent />
-      <NotificationToast />
-    </div>
+    <PublicLayout onSearch={handleSearch}>
+      {renderPublicView()}
+    </PublicLayout>
   );
 }
 

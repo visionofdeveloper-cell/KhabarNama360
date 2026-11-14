@@ -1,0 +1,1450 @@
+# 360KHABARNAMA — COMPLETE PRIVATE ADMIN REPAIR, AI API MANAGEMENT, SYNCHRONIZATION, PAGE BUILDER & SEO FIX
+
+Act as a principal full-stack engineer, React and TypeScript architect, MySQL database engineer, backend API developer, security engineer, AI integration specialist, technical SEO engineer and production QA engineer.
+
+## PROJECT INFORMATION
+
+Website name: 360Khabarnama
+
+Existing public beta website:
+https://khabar-nama360.vercel.app/
+
+Primary domain:
+https://360khabarnama.com
+
+Preferred private admin:
+https://admin.360khabarnama.com
+
+Hosting: Namecheap Shared Hosting
+
+Database: firebase
+
+Languages: English and Urdu
+
+Brand colors: Dark emerald green, green, white and gold.
+
+The website and admin dashboard already exist in the current Google AI Studio project, but several backend features are incomplete, broken or not connected to real services.
+
+Your job is to AUDIT, FIX, COMPLETE and TEST all the existing functionality.
+
+DO NOT create a new website.
+
+DO NOT unnecessarily rebuild existing components.
+
+DO NOT redesign the approved public website.
+
+DO NOT replace the existing database with Firebase or Firestore.
+
+DO NOT restore E-Paper.
+
+All backend data must be stored persistently in MySQL.
+
+---
+
+# PART 1 — AUDIT THE ENTIRE EXISTING APPLICATION
+
+Before making changes, inspect the existing files, components, routes, backend API endpoints, database models, services and application state.
+
+Identify:
+
+- Existing admin routes
+- Public and admin layout hierarchy
+- Authentication implementation
+- MySQL integration
+- Existing API endpoints
+- Data persistence
+- AI generation services
+- Central Synchronization Manager
+- Bilingual News Composer
+- SEO Manager
+- Google Search Console section
+- Gemini Editorial Content Studio
+- Homepage Layout Manager
+- Global Settings
+- Category management
+- Public page templates
+
+Inspect every existing module before replacing it.
+
+Identify broken handlers, incomplete forms, fake data, placeholder functions, missing backend endpoints, missing authentication, wrong API parameters, inconsistent database models and unhandled errors.
+
+Create an audit report with:
+
+Module
+Current implementation
+Identified issue
+Required fix
+Affected files
+Fix priority
+Test plan
+
+Do not claim a module is working unless its actual behavior has been tested.
+
+---
+
+# PART 2 — FIX THE ADMIN HEADER AND LAYOUT
+
+CRITICAL UI ISSUE:
+
+The public website header is currently visible inside the administration area.
+
+Remove the public website header, navigation, live ticker, financial rates, weather information, public search and breaking-news strip from ALL admin routes.
+
+The public website header includes elements such as:
+
+- Islamic date and Gregorian date ticker
+- Gold rate
+- Karachi and Lahore weather
+- Public website logo/header
+- Public news search
+- Ask Khabarnama AI
+- Home
+- Pakistan
+- Politics
+- Business & Economy
+- Cricket & Sports
+- Education & Results
+- Weather
+- Islamic Life
+- Mobiles & Tech
+- Cars & Bikes
+- Prize Bonds
+- Dictionary & Names
+- Breaking News
+
+None of these public-facing header elements should appear inside the private admin dashboard.
+
+Create a completely separate AdminLayout component.
+
+Suggested files:
+
+components/layout/PublicLayout.tsx
+components/admin/AdminLayout.tsx
+components/admin/AdminHeader.tsx
+components/admin/AdminSidebar.tsx
+components/admin/AdminLogin.tsx
+
+Reuse existing equivalent components when already present.
+
+Requirements:
+
+1. Public routes must use PublicLayout.
+2. Admin routes must use AdminLayout.
+3. Login route must use a minimal AdminAuthLayout.
+4. The admin login page must not display the public header.
+5. After successful login, display only the admin header and sidebar.
+6. The admin header must display:
+   - 360Khabarnama Admin
+   - Current admin user
+   - Notifications
+   - User profile
+   - Change password
+   - Logout
+7. Sidebar must display only management modules permitted for the current user.
+8. Public website header and CSS must remain unchanged.
+9. Admin pages must not accidentally inherit the public navigation layout.
+10. Protect private admin routes using real server-side authentication.
+
+Preferred production admin domain:
+
+admin.360khabarnama.com
+
+Use protected /admin routes during development if the actual deployment requires it.
+
+Do not expose admin navigation on the public site.
+
+---
+
+# PART 3 — COMPLETE SECURE ADMIN AUTHENTICATION
+
+Implement or repair:
+
+- Username/email login
+- Password authentication
+- Secure password hashing
+- HttpOnly secure sessions
+- Session expiration
+- Login rate limiting
+- Role-based access controls
+- MFA for privileged accounts
+- Logout
+- Password reset
+- Password change
+- Login activity logs
+- Server-side authorization for every admin API
+
+Support:
+
+Super Admin
+Administrator
+Managing Editor
+Editor
+SEO Manager
+Automation Manager
+Advertising Manager
+Content Contributor
+Read-only Analyst
+
+Do not hardcode an administrator password.
+
+Provide a secure first-admin provisioning command or process.
+
+Do not expose API secrets or database credentials to the browser.
+
+---
+
+# PART 4 — COMPLETE AI API KEY MANAGEMENT
+
+Add a new private admin section:
+
+Settings → AI & API Providers
+
+Create:
+
+components/admin/APIKeyManager.tsx
+services/ai/AIProviderRouter.ts
+services/ai/GeminiProvider.ts
+services/ai/GrokProvider.ts
+services/ai/AIUsageTracker.ts
+
+Use existing equivalent modules where possible.
+
+## Provider Types
+
+Support:
+
+1. Google Gemini API
+2. xAI Grok API
+3. Approved news/data APIs
+4. Custom authorized REST data providers
+
+## Multiple Gemini API Keys
+
+Allow administrators to register at least six Gemini credentials.
+
+Do not impose an arbitrary maximum of six.
+
+For each credential store:
+
+- Internal identifier
+- Friendly display name
+- Provider
+- Associated project identifier
+- Enabled/disabled status
+- Allowed AI tasks
+- Model configuration
+- Priority
+- Health status
+- Last successful test
+- Last error
+- Rate-limit information where available
+- Estimated usage
+- Actual billable usage where measurable
+- Daily operational budget
+- Monthly operational budget
+
+Never return full stored secret values to frontend code.
+
+Store secrets using supported server-side encrypted storage or hosting environment secrets.
+
+Provide:
+- Add key
+- Replace key
+- Revoke key
+- Disable key
+- Test connection
+- View masked identifier
+- View usage
+- Configure task routing
+
+Do not use multiple keys from the same project to bypass Gemini project-level limits.
+
+Respect the actual project-level requests-per-minute, tokens-per-minute, requests-per-day and other limits.
+
+If API keys are associated with different authorized projects, support explicit project-aware routing with the correct quotas and billing boundaries.
+
+Do not automatically cycle credentials to circumvent provider restrictions.
+
+## Grok API Management
+
+Support multiple xAI API credentials and approved available models.
+
+For each configured credential:
+
+- Secure key storage
+- Model selection
+- Allowed tasks
+- Connection testing
+- Token usage
+- Cost tracking
+- Error logs
+- Enable/disable
+
+Use official provider documentation and currently supported API models.
+
+Do not invent model names or endpoint compatibility.
+
+## AI Task Routing
+
+Allow administrators to assign providers by task:
+
+- News article drafting
+- Urdu translation
+- English translation
+- Headline suggestions
+- SEO title generation
+- Meta description generation
+- Article summarization
+- Social media captions
+- News classification
+- Content quality checks
+- Ask 360Khabarnama AI
+
+For each task configure:
+
+Primary provider
+Primary model
+Authorized fallback provider
+Fallback model
+Timeout
+Retry behavior
+Maximum tokens
+Daily budget
+Monthly budget
+
+Implement intelligent fallback only for supported, permitted failure scenarios.
+
+Record failures and avoid infinite retry loops.
+
+Never expose raw credentials to article readers or public requests.
+
+---
+
+# PART 5 — FIX CENTRAL SYNCHRONIZATION & FEEDS MANAGER
+
+The existing Central Synchronization & Feeds Manager must be fully audited and repaired.
+
+Create or update:
+
+services/automation/SyncEngine.ts
+services/automation/ProviderRegistry.ts
+services/automation/JobScheduler.ts
+services/automation/SyncLogger.ts
+services/automation/DataValidator.ts
+components/admin/AutomationManager.tsx
+
+Reuse existing functionality where possible.
+
+## Admin Interface
+
+Create tabs:
+
+Overview
+API Providers
+News Feeds
+Financial Feeds
+Weather Feeds
+Cricket Feeds
+Islamic Data
+Education Results
+Scheduling
+Manual Synchronization
+Validation
+Errors & Logs
+AI Generation Settings
+
+For every provider allow:
+
+- Provider name
+- Category
+- Endpoint
+- Authentication type
+- Secure credential configuration
+- Enabled/disabled status
+- Sync frequency
+- Data mapping
+- Validation rules
+- Last successful sync
+- Next scheduled sync
+- Error state
+- Test connection
+- Manual synchronization
+
+All buttons must connect to authenticated backend endpoints.
+
+## Automatic Content/Data Categories
+
+Create integration architecture for:
+
+News
+Articles
+Gold rates
+Silver rates
+Currency exchange rates
+Petrol prices
+Diesel prices
+Weather
+Air quality
+Cricket live scores
+Cricket schedules
+Match results
+Islamic prayer times
+Hijri dates
+Ramadan times
+Prize bond results
+School examination results
+Date sheets
+University admissions
+Scholarships
+Government notifications
+Stock-market data
+Cryptocurrency
+Mobile prices
+Automobile prices
+Jobs and deadlines
+
+Use trustworthy, authorized data providers or official published sources.
+
+A provider being publicly accessible does not automatically grant commercial reuse rights.
+
+Never fabricate missing data.
+
+## Free API Strategy
+
+Where legitimate free or free-tier providers exist, allow integration.
+
+Display:
+
+- Free/paid status
+- License restrictions
+- Request quota
+- Allowed commercial use
+- Refresh restrictions
+- Attribution requirements
+
+Never assume free API access allows redistribution or unlimited commercial use.
+
+Provide provider-specific configuration instructions if credentials are missing.
+
+## Synchronization Engine
+
+Implement:
+
+fetchData()
+validateData()
+normalizeData()
+persistData()
+executeSync()
+retryFailedSync()
+logSyncResult()
+getSyncStatus()
+
+Support:
+- MySQL persistence
+- Record deduplication
+- Historical values
+- Source attribution
+- Data freshness timestamps
+- Idempotency
+- Job locking
+- Error handling
+- Bounded retries
+- Incremental updates
+- Audit history
+
+Never display fake live values.
+
+---
+
+# PART 6 — NAMECHEAP SHARED HOSTING AUTOMATION COMPATIBILITY
+
+The production server uses Namecheap Shared Hosting.
+
+Do not depend on:
+
+- Permanently running queue daemons
+- Docker
+- Root-only packages
+- Systemd
+- Unavailable Redis infrastructure
+- Browser setInterval for production scheduling
+
+Implement a MySQL-backed cron dispatcher.
+
+Create:
+
+server/jobs/cron-dispatcher.ts
+
+Requirements:
+
+- Respect the five-minute minimum cPanel cron interval.
+- Avoid overlapping execution.
+- Use bounded job batches.
+- Apply provider-specific refresh intervals.
+- Record execution results in MySQL.
+- Retry transient failures.
+- Limit AI processing costs.
+- Stop safely before resource limits are exceeded.
+- Resume pending jobs on subsequent cron executions.
+
+Provide a cPanel-compatible cron command after inspecting the actual production build path.
+
+High-frequency live scoring should use a suitable licensed provider or separate supported infrastructure.
+
+Do not pretend that shared-hosting cron can perform second-by-second backend synchronization.
+
+---
+
+# PART 7 — REPAIR BILINGUAL NEWS COMPOSER
+
+The following current controls are not functioning correctly:
+
+1. Auto Translate
+2. Suggest Headline
+3. Generate SEO Tags
+
+Inspect their existing event handlers, API requests, backend routes, Gemini integration, form state and database operations.
+
+Fix the actual causes.
+
+Do not replace these controls with fake local demo responses.
+
+## Auto Translate
+
+Required behavior:
+
+- Read the current article content.
+- Detect the selected source and target language.
+- Send the content securely to the selected configured AI provider.
+- Translate English to Urdu or Urdu to English.
+- Preserve names, dates, figures, quotations and meaning.
+- Return translated title and body.
+- Populate the target language editor.
+- Allow preview and editing.
+- Save to MySQL only after the administrator confirms.
+- Preserve the original content.
+- Show clear errors if no provider is configured.
+
+## Suggest Headline
+
+Required behavior:
+
+- Read actual draft content.
+- Generate several accurate headline options.
+- Support English and Urdu.
+- Avoid clickbait and unsupported claims.
+- Allow administrator to select a headline.
+- Update the editor field after selection.
+- Preserve manual headline overrides.
+
+## Generate SEO Tags
+
+Required behavior:
+
+Generate suggestions for:
+
+- SEO title
+- Meta description
+- Clean URL slug
+- Open Graph title
+- Open Graph description
+- Relevant topical tags
+- Relevant internal links
+- Schema type
+- Focus search intent
+
+Do not use obsolete meta keywords as an SEO ranking mechanism.
+
+Ensure suggestions do not contain made-up facts.
+
+Admin must preview and approve AI suggestions.
+
+## Testing
+
+Test:
+- Empty content
+- English to Urdu
+- Urdu to English
+- Long article input
+- Provider missing
+- API timeout
+- Rate limit
+- Invalid API credential
+- Successful AI response
+- Database save
+- Browser refresh persistence
+
+---
+
+# PART 8 — REPAIR SEO MANAGER COMPLETELY
+
+The SEO Manager is currently not working correctly.
+
+Inspect all existing routes, forms, handlers, database models, API integrations and metadata generation services.
+
+Build or repair:
+
+services/seo/SEOEngine.ts
+services/seo/SEOAuditService.ts
+services/seo/MetadataGenerator.ts
+services/seo/SitemapManager.ts
+services/seo/RedirectManager.ts
+components/admin/SEOManager.tsx
+
+Create functional tabs:
+
+SEO Overview
+All Pages SEO
+News SEO
+Category SEO
+Technical SEO
+Sitemaps
+Redirects
+Internal Links
+Image SEO
+Structured Data
+Bilingual SEO
+Search Console Performance
+SEO Audit Logs
+
+## Page-Level SEO
+
+For every public page allow:
+
+- SEO title
+- Meta description
+- URL slug
+- Canonical URL
+- Index/noindex
+- Open Graph metadata
+- Social image
+- Schema
+- Breadcrumbs
+- Internal linking
+- SEO preview
+- Last updated timestamp
+
+SEO configuration must save in MySQL and appear in the actual public page HTML.
+
+Do not show a success toast unless the backend confirms persistence.
+
+## Technical SEO
+
+Validate:
+
+- Crawlable routes
+- Unique title elements
+- Unique meta descriptions
+- HTTP status codes
+- Canonical URLs
+- Reciprocal hreflang
+- Broken internal links
+- Redirects
+- Sitemap completeness
+- Structured data
+- Optimized images
+- Missing metadata
+- Incorrect robots directives
+
+Do not guarantee ranking or instant indexing.
+
+---
+
+# PART 9 — FIX GOOGLE SEARCH CONSOLE
+
+Inspect the existing Search Console section and identify why it is not working.
+
+Implement a proper authorized connection.
+
+Support:
+
+- OAuth setup or suitable authorized Google credentials
+- Property selection
+- Verification of property access
+- Secure token storage
+- Token refresh
+- Connection status
+- Disconnect/reconnect
+- API error logs
+
+Use the correct production website property and subdomain configuration.
+
+Display real:
+
+- Organic clicks
+- Search impressions
+- CTR
+- Average position
+- Top queries
+- Top pages
+- Countries
+- Devices
+- Date comparisons
+
+Clearly display missing information when no data exists.
+
+Do not generate fake analytics.
+
+Support the real API capabilities and quotas.
+
+Do not treat Search Console as an API that guarantees indexing.
+
+Provide a working authorization setup guide for my production domain.
+
+Create a connection diagnostic:
+
+Authorized
+Access Denied
+Token Expired
+Property Not Found
+API Error
+No Data Yet
+
+---
+
+# PART 10 — COMPLETE GEMINI AI EDITORIAL CONTENT STUDIO
+
+Inspect the existing Gemini AI Editorial Content Studio.
+
+Test all current controls.
+
+Support:
+
+- Article drafting
+- Summarization
+- Urdu translation
+- English translation
+- News classification
+- Headline generation
+- SEO metadata
+- Content improvement suggestions
+- Social captions
+- Article outlines
+- Newsletter drafts
+- Fact-check preparation
+- Related content suggestions
+
+Create separate task templates.
+
+Each generation request must show:
+
+- AI provider
+- Selected model
+- Request status
+- Generated output
+- Token usage where available
+- Cost estimate or actual measured usage
+- Error message
+- Save to draft
+- Apply to article
+- Regenerate
+- Cancel
+
+Use the secure AI Provider Router.
+
+Avoid duplicate API calls.
+
+Cache results where appropriate.
+
+Do not create invented quotes, statistics or reporting.
+
+Preserve all existing user content during failed AI generation.
+
+---
+
+# PART 11 — COMPLETE HOMEPAGE LAYOUT & SECTION ORDERING
+
+Create or repair:
+
+components/admin/HomepageLayoutBuilder.tsx
+
+The administrator must be able to customize the existing homepage without editing source code.
+
+Functions:
+
+- Add new section
+- Edit section
+- Remove section safely
+- Enable/disable section
+- Drag and drop section ordering
+- Desktop order
+- Mobile order
+- Choose section width
+- Choose layout template
+- Configure section heading
+- Select article source
+- Select featured articles
+- Select category
+- Select number of articles
+- Set manual or automatic mode
+- Configure advertisement placement
+- Configure language-specific headings
+- Preview changes
+- Save draft
+- Publish changes
+- Restore previous version
+
+## Available Homepage Sections
+
+Featured News
+Breaking News
+Latest News
+Trending News
+Pakistan News
+World News
+Politics
+Business & Economy
+Gold & Currency
+Petrol Prices
+Weather
+Cricket
+Education & Results
+Islamic Information
+Mobiles & Technology
+Cars & Bikes
+Prize Bonds
+Dictionary & Names
+Poetry & Literature
+Recipes
+Jobs Portal
+Calculators & Tools
+Video News
+Opinion & Editorials
+Custom Content Blocks
+Advertisement Blocks
+
+The administrator should also be able to create custom reusable blocks.
+
+Store section configurations in MySQL.
+
+Do not hardcode section order in frontend components.
+
+Preserve existing homepage design until administrator publishes a new layout.
+
+---
+
+# PART 12 — COMPLETE GLOBAL SETTINGS
+
+The Global Settings section currently displays no usable options.
+
+Fix it and implement complete backend functionality.
+
+Create:
+
+components/admin/GlobalSettings.tsx
+
+Tabs:
+
+## General
+
+- Website name
+- Urdu website name
+- Tagline
+- Website description
+- Primary domain
+- Contact email
+- Phone
+- Timezone
+- Default language
+- Website status
+
+## Branding
+
+- Logo
+- Favicon
+- Brand colors
+- Header logo
+- Footer logo
+- Dark/light variants
+- Social sharing default image
+
+## Header and Navigation
+
+- Menu items
+- Submenus
+- Link order
+- Header ticker settings
+- Breaking news visibility
+- Public search settings
+- Language switch settings
+
+## Footer
+
+- Footer columns
+- Legal pages
+- Social links
+- Copyright text
+- Contact information
+
+## SEO Defaults
+
+- Default SEO title
+- Meta description
+- Open Graph
+- Canonical domain
+- Sitemap settings
+- Robots settings
+- Default schema publisher
+
+## Integrations
+
+- Gemini API configuration
+- Grok API configuration
+- News and data APIs
+- Analytics
+- Search Console
+- AdSense
+- Email provider
+
+## Automation
+
+- Job defaults
+- Synchronization schedules
+- AI publishing limits
+- Error notifications
+- Processing budgets
+
+## Security
+
+- Admin session settings
+- Login policy
+- MFA settings
+- Audit log retention
+
+## Site Maintenance
+
+- Maintenance mode
+- Cache settings
+- Backup settings
+- Error page settings
+
+Save settings persistently in MySQL.
+
+Implement server-side validation.
+
+Show actual save status and validation errors.
+
+---
+
+# PART 13 — UNIVERSAL CATEGORY PAGE MANAGER
+
+CRITICAL REQUIREMENT:
+
+I need full backend editing control over EVERY public category page and subcategory.
+
+The existing categories include:
+
+Pakistan
+Politics
+Business & Economy
+Cricket & Sports
+Education & Results
+Weather
+Islamic Life
+Mobiles & Tech
+Cars & Bikes
+Prize Bonds
+Dictionary & Names
+Poetry & Literature
+Recipes
+Jobs Portal
+Calculators & Tools
+
+And any other categories or subcategories already existing in the project.
+
+Create:
+
+components/admin/CategoryPageManager.tsx
+components/admin/CategoryPageEditor.tsx
+components/admin/CategoryLayoutBuilder.tsx
+services/pages/PageTemplateEngine.ts
+
+Inspect existing category data and preserve it.
+
+Do not hardcode a fixed list as the only supported categories.
+
+## Category Page Management
+
+For every category allow:
+
+- Edit category name
+- Edit English title
+- Edit Urdu title
+- Edit description
+- Edit SEO metadata
+- Edit slug
+- Edit canonical
+- Edit navigation position
+- Edit featured image
+- Edit page layout
+- Add and remove content blocks
+- Select article feeds
+- Configure custom widgets
+- Add informational text
+- Add tables
+- Add data feeds
+- Add advertisements
+- Add custom FAQs when genuinely useful
+- Configure desktop/mobile layout
+- Configure English/Urdu templates
+- Preview changes
+- Save draft
+- Publish
+- Rollback version
+
+Every category must have an independent SEO-friendly public URL.
+
+Each page must support server-rendered or pre-rendered content suitable for search engines.
+
+## Category-Specific Editing
+
+### Education & Results
+
+Manage:
+- Education boards
+- Classes
+- Exam sessions
+- Result announcements
+- Date sheets
+- Admissions
+- Scholarships
+- Official result links
+- Featured articles
+- Custom result widgets
+
+### Weather
+
+Manage:
+- City pages
+- City coordinates
+- Weather providers
+- Forecast widgets
+- AQI widgets
+- Alerts
+- Weather-related content
+- Historical weather data where available
+
+### Islamic Life
+
+Manage:
+- Prayer time providers
+- City settings
+- Calculation methods
+- Hijri calendar
+- Ramadan timetable
+- Islamic articles
+- Quran references
+- Dua collections
+
+### Mobiles & Tech
+
+Manage:
+- Brands
+- Models
+- Specifications
+- Prices
+- Phone comparisons
+- Buying guides
+- Tech news
+
+### Cars & Bikes
+
+Manage:
+- Manufacturers
+- Models
+- Specifications
+- Price information
+- Comparison tools
+- Auto news
+
+### Prize Bonds
+
+Manage:
+- Draw schedules
+- Official results
+- Denominations
+- Number checking
+- Historical draw records
+
+### Dictionary & Names
+
+Manage:
+- Dictionary entries
+- Translations
+- Name meanings
+- Categories
+- Search configuration
+
+### Poetry & Literature
+
+Manage:
+- Poets
+- Poetry collections
+- Literary categories
+- Author profiles
+- Licensed content
+
+### Recipes
+
+Manage:
+- Recipes
+- Ingredients
+- Preparation time
+- Instructions
+- Food categories
+- Images
+- Authors
+
+### Jobs Portal
+
+Manage:
+- Job postings
+- Employers
+- Locations
+- Deadlines
+- Application URLs
+- Expiration
+- JobPosting structured data where eligible
+
+### Calculators & Tools
+
+Manage:
+- Tool descriptions
+- Tool categories
+- Inputs
+- Explanations
+- SEO metadata
+- Related tools
+- Tool visibility
+
+Tool logic must remain in safe reviewed application components.
+
+Do not allow arbitrary untrusted JavaScript execution through the admin editor.
+
+## Reusable Page Blocks
+
+Create a block library:
+
+Hero
+News Grid
+Latest Articles
+Featured Articles
+Live Data Widget
+Search Form
+Data Table
+Comparison Table
+Interactive Calculator
+Weather Widget
+Prayer Time Widget
+Cricket Widget
+FAQ
+Text Editor
+Image Gallery
+Video Section
+Advertisements
+Related Articles
+Custom Information Card
+
+Each block must have validated configuration schemas and safe rendering.
+
+Store page layout configurations in MySQL using versioned structured records.
+
+---
+
+# PART 14 — PAGE SEO AND DIRECT URL VERIFICATION
+
+All category and article pages must support independent URLs.
+
+Example:
+
+/en/education/
+/en/weather/
+/en/islamic-life/
+/en/mobiles/
+/en/cars/
+/en/prize-bonds/
+/en/dictionary/
+/en/poetry/
+/en/recipes/
+/en/jobs/
+/en/tools/
+
+Use existing canonical paths if they are already established.
+
+Do not break currently indexed URLs.
+
+Implement correct permanent redirects when URLs are intentionally changed.
+
+Test:
+
+- Direct access
+- Browser refresh
+- Title tags
+- Meta descriptions
+- Canonical
+- Hreflang
+- H1
+- Structured data
+- Sitemap entries
+- Actual page content in initial HTML
+- Correct 404 behavior
+
+The public frontend must reflect category layout changes after publishing.
+
+---
+
+# PART 15 — MYSQL DATABASE REQUIREMENTS
+
+Reuse existing MySQL structures.
+
+Add migrations where needed for:
+
+ai_providers
+ai_credentials_metadata
+ai_task_routes
+ai_usage_logs
+data_providers
+sync_schedules
+sync_jobs
+sync_logs
+feed_sources
+category_page_templates
+category_page_versions
+page_blocks
+page_block_settings
+homepage_layouts
+homepage_layout_versions
+global_settings
+seo_metadata
+search_console_connections
+editorial_drafts
+translation_records
+article_generation_logs
+admin_audit_logs
+
+Do not store plaintext API secrets in ordinary database rows.
+
+Store credentials securely server-side and only keep masked references and metadata in admin-visible records.
+
+Use MySQL UTF8MB4 for English and Urdu content.
+
+Use appropriate foreign keys, indexes, uniqueness constraints, transactions and migrations.
+
+Preserve existing data.
+
+---
+
+# PART 16 — BACKEND API REQUIREMENTS
+
+Implement actual authenticated REST endpoints for:
+
+AI provider management
+AI connection tests
+AI task routing
+AI usage reporting
+Synchronization provider management
+Sync scheduling
+Manual sync triggers
+Sync logs
+News Composer generation
+Article translation
+Headline suggestions
+SEO generation
+SEO metadata CRUD
+Search Console connection status
+Search Console reporting
+Homepage layout CRUD
+Homepage publish
+Global settings CRUD
+Category page CRUD
+Category layout blocks
+Category publishing
+Category page previews
+
+All operations must:
+
+- Validate input
+- Check user permissions
+- Persist changes
+- Return meaningful success/error responses
+- Maintain audit history
+- Prevent duplicate mutations
+
+Do not use dummy Promise.resolve responses, hardcoded fake data or simulated successful saves in production paths.
+
+---
+
+# PART 17 — COMPLETE END-TO-END FUNCTIONAL TESTS
+
+Test the existing and repaired application.
+
+## Admin Layout Tests
+
+- Login page does not display the public header.
+- Dashboard does not display the public header.
+- Admin sidebar and header are independent.
+- Public website header remains unchanged.
+- Logout and access control work.
+
+## AI Provider Tests
+
+- Add Gemini credential
+- Add additional Gemini credential
+- Add Grok credential
+- Test credentials
+- Mask stored secrets
+- Select model
+- Configure allowed tasks
+- Handle failed provider requests
+- Track AI usage
+
+## Composer Tests
+
+- Auto Translate
+- Suggest Headline
+- Generate SEO Tags
+- Save article
+- Reopen draft
+- Persist after refresh
+
+## Automation Tests
+
+- Add provider
+- Test endpoint
+- Set schedule
+- Run manual synchronization
+- Verify MySQL writes
+- View logs
+- Retry failed job
+- Handle missing credentials
+- Detect invalid data
+
+## SEO Tests
+
+- Edit page SEO
+- Save to MySQL
+- Verify public title element
+- Verify meta description
+- Verify canonical
+- Verify hreflang
+- Verify sitemap
+- Check Search Console connection
+
+## Editorial Studio Tests
+
+- Generate content
+- Select provider
+- Handle errors
+- Apply output
+- Save draft
+- Reopen saved draft
+
+## Homepage Builder Tests
+
+- Add section
+- Move section
+- Disable section
+- Preview layout
+- Publish layout
+- Refresh public homepage
+
+## Global Settings Tests
+
+- Change a setting
+- Save to MySQL
+- Refresh
+- Verify the value remains
+- Confirm public changes only when applicable
+
+## Category Manager Tests
+
+- Open every category
+- Edit layout
+- Add blocks
+- Add content
+- Save draft
+- Preview
+- Publish
+- Verify independent URL
+- Verify metadata
+- Verify English and Urdu
+
+Test against a development or staging database, not by destroying real published data.
+
+---
+
+# PART 18 — ADMIN COMPLETION & BUG REPORT
+
+After implementation provide a complete status report.
+
+For each module show:
+
+- Working before changes
+- Issue identified
+- Fix implemented
+- Files modified
+- MySQL migrations applied
+- API endpoints created
+- Tests passed
+- Tests failed
+- Missing API credentials
+- Features awaiting configuration
+
+Provide a working admin preview.
+
+Do not claim success for untested features.
+
+If a provider requires billing, commercial licensing or a separate credential, identify that requirement.
+
+---
+
+# FINAL REQUIREMENTS
+
+1. Preserve the existing 360Khabarnama public website.
+2. Remove the public header from every private admin screen.
+3. Keep only the dedicated admin header and sidebar.
+4. Make the Central Synchronization Manager fully functional.
+5. Add a real secure Gemini and Grok API management system.
+6. Repair Auto Translate, Suggest Headline and Generate SEO Tags.
+7. Repair Search Console and SEO Manager.
+8. Test the Gemini Editorial Content Studio.
+9. Complete Homepage Layout & Section Ordering.
+10. Make Global Settings fully functional.
+11. Implement editable layout and data management for every category.
+12. Store all data persistently in MySQL.
+13. Maintain independent SEO-friendly English and Urdu page URLs.
+14. Keep the code compatible with Namecheap Shared Hosting.
+15. Perform actual end-to-end tests.
+16. Never fabricate news, live data, analytics or implementation results.
+17. Never expose API credentials in browser code.
+18. Do not restore E-Paper.
+
+IMPLEMENTATION ORDER:
+
+Stage 1: Audit and repair public/admin layout separation.
+
+Stage 2: Fix authentication, MySQL persistence and backend API connectivity.
+
+Stage 3: Build secure Gemini/Grok provider management.
+
+Stage 4: Repair News Composer and AI Editorial Content Studio.
+
+Stage 5: Repair SyncEngine, API providers and job scheduling.
+
+Stage 6: Repair SEO Manager and Search Console integration.
+
+Stage 7: Complete Homepage Builder and Global Settings.
+
+Stage 8: Build Universal Category Page Manager and template editor.
+
+Stage 9: Verify all independent public routes, metadata and backend functionality.
+
+Stage 10: Create production build, Namecheap deployment instructions and full QA report.
+
+START BY INSPECTING THE CURRENT APPLICATION AND FIX THE ADMIN LAYOUT ISSUE FIRST.
+
+THEN CONTINUE MODULE BY MODULE.
+
+DO NOT CREATE A SECOND WEBSITE OR AN UNRELATED NEW PROJECT.
+
+DO NOT STOP AFTER GENERATING VISUAL UI COMPONENTS. IMPLEMENT REAL MYSQL-BACKED FUNCTIONALITY AND VERIFY IT.

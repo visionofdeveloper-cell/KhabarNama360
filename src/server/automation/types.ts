@@ -1,22 +1,49 @@
-export type ProviderCategory = 'weather' | 'currency' | 'gold' | 'fuel' | 'cricket' | 'psx' | 'islamic';
+export type ProviderCategory =
+  | 'weather'
+  | 'currency'
+  | 'gold'
+  | 'fuel'
+  | 'cricket'
+  | 'psx'
+  | 'islamic'
+  | 'news'
+  | 'education'
+  | 'jobs'
+  | 'custom';
 
 export interface DataProvider {
   id: string;
   name: string;
   category: ProviderCategory;
   endpoint: string;
+  method?: 'GET' | 'POST';
+  httpMethod?: 'GET' | 'POST';
   status: 'active' | 'degraded' | 'error' | 'disabled';
   intervalMinutes: number;
   lastSyncAt: string | null;
   nextSyncAt: string | null;
   lastError: string | null;
+  lastStatusCode?: number | null;
   isLicensed: boolean;
+  licenseType?: 'public_open' | 'commercial_api' | 'govt_official' | 'rss_attributed' | 'internal';
+  commercialRights?: boolean;
+  attributionRequired?: boolean;
   attribution: string;
   requiresApiKey: boolean;
   hasApiKey: boolean;
+  authHeaderName?: string;
+  encryptedApiKey?: string;
+  maskedApiKey?: string;
+  dailyQuotaLimit?: number;
+  dailyCallsUsed?: number;
+  quotaLimitPerDay?: number;
+  quotaUsedToday?: number;
   consecutiveFailures: number;
   totalSyncs: number;
   successfulSyncs: number;
+  isBuiltIn?: boolean;
+  timeoutMs?: number;
+  notes?: string;
 }
 
 export interface SyncJobRun {
@@ -25,19 +52,23 @@ export interface SyncJobRun {
   providerName: string;
   category: ProviderCategory;
   timestamp: string;
-  status: 'success' | 'failed' | 'partial';
+  status: 'success' | 'failed' | 'partial' | 'locked';
+  httpStatus?: number | null;
   itemsProcessed: number;
   changesDetected: boolean;
+  validationPassed?: boolean;
+  validationWarnings?: string[];
   changeSummaryEn: string;
   changeSummaryUr: string;
   durationMs: number;
   errorDetails: string | null;
+  triggeredBy?: 'scheduler' | 'manual' | 'cpanel_cron' | 'retry';
 }
 
 export interface HistoricalRateRecord {
   id: string;
   type: 'currency' | 'gold' | 'fuel' | 'weather' | 'psx';
-  symbol: string; // e.g. 'USD/PKR', 'GOLD_24K_TOLA', 'PETROL', 'PSX_KSE100'
+  symbol: string;
   value: number;
   previousValue: number;
   change: number;
@@ -50,7 +81,7 @@ export interface FuelPriceNotification {
   id: string;
   notificationNumber: string;
   effectiveDate: string;
-  authority: string; // e.g. 'OGRA / Ministry of Energy (Petroleum Division)'
+  authority: string;
   petrolPkr: number;
   dieselPkr: number;
   kerosenePkr: number;
@@ -90,4 +121,8 @@ export interface AutomationSettings {
   fuelCheckIntervalMin: number;
   geminiCooldownMin: number;
   lastGeminiCallAt: string | null;
+  lastCronRunAt?: string | null;
+  cronBatchLimit?: number;
+  maxBatchJobsPerCron?: number;
+  cronSharedSecretSet?: boolean;
 }

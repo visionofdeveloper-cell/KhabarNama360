@@ -35,8 +35,20 @@ import {
   AudienceNotification,
   WebPushSubscription,
   HomepageLayoutConfig,
+  HomepageVersionSnapshot,
+  CustomReusableBlock,
+  CategoryPageConfig,
+  CategoryPageVersion,
   ArticleVersion,
-  SystemHealthReport
+  SystemHealthReport,
+  AIProviderCredential,
+  AITaskType,
+  AITaskRouting,
+  AIUsageLog,
+  EditorialDraftRecord,
+  SearchConsoleConnection,
+  SitemapSettings,
+  SeoAuditLogEntry
 } from '../types/index.ts';
 import {
   DataProvider,
@@ -95,6 +107,21 @@ interface DatabaseSchema {
   pushSubscriptions?: WebPushSubscription[];
   vapidKeys?: { publicKey: string; privateKey: string };
   homepageConfig: HomepageLayoutConfig;
+  homepageDraft?: HomepageLayoutConfig;
+  homepageVersions?: HomepageVersionSnapshot[];
+  customBlocks?: CustomReusableBlock[];
+  categoryPages?: CategoryPageConfig[];
+  categoryPageVersions?: Record<string, CategoryPageVersion[]>;
+  robotsTxt?: string;
+  sitemapConfig?: SitemapSettings;
+  seoAuditLogs?: SeoAuditLogEntry[];
+  searchConsoleConnection?: SearchConsoleConnection;
+  adminCredentials?: Record<string, any>;
+  aiProviders?: AIProviderCredential[];
+  aiTaskRoutes?: Record<string, AITaskRouting>;
+  aiUsageLogs?: AIUsageLog[];
+  editorialDrafts?: EditorialDraftRecord[];
+  cronLocks?: Record<string, { lockedAt: string; lockedBy: string; expiresAt: string }>;
 }
 
 // Initial Seed Data
@@ -1559,43 +1586,28 @@ const defaultSeoPages: SeoPageConfig[] = [
   },
 ];
 
+const defaultSearchConsoleConnection: SearchConsoleConnection = {
+  authMode: 'none',
+  propertyUrl: '',
+  diagnosticStatus: 'Disconnected',
+  diagnosticMessage: 'Connect a Google Search Console OAuth 2.0 client or Service Account in Settings/SEO to retrieve live verified search analytics.',
+  availableProperties: [],
+};
+
 const defaultSearchConsole: SearchConsoleMetrics = {
-  connected: true,
-  impressions: 1480240,
-  clicks: 92410,
-  ctr: 6.24,
-  averagePosition: 8.4,
-  topQueries: [
-    { query: 'gold rate in pakistan today', clicks: 28450, impressions: 340200, position: 2.1 },
-    { query: 'dollar rate in pakistan today', clicks: 21300, impressions: 295000, position: 3.2 },
-    { query: '360Khabarnama news', clicks: 14200, impressions: 89000, position: 1.0 },
-    { query: 'lahore smog aqi live', clicks: 9800, impressions: 164000, position: 4.5 },
-    { query: 'live cricket score pakistan vs aus', clicks: 8700, impressions: 198000, position: 3.8 },
-    { query: 'petrol price in pakistan ogra notification', clicks: 6400, impressions: 142000, position: 2.8 },
-    { query: '1500 prize bond draw result', clicks: 5800, impressions: 112000, position: 3.5 },
-    { query: 'bise lahore matric result 2026', clicks: 5200, impressions: 98000, position: 4.1 },
-  ],
-  topPages: [
-    { path: '/', clicks: 38400, impressions: 480000, ctr: 8.0 },
-    { path: '/business', clicks: 29800, impressions: 420000, ctr: 7.1 },
-    { path: '/weather', clicks: 12400, impressions: 210000, ctr: 5.9 },
-    { path: '/sports', clicks: 9200, impressions: 190000, ctr: 4.8 },
-    { path: '/education', clicks: 6800, impressions: 120000, ctr: 5.6 },
-  ],
-  devices: [
-    { device: 'Mobile', percent: 78.4 },
-    { device: 'Desktop', percent: 18.2 },
-    { device: 'Tablet', percent: 3.4 },
-  ],
-  countries: [
-    { country: 'Pakistan', percent: 84.2 },
-    { country: 'United Arab Emirates', percent: 5.8 },
-    { country: 'Saudi Arabia', percent: 4.6 },
-    { country: 'United Kingdom', percent: 3.1 },
-    { country: 'United States', percent: 1.5 },
-    { country: 'Others', percent: 0.8 },
-  ],
-  lastRefreshedAt: new Date().toISOString(),
+  connected: false,
+  diagnosticStatus: 'Disconnected',
+  diagnosticMessage: 'Search Console is not connected yet. Configure OAuth or Service Account credentials to view real search data.',
+  propertyUrl: '',
+  impressions: 0,
+  clicks: 0,
+  ctr: 0,
+  averagePosition: 0,
+  topQueries: [],
+  topPages: [],
+  devices: [],
+  countries: [],
+  lastRefreshedAt: '',
 };
 
 const defaultRedirectRules: RedirectRule[] = [
@@ -1701,14 +1713,100 @@ const defaultNotifications: AudienceNotification[] = [
 
 const defaultHomepageConfig: HomepageLayoutConfig = {
   sections: [
-    { id: 'breaking_ticker', nameEn: 'Breaking News Ticker', nameUr: 'تازہ ترین بریکنگ نیوز بار', enabled: true, order: 1 },
-    { id: 'hero_lead', nameEn: 'Lead Story & Featured Slider', nameUr: 'لیڈ اسٹوری اور اہم خبریں', enabled: true, order: 2 },
-    { id: 'market_rates', nameEn: 'Live Financial Market Tickers (Gold & USD)', nameUr: 'لائیو مارکیٹ ریٹس پینل', enabled: true, order: 3 },
-    { id: 'top_news_grid', nameEn: 'National & World News Grid', nameUr: 'قومی و بین الاقوامی خبریں', enabled: true, order: 4 },
-    { id: 'weather_aqi', nameEn: 'Live Weather & Smog Observations', nameUr: 'موسم اور اسموگ ائیر کوالٹی ویجیٹ', enabled: true, order: 5 },
-    { id: 'cricket_hub', nameEn: 'Live Cricket Scoreboard & Tournament News', nameUr: 'لائیو کرکٹ اسکور بورڈ', enabled: true, order: 6 },
-    { id: 'popular_utilities', nameEn: 'Daily Utilities (Prayer, Currency, Calculators)', nameUr: 'روزمرہ سہولیات و ٹولز', enabled: true, order: 7 },
+    {
+      id: 'live_widgets_bar',
+      type: 'live_widgets_bar',
+      nameEn: 'Live Cricket, Gold & Weather Bar',
+      nameUr: 'لائیو کرکٹ، سونا اور موسم بار',
+      description: 'Top 3-column live widgets strip featuring cricket match status, 24K gold & USD/PKR rates, and major city temperatures.',
+      enabled: true,
+      order: 1,
+      mobileOrder: 1,
+      width: 'contained',
+      template: 'cards',
+      displayMode: 'current_lang',
+    },
+    {
+      id: 'hero_editorial_grid',
+      type: 'hero_editorial_grid',
+      nameEn: 'Hero Lead Story, Trending & Exam Lookup',
+      nameUr: 'مرکزی لیڈ اسٹوری، مقبول خبریں اور رزلٹ چیکر',
+      description: 'Primary 12-column editorial lead story paired with trending stories list and instant BISE exam result lookup box.',
+      enabled: true,
+      order: 2,
+      mobileOrder: 2,
+      width: 'contained',
+      template: 'lead-plus-list',
+      articleSource: 'featured',
+      itemLimit: 5,
+      displayMode: 'current_lang',
+    },
+    {
+      id: 'ad_leaderboard_home',
+      type: 'ad_banner',
+      nameEn: 'Homepage Mid Leaderboard Ad Slot',
+      nameUr: 'مرکزی اشتہاری بینر',
+      description: 'Monetization placement between main hero coverage and Islamic daily digest.',
+      enabled: true,
+      order: 3,
+      mobileOrder: 3,
+      width: 'contained',
+      adSlot: 'leaderboard',
+    },
+    {
+      id: 'islamic_prayer_digest',
+      type: 'islamic_prayer_digest',
+      nameEn: 'Daily Islamic Digest & Prayer Times',
+      nameUr: 'اسلامی معلومات و اوقاتِ نماز',
+      description: 'Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.',
+      enabled: true,
+      order: 4,
+      mobileOrder: 4,
+      width: 'contained',
+      template: 'cards',
+    },
+    {
+      id: 'utilities_grid',
+      type: 'utilities_grid',
+      nameEn: 'Digital Citizen Tools & Calculators Grid',
+      nameUr: 'پاکستان ڈیجیٹل سروسز و آن لائن ٹولز',
+      description: 'Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.',
+      enabled: true,
+      order: 5,
+      mobileOrder: 5,
+      width: 'contained',
+      template: 'grid',
+      itemLimit: 6,
+    },
   ],
+  version: 1,
+  updatedAt: new Date().toISOString(),
+  updatedBy: 'System',
+};
+
+const defaultRobotsTxt = `# Robots.txt for 360Khabarnama (Pakistan Bilingual Digital Portal)
+User-agent: *
+Allow: /
+Allow: /en/
+Allow: /ur/
+Allow: /assets/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /epaper/
+Disallow: /en/epaper/
+Disallow: /ur/epaper/
+
+Sitemap: https://360khabarnama.com/sitemap.xml
+Sitemap: https://360khabarnama.com/sitemap-news.xml
+`;
+
+const defaultSitemapConfig: SitemapSettings = {
+  includeImages: true,
+  includeNewsSitemap: true,
+  includeCategories: true,
+  defaultChangefreq: 'daily',
+  excludedPaths: ['/admin', '/api', '/epaper'],
+  lastGeneratedAt: new Date().toISOString(),
 };
 
 class DatabaseManager {
@@ -1742,13 +1840,34 @@ class DatabaseManager {
         if (!parsed.adPlacements || parsed.adPlacements.length === 0) parsed.adPlacements = defaultAdPlacements;
         if (!parsed.adCampaigns || parsed.adCampaigns.length === 0) parsed.adCampaigns = defaultAdCampaigns;
         if (!parsed.seoPages || parsed.seoPages.length === 0) parsed.seoPages = defaultSeoPages;
-        if (!parsed.searchConsole) parsed.searchConsole = defaultSearchConsole;
+        if (!parsed.searchConsoleConnection) parsed.searchConsoleConnection = { ...defaultSearchConsoleConnection };
+        // Remove legacy fabricated Search Console KPI numbers if not connected
+        if (!parsed.searchConsole || (!parsed.searchConsoleConnection?.authMode || parsed.searchConsoleConnection.authMode === 'none')) {
+          parsed.searchConsole = { ...defaultSearchConsole };
+        }
         if (!parsed.redirectRules || parsed.redirectRules.length === 0) parsed.redirectRules = defaultRedirectRules;
         if (!parsed.brokenLinks) parsed.brokenLinks = defaultBrokenLinks;
         if (!parsed.subscribers || parsed.subscribers.length === 0) parsed.subscribers = defaultSubscribers;
         if (!parsed.notifications || parsed.notifications.length === 0) parsed.notifications = defaultNotifications;
         if (!parsed.pushSubscriptions) parsed.pushSubscriptions = [];
-        if (!parsed.homepageConfig) parsed.homepageConfig = defaultHomepageConfig;
+        if (!parsed.homepageConfig || !parsed.homepageConfig.sections?.some((s: any) => s.type)) {
+          parsed.homepageConfig = defaultHomepageConfig;
+        }
+        if (!parsed.homepageDraft) parsed.homepageDraft = JSON.parse(JSON.stringify(parsed.homepageConfig));
+        if (!parsed.homepageVersions) parsed.homepageVersions = [];
+        if (!parsed.customBlocks) parsed.customBlocks = [];
+        if (!parsed.categoryPages) parsed.categoryPages = [];
+        if (!parsed.categoryPageVersions) parsed.categoryPageVersions = {};
+        if (!parsed.robotsTxt) parsed.robotsTxt = defaultRobotsTxt;
+        if (!parsed.sitemapConfig) parsed.sitemapConfig = { ...defaultSitemapConfig };
+        if (!parsed.seoAuditLogs) parsed.seoAuditLogs = [];
+        if (!parsed.adminCredentials) parsed.adminCredentials = {};
+        if (!parsed.aiProviders) parsed.aiProviders = [];
+        if (!parsed.aiTaskRoutes) parsed.aiTaskRoutes = {};
+        if (!parsed.aiUsageLogs) parsed.aiUsageLogs = [];
+        if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
+        if (!parsed.cronLocks) parsed.cronLocks = {};
+
         let migrated = false;
         if ('epaperPages' in parsed) {
           delete parsed.epaperPages;
@@ -1813,12 +1932,27 @@ class DatabaseManager {
       adPlacements: defaultAdPlacements,
       adCampaigns: defaultAdCampaigns,
       seoPages: defaultSeoPages,
-      searchConsole: defaultSearchConsole,
+      searchConsole: { ...defaultSearchConsole },
+      searchConsoleConnection: { ...defaultSearchConsoleConnection },
       redirectRules: defaultRedirectRules,
       brokenLinks: defaultBrokenLinks,
       subscribers: defaultSubscribers,
       notifications: defaultNotifications,
       homepageConfig: defaultHomepageConfig,
+      homepageDraft: JSON.parse(JSON.stringify(defaultHomepageConfig)),
+      homepageVersions: [],
+      customBlocks: [],
+      categoryPages: [],
+      categoryPageVersions: {},
+      robotsTxt: defaultRobotsTxt,
+      sitemapConfig: { ...defaultSitemapConfig },
+      seoAuditLogs: [],
+      adminCredentials: {},
+      aiProviders: [],
+      aiTaskRoutes: {},
+      aiUsageLogs: [],
+      editorialDrafts: [],
+      cronLocks: {},
     };
 
     this.saveDatabase(initial);
@@ -2604,16 +2738,433 @@ class DatabaseManager {
     };
   }
 
-  // --- Homepage Builder ---
+  // --- Homepage Builder (Draft / Publish / Rollback / Custom Blocks) ---
   public getHomepageConfig(): HomepageLayoutConfig {
     return this.data.homepageConfig || defaultHomepageConfig;
   }
 
-  public updateHomepageConfig(config: HomepageLayoutConfig, actor: string = 'Super Admin'): HomepageLayoutConfig {
-    this.data.homepageConfig = config;
-    this.logAudit(actor, 'Homepage Layout Reordered', 'Updated homepage layout and section ordering');
+  public getHomepageDraft(): HomepageLayoutConfig {
+    return this.data.homepageDraft || this.data.homepageConfig || defaultHomepageConfig;
+  }
+
+  public saveHomepageDraft(config: HomepageLayoutConfig, actor: string = 'Super Admin'): HomepageLayoutConfig {
+    this.data.homepageDraft = {
+      ...config,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor,
+    };
+    this.logAudit(actor, 'Homepage Draft Saved', `Saved homepage builder draft (${config.sections?.length || 0} sections)`);
+    this.saveDatabase(this.data);
+    return this.data.homepageDraft;
+  }
+
+  public updateHomepageConfig(config: HomepageLayoutConfig, actor: string = 'Super Admin', note: string = 'Published layout'): HomepageLayoutConfig {
+    if (!this.data.homepageVersions) this.data.homepageVersions = [];
+    if (this.data.homepageConfig) {
+      this.data.homepageVersions.unshift({
+        versionId: `hpv-${Date.now()}`,
+        savedAt: new Date().toISOString(),
+        savedBy: actor,
+        note,
+        config: JSON.parse(JSON.stringify(this.data.homepageConfig)),
+      });
+      if (this.data.homepageVersions.length > 20) this.data.homepageVersions.pop();
+    }
+    const published: HomepageLayoutConfig = {
+      ...config,
+      version: (this.data.homepageConfig?.version || 1) + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor,
+    };
+    this.data.homepageConfig = published;
+    this.data.homepageDraft = JSON.parse(JSON.stringify(published));
+    this.logAudit(actor, 'Homepage Layout Published', 'Published updated homepage layout and section ordering');
     this.saveDatabase(this.data);
     return this.data.homepageConfig;
+  }
+
+  public getHomepageVersions(): HomepageVersionSnapshot[] {
+    return this.data.homepageVersions || [];
+  }
+
+  public rollbackHomepageVersion(versionId: string, actor: string = 'Super Admin'): HomepageLayoutConfig | null {
+    const snap = (this.data.homepageVersions || []).find(v => v.versionId === versionId);
+    if (!snap) return null;
+    return this.updateHomepageConfig(snap.config, actor, `Rollback to ${versionId}`);
+  }
+
+  public getCustomBlocks(): CustomReusableBlock[] {
+    return this.data.customBlocks || [];
+  }
+
+  public upsertCustomBlock(block: CustomReusableBlock, actor: string = 'Editor'): CustomReusableBlock {
+    if (!this.data.customBlocks) this.data.customBlocks = [];
+    const idx = this.data.customBlocks.findIndex(b => b.id === block.id);
+    const saved: CustomReusableBlock = {
+      ...block,
+      id: block.id || `blk-${Date.now()}`,
+      updatedAt: new Date().toISOString(),
+    };
+    if (idx >= 0) this.data.customBlocks[idx] = saved;
+    else this.data.customBlocks.unshift(saved);
+    this.logAudit(actor, 'Custom Block Saved', `Saved custom reusable block: ${saved.name}`);
+    this.saveDatabase(this.data);
+    return saved;
+  }
+
+  public deleteCustomBlock(id: string, actor: string = 'Editor'): boolean {
+    if (!this.data.customBlocks) return false;
+    const prev = this.data.customBlocks.length;
+    this.data.customBlocks = this.data.customBlocks.filter(b => b.id !== id);
+    if (this.data.customBlocks.length < prev) {
+      this.logAudit(actor, 'Custom Block Deleted', `Deleted block ID: ${id}`);
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  // --- Admin Credentials Persistence ---
+  public getAdminCredentialsMap(): Record<string, any> {
+    if (!this.data.adminCredentials) this.data.adminCredentials = {};
+    return this.data.adminCredentials;
+  }
+
+  public setAdminCredential(email: string, record: any): void {
+    if (!this.data.adminCredentials) this.data.adminCredentials = {};
+    this.data.adminCredentials[email.toLowerCase()] = record;
+    this.saveDatabase(this.data);
+  }
+
+  // --- AI Providers, Routing & Usage Logs ---
+  public getAiProviders(): AIProviderCredential[] {
+    return this.data.aiProviders || [];
+  }
+
+  public upsertAiProvider(cred: AIProviderCredential, actor: string = 'Super Admin'): AIProviderCredential {
+    if (!this.data.aiProviders) this.data.aiProviders = [];
+    const idx = this.data.aiProviders.findIndex(p => p.id === cred.id);
+    if (idx >= 0) {
+      this.data.aiProviders[idx] = cred;
+      this.logAudit(actor, 'AI Provider Updated', `Updated ${cred.providerType} credential "${cred.label}" (${cred.projectId})`);
+    } else {
+      this.data.aiProviders.push(cred);
+      this.logAudit(actor, 'AI Provider Added', `Added ${cred.providerType} credential "${cred.label}" (${cred.projectId})`);
+    }
+    this.saveDatabase(this.data);
+    return cred;
+  }
+
+  public deleteAiProvider(id: string, actor: string = 'Super Admin'): boolean {
+    if (!this.data.aiProviders) return false;
+    const prev = this.data.aiProviders.length;
+    this.data.aiProviders = this.data.aiProviders.filter(p => p.id !== id);
+    if (this.data.aiProviders.length < prev) {
+      this.logAudit(actor, 'AI Provider Revoked', `Revoked AI provider credential: ${id}`);
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  public getAiTaskRoutes(): Record<string, AITaskRouting> {
+    return this.data.aiTaskRoutes || {};
+  }
+
+  public setAiTaskRoute(task: AITaskType, routing: AITaskRouting, actor: string = 'Super Admin'): void {
+    if (!this.data.aiTaskRoutes) this.data.aiTaskRoutes = {};
+    this.data.aiTaskRoutes[task] = routing;
+    this.logAudit(actor, 'AI Task Routing Updated', `Updated routing for task ${task} -> ${routing.primaryModel}`);
+    this.saveDatabase(this.data);
+  }
+
+  public recordAiUsage(log: AIUsageLog): void {
+    if (!this.data.aiUsageLogs) this.data.aiUsageLogs = [];
+    this.data.aiUsageLogs.unshift(log);
+    if (this.data.aiUsageLogs.length > 500) {
+      this.data.aiUsageLogs = this.data.aiUsageLogs.slice(0, 500);
+    }
+    const cred = (this.data.aiProviders || []).find(p => p.id === log.credentialId);
+    if (cred) {
+      cred.dailyTokensUsed = (cred.dailyTokensUsed || 0) + (log.totalTokens || 0);
+      cred.monthlySpendUsd = parseFloat(((cred.monthlySpendUsd || 0) + (log.estimatedCostUsd || 0)).toFixed(6));
+    }
+    this.saveDatabase(this.data);
+  }
+
+  public getAiUsageLogs(limit: number = 100): AIUsageLog[] {
+    return (this.data.aiUsageLogs || []).slice(0, limit);
+  }
+
+  // --- Editorial Studio Drafts ---
+  public getEditorialDrafts(): EditorialDraftRecord[] {
+    return this.data.editorialDrafts || [];
+  }
+
+  public saveEditorialDraft(draft: EditorialDraftRecord): EditorialDraftRecord {
+    if (!this.data.editorialDrafts) this.data.editorialDrafts = [];
+    const idx = this.data.editorialDrafts.findIndex(d => d.id === draft.id);
+    if (idx >= 0) this.data.editorialDrafts[idx] = draft;
+    else this.data.editorialDrafts.unshift(draft);
+    if (this.data.editorialDrafts.length > 100) this.data.editorialDrafts = this.data.editorialDrafts.slice(0, 100);
+    this.saveDatabase(this.data);
+    return draft;
+  }
+
+  // --- SEO, Robots, Sitemaps & Search Console Connection ---
+  public getRobotsTxt(): string {
+    return this.data.robotsTxt || defaultRobotsTxt;
+  }
+
+  public setRobotsTxt(content: string, actor: string = 'SEO Manager'): string {
+    this.data.robotsTxt = content;
+    this.logAudit(actor, 'Robots.txt Updated', 'Saved updated robots.txt directives');
+    this.saveDatabase(this.data);
+    return this.data.robotsTxt;
+  }
+
+  public getSitemapConfig(): SitemapSettings {
+    return this.data.sitemapConfig || defaultSitemapConfig;
+  }
+
+  public updateSitemapConfig(updates: Partial<SitemapSettings>, actor: string = 'SEO Manager'): SitemapSettings {
+    this.data.sitemapConfig = {
+      ...(this.data.sitemapConfig || defaultSitemapConfig),
+      ...updates,
+      lastGeneratedAt: new Date().toISOString(),
+    };
+    this.logAudit(actor, 'Sitemap Config Updated', 'Updated XML sitemap generator configuration');
+    this.saveDatabase(this.data);
+    return this.data.sitemapConfig;
+  }
+
+  public addSeoAuditLog(entry: Omit<SeoAuditLogEntry, 'id' | 'timestamp'>): SeoAuditLogEntry {
+    if (!this.data.seoAuditLogs) this.data.seoAuditLogs = [];
+    const full: SeoAuditLogEntry = {
+      ...entry,
+      id: `seolog-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    this.data.seoAuditLogs.unshift(full);
+    if (this.data.seoAuditLogs.length > 200) this.data.seoAuditLogs.pop();
+    this.saveDatabase(this.data);
+    return full;
+  }
+
+  public getSeoAuditLogs(): SeoAuditLogEntry[] {
+    return this.data.seoAuditLogs || [];
+  }
+
+  public getSearchConsoleConnection(): SearchConsoleConnection {
+    return this.data.searchConsoleConnection || { ...defaultSearchConsoleConnection };
+  }
+
+  public updateSearchConsoleConnection(conn: Partial<SearchConsoleConnection>, actor: string = 'SEO Manager'): SearchConsoleConnection {
+    this.data.searchConsoleConnection = {
+      ...(this.data.searchConsoleConnection || defaultSearchConsoleConnection),
+      ...conn,
+    };
+    this.logAudit(actor, 'Search Console Connection Updated', `Status: ${this.data.searchConsoleConnection.diagnosticStatus}`);
+    this.saveDatabase(this.data);
+    return this.data.searchConsoleConnection;
+  }
+
+  public upsertSeoPage(page: SeoPageConfig, actor: string = 'SEO Manager'): SeoPageConfig {
+    if (!this.data.seoPages) this.data.seoPages = [];
+    const idx = this.data.seoPages.findIndex(p => p.id === page.id || p.path === page.path);
+    const saved = { ...page, lastAuditedAt: new Date().toISOString() };
+    if (idx >= 0) this.data.seoPages[idx] = { ...this.data.seoPages[idx], ...saved };
+    else this.data.seoPages.push(saved);
+    this.logAudit(actor, 'SEO Page Metadata Saved', `Saved SEO config for ${saved.path}`);
+    this.saveDatabase(this.data);
+    return saved;
+  }
+
+  // --- Data Providers CRUD ---
+  public upsertDataProvider(provider: DataProvider, actor: string = 'Automation Manager'): DataProvider {
+    if (!this.data.dataProviders) this.data.dataProviders = [];
+    const idx = this.data.dataProviders.findIndex(p => p.id === provider.id);
+    if (idx >= 0) {
+      this.data.dataProviders[idx] = { ...this.data.dataProviders[idx], ...provider };
+      this.logAudit(actor, 'Data Provider Updated', `Updated feed provider: ${provider.name}`);
+    } else {
+      this.data.dataProviders.push(provider);
+      this.logAudit(actor, 'Data Provider Registered', `Registered feed provider: ${provider.name} (${provider.endpoint})`);
+    }
+    this.saveDatabase(this.data);
+    return provider;
+  }
+
+  public deleteDataProvider(id: string, actor: string = 'Automation Manager'): boolean {
+    if (!this.data.dataProviders) return false;
+    const prev = this.data.dataProviders.length;
+    this.data.dataProviders = this.data.dataProviders.filter(p => p.id !== id);
+    if (this.data.dataProviders.length < prev) {
+      this.logAudit(actor, 'Data Provider Deleted', `Deleted feed provider: ${id}`);
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  // --- Universal Category Pages & Category Data CRUD ---
+  public getCategoryPages(): CategoryPageConfig[] {
+    return this.data.categoryPages || [];
+  }
+
+  public setCategoryPages(pages: CategoryPageConfig[]): void {
+    this.data.categoryPages = pages;
+    this.saveDatabase(this.data);
+  }
+
+  public upsertCategoryPage(page: CategoryPageConfig, actor: string = 'Admin', saveSnapshot: boolean = true): CategoryPageConfig {
+    if (!this.data.categoryPages) this.data.categoryPages = [];
+    if (!this.data.categoryPageVersions) this.data.categoryPageVersions = {};
+    const idx = this.data.categoryPages.findIndex(p => p.slug === page.slug || p.id === page.id);
+    if (idx >= 0 && saveSnapshot) {
+      const prev = this.data.categoryPages[idx];
+      if (!this.data.categoryPageVersions[prev.slug]) this.data.categoryPageVersions[prev.slug] = [];
+      this.data.categoryPageVersions[prev.slug].unshift({
+        versionId: `catv-${Date.now()}`,
+        slug: prev.slug,
+        savedAt: new Date().toISOString(),
+        savedBy: actor,
+        note: page.status === 'published' ? 'Before publish' : 'Draft checkpoint',
+        snapshot: JSON.parse(JSON.stringify(prev)),
+      });
+      if (this.data.categoryPageVersions[prev.slug].length > 15) {
+        this.data.categoryPageVersions[prev.slug].pop();
+      }
+    }
+    const updated: CategoryPageConfig = {
+      ...page,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor,
+    };
+    if (idx >= 0) this.data.categoryPages[idx] = updated;
+    else this.data.categoryPages.push(updated);
+
+    // Sync base categories navigation list too
+    const catIdx = this.data.categories.findIndex(c => c.slug === updated.slug);
+    const catObj = {
+      id: updated.id,
+      slug: updated.slug,
+      nameEn: updated.nameEn,
+      nameUr: updated.nameUr,
+      descriptionEn: updated.descriptionEn,
+      descriptionUr: updated.descriptionUr,
+      iconName: updated.iconName,
+      enabled: updated.enabled,
+      order: updated.order,
+    };
+    if (catIdx >= 0) this.data.categories[catIdx] = catObj;
+    else this.data.categories.push(catObj);
+
+    this.logAudit(actor, 'Category Page Saved', `Saved category "${updated.slug}" (${updated.status})`);
+    this.saveDatabase(this.data);
+    return updated;
+  }
+
+  public getCategoryPageVersions(slug: string): CategoryPageVersion[] {
+    return (this.data.categoryPageVersions || {})[slug] || [];
+  }
+
+  public deleteCategoryPage(slug: string, actor: string = 'Admin'): boolean {
+    if (!this.data.categoryPages) return false;
+    const prev = this.data.categoryPages.length;
+    this.data.categoryPages = this.data.categoryPages.filter(c => c.slug !== slug);
+    this.data.categories = this.data.categories.filter(c => c.slug !== slug);
+    if (this.data.categoryPages.length < prev) {
+      this.logAudit(actor, 'Category Page Deleted', `Deleted category page: ${slug}`);
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  // Category-specific dataset mutation helper
+  public saveCategoryDatasetItem(dataset: string, item: any, actor: string = 'Editor'): any {
+    const validCollections: Record<string, keyof DatabaseSchema> = {
+      boards: 'boards',
+      results: 'results',
+      mobiles: 'mobiles',
+      automobiles: 'automobiles',
+      prizeBonds: 'prizeBonds',
+      dictionary: 'dictionary',
+      babyNames: 'babyNames',
+      poets: 'poets',
+      poems: 'poems',
+      recipes: 'recipes',
+      jobs: 'jobs',
+      cricketMatches: 'cricketMatches',
+      weather: 'weather',
+    };
+    const key = validCollections[dataset];
+    if (!key) throw new Error(`Unsupported category dataset: ${dataset}`);
+    const arr = (this.data[key] as any[]) || [];
+    const idField = dataset === 'weather' ? 'cityId' : 'id';
+    const itemId = item[idField] || `${dataset}-${Date.now()}`;
+    const record = { ...item, [idField]: itemId };
+    const idx = arr.findIndex(r => r[idField] === itemId);
+    if (idx >= 0) arr[idx] = { ...arr[idx], ...record };
+    else arr.unshift(record);
+    (this.data[key] as any) = arr;
+    this.logAudit(actor, 'Category Data Updated', `Saved ${dataset} record (${itemId})`);
+    this.saveDatabase(this.data);
+    return record;
+  }
+
+  public deleteCategoryDatasetItem(dataset: string, id: string, actor: string = 'Editor'): boolean {
+    const validCollections: Record<string, keyof DatabaseSchema> = {
+      boards: 'boards',
+      results: 'results',
+      mobiles: 'mobiles',
+      automobiles: 'automobiles',
+      prizeBonds: 'prizeBonds',
+      dictionary: 'dictionary',
+      babyNames: 'babyNames',
+      poets: 'poets',
+      poems: 'poems',
+      recipes: 'recipes',
+      jobs: 'jobs',
+      cricketMatches: 'cricketMatches',
+      weather: 'weather',
+    };
+    const key = validCollections[dataset];
+    if (!key) return false;
+    const arr = (this.data[key] as any[]) || [];
+    const idField = dataset === 'weather' ? 'cityId' : 'id';
+    const next = arr.filter(r => r[idField] !== id);
+    if (next.length < arr.length) {
+      (this.data[key] as any) = next;
+      this.logAudit(actor, 'Category Data Removed', `Removed ${dataset} record (${id})`);
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
+  }
+
+  // --- Cron Job DB Locking (for Namecheap 5-minute cron safety) ---
+  public acquireCronLock(lockKey: string, owner: string, ttlSeconds: number = 240): boolean {
+    if (!this.data.cronLocks) this.data.cronLocks = {};
+    const existing = this.data.cronLocks[lockKey];
+    const now = Date.now();
+    if (existing && new Date(existing.expiresAt).getTime() > now) {
+      return false;
+    }
+    this.data.cronLocks[lockKey] = {
+      lockedAt: new Date(now).toISOString(),
+      lockedBy: owner,
+      expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
+    };
+    this.saveDatabase(this.data);
+    return true;
+  }
+
+  public releaseCronLock(lockKey: string): void {
+    if (!this.data.cronLocks) return;
+    delete this.data.cronLocks[lockKey];
+    this.saveDatabase(this.data);
   }
 
   // --- System Health Diagnostics ---
