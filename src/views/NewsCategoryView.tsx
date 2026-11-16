@@ -4,6 +4,7 @@ import { Article, CategoryPageConfig } from '../types/index.ts';
 import { ArrowRight } from 'lucide-react';
 import { AdBanner } from '../components/AdBanner.tsx';
 import { safeFetchJson } from '../utils/safeFetch.ts';
+import { formatKarachiDate } from '../utils/dateTime.ts';
 
 interface NewsCategoryViewProps {
   categorySlug: string;
@@ -47,14 +48,28 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
         setArticles(detail.sportsNews);
       }
     };
+    const onArticlesUpdated = () => {
+      void loadCategory(false);
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('360kn-sync');
+      bc.onmessage = (msg) => {
+        if (msg?.data?.type === 'articles-updated') void loadCategory(false);
+      };
+    } catch {}
+
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('360kn:live-data-updated', onLiveData);
+    window.addEventListener('360kn:articles-updated', onArticlesUpdated);
 
     return () => {
       active = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('360kn:live-data-updated', onLiveData);
+      window.removeEventListener('360kn:articles-updated', onArticlesUpdated);
+      try { bc?.close(); } catch {}
     };
   }, [categorySlug]);
 
@@ -102,52 +117,56 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map(art => (
-            <div
-              key={art.id}
-              onClick={() => onSelectArticle(art)}
-              className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-xs hover:shadow-lg transition-all flex flex-col justify-between cursor-pointer group"
-            >
-              <div>
-                <div className="aspect-16/10 overflow-hidden bg-gray-100 relative">
-                  <img
-                    src={art.heroImage}
-                    alt={art.titleEn}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <span className="absolute top-3 left-3 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase">
-                    {art.category}
-                  </span>
-                </div>
-
-                <div className="p-5 space-y-2">
-                  <div className="flex items-center gap-3 text-[11px] text-gray-400">
-                    <span>{new Date(art.publishedAt).toLocaleDateString()}</span>
-                    <span>•</span>
-                    <span>
-                      {art.readingTimeMin} {t('common.minRead')}
+          {articles.map(art => {
+            const artTitle = isUrdu ? (art.titleUr || art.titleEn) : (art.titleEn || art.titleUr);
+            const artSummary = isUrdu ? (art.summaryUr || art.summaryEn) : (art.summaryEn || art.summaryUr);
+            return (
+              <div
+                key={art.id}
+                onClick={() => onSelectArticle(art)}
+                className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-xs hover:shadow-lg transition-all flex flex-col justify-between cursor-pointer group"
+              >
+                <div>
+                  <div className="aspect-16/10 overflow-hidden bg-gray-100 relative">
+                    <img
+                      src={art.heroImage}
+                      alt={artTitle}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-3 left-3 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase">
+                      {art.category}
                     </span>
                   </div>
 
-                  <h3 className="font-extrabold text-base text-gray-900 group-hover:text-emerald-700 transition-colors line-clamp-2 leading-snug">
-                    {isUrdu ? art.titleUr : art.titleEn}
-                  </h3>
+                  <div className="p-5 space-y-2">
+                    <div className="flex items-center gap-3 text-[11px] text-gray-400">
+                      <span>{formatKarachiDate(art.publishedAt || art.updatedAt, isUrdu ? 'ur' : 'en')}</span>
+                      <span>•</span>
+                      <span>
+                        {art.readingTimeMin} {t('common.minRead')}
+                      </span>
+                    </div>
 
-                  <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
-                    {isUrdu ? art.summaryUr : art.summaryEn}
-                  </p>
+                    <h3 className="font-extrabold text-base text-gray-900 group-hover:text-emerald-700 transition-colors line-clamp-2 leading-snug">
+                      {artTitle}
+                    </h3>
+
+                    <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+                      {artSummary}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5 pt-0 border-t border-gray-100 flex items-center justify-between text-xs text-emerald-700 font-bold">
+                  <span>{isUrdu ? art.author.nameUr : art.author.nameEn}</span>
+                  <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                    <span>{t('common.readMore')}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </span>
                 </div>
               </div>
-
-              <div className="p-5 pt-0 border-t border-gray-100 flex items-center justify-between text-xs text-emerald-700 font-bold">
-                <span>{isUrdu ? art.author.nameUr : art.author.nameEn}</span>
-                <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                  <span>{t('common.readMore')}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -31,7 +31,9 @@ import { SEOManager } from '../components/admin/SEOManager.tsx';
 import { HomepageLayoutBuilder } from '../components/admin/HomepageLayoutBuilder.tsx';
 import { GlobalSettings } from '../components/admin/GlobalSettings.tsx';
 import { CategoryPageManager } from '../components/admin/CategoryPageManager.tsx';
-import { safeFetchJson, safeParseResponse } from '../utils/safeFetch.ts';
+import { SystemDiagnostics } from '../components/admin/SystemDiagnostics.tsx';
+import { authorizedFetch, safeFetchJson, safeParseResponse } from '../utils/safeFetch.ts';
+import { formatKarachiDateTime } from '../utils/dateTime.ts';
 import {
   Plus,
   Edit3,
@@ -238,10 +240,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   // Toast feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [composerError, setComposerError] = useState<string | null>(null);
 
   const notify = (message: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ type, message });
     setTimeout(() => setFeedback(null), 6500);
+  };
+
+  const broadcastArticlesUpdated = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('360kn:articles-updated'));
+      const bc = new BroadcastChannel('360kn-sync');
+      bc.postMessage({ type: 'articles-updated', timestamp: Date.now() });
+      bc.close();
+    } catch {}
   };
 
   const slugify = (val: string) =>
@@ -371,8 +383,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const handleSaveArticle = async (e: React.FormEvent) => {
     e.preventDefault();
+    setComposerError(null);
     if (!formData.titleEn || !formData.titleUr) {
-      notify('Please provide both English and Urdu headlines', 'error');
+      const msg = 'Please provide both English and Urdu headlines';
+      setComposerError(msg);
+      notify(msg, 'error');
       return;
     }
 
@@ -381,10 +396,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       ...formData,
       id: editingArticleId || `art-${Date.now()}`,
       slug: finalSlug,
+      ...(editingArticleId && typeof formData.version === 'number' ? { expectedVersion: formData.version } : {}),
     };
 
     try {
-      const res = await fetch('/api/news', {
+      const res = await authorizedFetch('/api/news', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -392,21 +408,27 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       });
       const { data } = await safeParseResponse(res);
       if (res.ok && data.success) {
-        notify(editingArticleId ? 'Article updated successfully!' : 'Article saved successfully!');
+        notify(editingArticleId ? 'Article updated and verified!' : 'Article saved and verified!');
         resetComposer();
+        setComposerError(null);
         setActiveModule('articles');
-        loadCoreData();
+        broadcastArticlesUpdated();
+        await loadCoreData();
       } else {
-        notify(data.error || 'Failed to save article', 'error');
+        const errMsg = data.error || 'Failed to save article';
+        setComposerError(errMsg);
+        notify(errMsg, 'error');
       }
     } catch {
-      notify('Network error saving article', 'error');
+      const errMsg = 'Network error saving article';
+      setComposerError(errMsg);
+      notify(errMsg, 'error');
     }
   };
 
   const handleUpdateWorkflowStatus = async (articleId: string, newStatus: string) => {
     try {
-      const res = await fetch(`/api/news/${articleId}/workflow`, {
+      const res = await authorizedFetch(`/api/news/${articleId}/workflow`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -415,7 +437,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       const { data } = await safeParseResponse(res);
       if (res.ok && data.success) {
         notify(`Article moved to "${newStatus}"`);
-        loadCoreData();
+        broadcastArticlesUpdated();
+        await loadCoreData();
       } else {
         notify(data.error || 'Workflow update rejected', 'error');
       }
@@ -440,7 +463,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const handleRollbackVersion = async (versionId: string) => {
     if (!editingArticleId) return;
     try {
-      const res = await fetch(`/api/news/${editingArticleId}/rollback`, {
+      const res = await authorizedFetch(`/api/news/${editingArticleId}/rollback`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -451,7 +474,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         notify('Article restored to selected snapshot!');
         setShowVersionsModal(false);
         setFormData(data.article);
-        loadCoreData();
+        broadcastArticlesUpdated();
+        await loadCoreData();
       } else {
         notify(data.error || 'Rollback failed', 'error');
       }
@@ -463,13 +487,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const handleDeleteArticle = (id: string) => {
     setConfirmState({
       title: 'Delete News Article',
-      message: 'This article will be permanently removed from the CMS and sitemap.',
+      message: 'This article will be soft-deleted from the CMS and public feeds.',
       onConfirm: async () => {
-        const res = await fetch(`/api/news/${id}`, { method: 'DELETE', credentials: 'include' });
+        const res = await authorizedFetch(`/api/news/${id}`, { method: 'DELETE', credentials: 'include' });
         const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Article deleted.');
-          loadCoreData();
+          broadcastArticlesUpdated();
+          await loadCoreData();
         } else {
           notify(d.error || 'Deletion rejected', 'error');
         }
@@ -481,7 +506,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const handleSuggestHeadlines = async () => {
     setAiBusy(true);
     try {
-      const res = await fetch('/api/admin/ai/suggest-headline', {
+      const res = await authorizedFetch('/api/admin/ai/suggest-headline', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -518,7 +543,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     }
     setAiBusy(true);
     try {
-      const res = await fetch('/api/admin/ai/translate', {
+      const res = await authorizedFetch('/api/admin/ai/translate', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -558,7 +583,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     }
     setAiBusy(true);
     try {
-      const res = await fetch('/api/admin/ai/seo-tags', {
+      const res = await authorizedFetch('/api/admin/ai/seo-tags', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -607,7 +632,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     setStudioTelemetry(null);
 
     try {
-      const res = await fetch('/api/admin/ai/editorial-studio', {
+      const res = await authorizedFetch('/api/admin/ai/editorial-studio', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -655,7 +680,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       model: studioTelemetry?.model,
       totalTokens: studioTelemetry?.totalTokens,
     };
-    const res = await fetch('/api/admin/ai/editorial-drafts', {
+    const res = await authorizedFetch('/api/admin/ai/editorial-drafts', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -691,7 +716,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   // Advertising, Media, Audience, Staff handlers
   const handleSaveCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/ads/campaigns', {
+    const res = await authorizedFetch('/api/admin/ads/campaigns', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -712,7 +737,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       title: 'Delete Advertising Campaign',
       message: 'Remove this direct campaign from active ad rotation?',
       onConfirm: async () => {
-        const res = await fetch(`/api/admin/ads/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
+        const res = await authorizedFetch(`/api/admin/ads/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
         const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Campaign removed.');
@@ -723,7 +748,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   };
 
   const handleTogglePlacement = async (slot: AdPlacement) => {
-    const res = await fetch(`/api/admin/ads/placements/${slot.id}`, {
+    const res = await authorizedFetch(`/api/admin/ads/placements/${slot.id}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -738,7 +763,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const handleAddMedia = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/media', {
+    const res = await authorizedFetch('/api/admin/media', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -759,7 +784,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       title: 'Delete Media Asset',
       message: 'Remove this asset from the editorial media library?',
       onConfirm: async () => {
-        const res = await fetch(`/api/admin/media/${id}`, { method: 'DELETE', credentials: 'include' });
+        const res = await authorizedFetch(`/api/admin/media/${id}`, { method: 'DELETE', credentials: 'include' });
         const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Asset deleted.');
@@ -771,7 +796,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/audience/notifications', {
+    const res = await authorizedFetch('/api/admin/audience/notifications', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -797,7 +822,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const handleSetStaffPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!passwordModalUser) return;
-    const res = await fetch('/api/admin/auth/staff-password', {
+    const res = await authorizedFetch('/api/admin/auth/staff-password', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -1017,8 +1042,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
-              {['all', 'published', 'in_review', 'scheduled', 'draft'].map(st => (
+            <div className="flex flex-wrap items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              {['all', 'published', 'in_review', 'scheduled', 'draft', 'archived', 'failed'].map(st => (
                 <button
                   key={st}
                   type="button"
@@ -1027,7 +1052,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                     articleFilterStatus === st ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600'
                   }`}
                 >
-                  {st.replace('_', ' ')}
+                  {st.replace('_', ' ')} ({st === 'all' ? articles.length : articles.filter(a => a.status === st).length})
                 </button>
               ))}
             </div>
@@ -1047,63 +1072,121 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gray-50 border-y text-gray-600 font-bold">
-                  <th className="p-3">Headline (EN & UR)</th>
+                  <th className="p-3">Headline (EN &amp; UR)</th>
                   <th className="p-3">Category</th>
-                  <th className="p-3">Status</th>
+                  <th className="p-3">Status &amp; Updated (PKT)</th>
                   <th className="p-3">Views</th>
                   <th className="p-3">Revisions</th>
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredArticles.map(art => (
-                  <tr key={art.id} className="hover:bg-gray-50">
-                    <td className="p-3 max-w-md">
-                      <div className="font-bold text-gray-900 line-clamp-1">{art.titleEn}</div>
-                      <div className="font-urdu text-gray-600 line-clamp-1" dir="rtl">
-                        {art.titleUr}
-                      </div>
-                      <div className="text-[10px] font-mono text-gray-400">/{art.slug}</div>
-                    </td>
-                    <td className="p-3 uppercase text-[10px] font-bold">{art.category}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 text-[10px] font-bold uppercase">
-                        {art.status}
-                      </span>
-                    </td>
-                    <td className="p-3 font-mono">{art.views?.toLocaleString()}</td>
-                    <td className="p-3">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenVersions(art)}
-                        className="px-2 py-0.5 bg-blue-50 text-blue-700 font-mono rounded font-bold"
-                      >
-                        v{(art.versions?.length || 0) + 1}
-                      </button>
-                    </td>
-                    <td className="p-3 text-right whitespace-nowrap space-x-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormData(art);
-                          setEditingArticleId(art.id);
-                          setManualSlugEdited(true);
-                          setActiveModule('composer');
-                        }}
-                        className="p-1.5 bg-gray-100 hover:bg-emerald-100 text-emerald-800 rounded"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteArticle(art.id)}
-                        className="p-1.5 bg-gray-100 hover:bg-rose-100 text-rose-700 rounded"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredArticles.map(art => {
+                  const statusBadgeCls =
+                    art.status === 'published'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : art.status === 'scheduled'
+                      ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                      : art.status === 'in_review'
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                      : art.status === 'failed'
+                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                      : art.status === 'archived'
+                      ? 'bg-slate-100 text-slate-700 border border-slate-300'
+                      : 'bg-gray-100 text-gray-700 border border-gray-200';
+                  return (
+                    <tr key={art.id} className="hover:bg-gray-50">
+                      <td className="p-3 max-w-md">
+                        <div className="font-bold text-gray-900 line-clamp-1">{art.titleEn}</div>
+                        <div className="font-urdu text-gray-600 line-clamp-1" dir="rtl">
+                          {art.titleUr}
+                        </div>
+                        <div className="text-[10px] font-mono text-gray-400 flex flex-wrap items-center gap-2 mt-0.5">
+                          <span>/{art.slug}</span>
+                          {art.status === 'published' && (
+                            <>
+                              <a
+                                href={`/en/news/${encodeURIComponent(art.slug)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-emerald-700 hover:underline font-bold"
+                              >
+                                [EN View]
+                              </a>
+                              <a
+                                href={`/ur/news/${encodeURIComponent(art.slug)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-emerald-700 hover:underline font-bold"
+                              >
+                                [UR View]
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 uppercase text-[10px] font-bold">{art.category}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${statusBadgeCls}`}>
+                          {art.status.replace('_', ' ')}
+                        </span>
+                        <div className="text-[10px] font-mono text-gray-400 mt-1">
+                          {formatKarachiDateTime(art.updatedAt || art.publishedAt)}
+                        </div>
+                      </td>
+                      <td className="p-3 font-mono">{art.views?.toLocaleString()}</td>
+                      <td className="p-3">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenVersions(art)}
+                          className="px-2 py-0.5 bg-blue-50 text-blue-700 font-mono rounded font-bold"
+                        >
+                          v{art.version || (art.versions?.length || 0) + 1}
+                        </button>
+                      </td>
+                      <td className="p-3 text-right whitespace-nowrap space-x-1">
+                        {art.status !== 'published' && hasPermission('articles:publish') && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateWorkflowStatus(art.id, 'published')}
+                            className="px-2 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[10px] font-bold"
+                          >
+                            Publish
+                          </button>
+                        )}
+                        {art.status === 'published' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateWorkflowStatus(art.id, 'archived')}
+                            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10px] font-bold"
+                          >
+                            Archive
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData(art);
+                            setEditingArticleId(art.id);
+                            setManualSlugEdited(true);
+                            setComposerError(null);
+                            setActiveModule('composer');
+                          }}
+                          className="p-1.5 bg-gray-100 hover:bg-emerald-100 text-emerald-800 rounded"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteArticle(art.id)}
+                          className="p-1.5 bg-gray-100 hover:bg-rose-100 text-rose-700 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1113,6 +1196,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       {/* MODULE 3: BILINGUAL COMPOSER */}
       {activeModule === 'composer' && (
         <form onSubmit={handleSaveArticle} className="bg-white border border-gray-200 rounded-xl p-6 space-y-5 text-xs">
+          {composerError && (
+            <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl font-semibold flex items-center justify-between gap-2">
+              <span>{composerError}</span>
+              <button type="button" onClick={() => setComposerError(null)} className="text-rose-700 font-bold">
+                ✕
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
             <div>
               <h2 className="text-lg font-black text-gray-900">
@@ -1348,8 +1439,27 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                   <option value="in_review">In Review</option>
                   <option value="scheduled">Scheduled</option>
                   <option value="draft">Draft</option>
+                  <option value="archived">Archived</option>
                 </select>
               </div>
+              {formData.status === 'scheduled' && (
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Scheduled Publish Date &amp; Time</label>
+                  <input
+                    type="datetime-local"
+                    value={
+                      formData.scheduledAt || formData.scheduledFor
+                        ? new Date(formData.scheduledAt || formData.scheduledFor || '').toISOString().slice(0, 16)
+                        : ''
+                    }
+                    onChange={e => {
+                      const iso = e.target.value ? new Date(e.target.value).toISOString() : undefined;
+                      setFormData({ ...formData, scheduledAt: iso, scheduledFor: iso });
+                    }}
+                    className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Tags (comma separated)</label>
                 <input
@@ -2073,6 +2183,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         </div>
       )}
 
+      {/* MODULE: SYSTEM DIAGNOSTICS CONSOLE */}
+      {activeModule === 'diagnostics' && <SystemDiagnostics />}
+
       {/* INLINE CONFIRMATION MODAL */}
       {confirmState && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
@@ -2322,7 +2435,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
           <form
             onSubmit={async e => {
               e.preventDefault();
-              const res = await fetch('/api/admin/users', {
+              const res = await authorizedFetch('/api/admin/users', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
@@ -2331,7 +2444,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
               const { data: d } = await safeParseResponse(res);
               if (res.ok && d.success) {
                 if (newUser.password && newUser.email) {
-                  await fetch('/api/admin/auth/staff-password', {
+                  await authorizedFetch('/api/admin/auth/staff-password', {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },

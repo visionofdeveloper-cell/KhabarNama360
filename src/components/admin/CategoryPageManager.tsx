@@ -23,7 +23,7 @@ import {
   CategoryPageConfig,
   CategoryPageVersion,
 } from '../../types/index.ts';
-import { safeFetchJson } from '../../utils/safeFetch.ts';
+import { authorizedFetch, safeFetchJson } from '../../utils/safeFetch.ts';
 
 const AVAILABLE_BLOCK_TYPES: { type: CategoryBlockType; label: string }[] = [
   { type: 'category_hero', label: 'Category Hero Banner' },
@@ -217,7 +217,7 @@ export const CategoryPageManager: React.FC<{ onRefreshParent?: () => void }> = (
   const handleDeleteDatasetRecord = async (id: string) => {
     const ds = editing ? SLUG_TO_DATASET[editing.slug] : null;
     if (!ds) return;
-    await fetch(`/api/admin/categories/dataset/${ds.dataset}/${id}`, {
+    await authorizedFetch(`/api/admin/categories/dataset/${ds.dataset}/${id}`, {
       method: 'DELETE',
       credentials: 'include',
     });

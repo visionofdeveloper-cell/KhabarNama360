@@ -7,6 +7,7 @@
 import { db } from '../../src/server/db.ts';
 import { SyncJobRun } from '../../src/server/automation/types.ts';
 import { ProviderRegistry } from './ProviderRegistry.ts';
+import { ArticleService } from '../../src/server/articleService.ts';
 
 export class JobScheduler {
   public static async runDueJobs(
@@ -41,6 +42,10 @@ export class JobScheduler {
         const run = await ProviderRegistry.executeProviderSync(provider.id, triggeredBy);
         runs.push(run);
       }
+
+      await ArticleService.publishDueScheduledArticles(`Scheduler (${triggeredBy})`).catch(err =>
+        console.warn('[Scheduler] Scheduled publish sweep error:', err?.message || err)
+      );
 
       db.updateAutomationSettings({ lastCronRunAt: new Date().toISOString() }, 'Cron Dispatcher');
     } finally {

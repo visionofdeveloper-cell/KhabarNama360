@@ -100,13 +100,27 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
       }
     };
 
+    const onArticlesUpdated = () => {
+      void loadHeaderData();
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('360kn-sync');
+      bc.onmessage = (msg) => {
+        if (msg?.data?.type === 'articles-updated') void loadHeaderData();
+      };
+    } catch {}
+
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('360kn:live-data-updated', onLiveData);
+    window.addEventListener('360kn:articles-updated', onArticlesUpdated);
 
     return () => {
       clearInterval(refreshInterval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('360kn:live-data-updated', onLiveData);
+      window.removeEventListener('360kn:articles-updated', onArticlesUpdated);
+      try { bc?.close(); } catch {}
     };
   }, []);
 

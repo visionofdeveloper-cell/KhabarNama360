@@ -13,6 +13,7 @@ import {
   provisionFirstAdmin,
   isBootstrapRequired,
   getSessionFromRequest,
+  resolveOptionalAdminSession,
   setSessionCookie,
   clearSessionCookie,
   revokeSession,
@@ -27,6 +28,10 @@ import {
   AdminSession,
 } from './src/server/auth.ts';
 import { AdminPermission } from './src/types/index.ts';
+import { ArticleService } from './src/server/articleService.ts';
+import { checkFirestoreHealth, ensureTestConnectionDoc, FirestoreAuthContext } from './src/server/firestore.ts';
+import { firebaseProjectConfig, hasServiceAccountConfigured } from './src/lib/firebase-admin.ts';
+import { getServerErrorLogs, recordServerError } from './src/server/errorTracker.ts';
 import { SEOEngine } from './services/seo/SEOEngine.ts';
 import { SEOAuditService } from './services/seo/SEOAuditService.ts';
 import { SitemapManager } from './services/seo/SitemapManager.ts';
@@ -64,9 +69,27 @@ try {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Prevent browser/proxy/CDN stale caching on dynamic news & admin APIs
+app.use(['/api/news', '/api/v1/news', '/api/admin', '/api/v1/admin'], (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 function getActor(req: Request, fallback: string = 'Admin'): string {
   const session: AdminSession | undefined = (req as any).adminSession;
   return session?.email || (req.headers['x-admin-user'] as string) || fallback;
+}
+
+function extractFirestoreAuthCtx(req: Request, explicitSession?: AdminSession | null): FirestoreAuthContext {
+  const authHeader = req.headers.authorization;
+  const bearer = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+  const sess = explicitSession ?? ((req as any).adminSession as AdminSession | undefined);
+  return {
+    firebaseIdToken: bearer || undefined,
+    uid: (bearer && sess?.firebaseUid) ? sess.firebaseUid : (sess?.firebaseUid || sess?.userId),
+  };
 }
 
 const inFlightProviderRefreshes = new Map<string, Promise<any>>();
@@ -362,90 +385,146 @@ app.post(
 );
 
 // ================= NEWS & ARTICLES (PUBLIC READ + RBAC MUTATIONS) =================
-app.get('/api/news', (req, res) => {
-  const category = (req.query.category as string) || 'all';
-  const tag = req.query.tag as string;
-  const search = req.query.search as string;
-  let status = (req.query.status as string) || 'published';
+app.get('/api/news', async (req, res) => {
+  try {
+    const category = (req.query.category as string) || 'all';
+    const tag = req.query.tag as string | undefined;
+    const search = req.query.search as string | undefined;
+    let status = (req.query.status as string) || 'published';
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 0;
 
-  // Only authenticated admins can query non-published articles
-  if (status !== 'published') {
-    const session = getSessionFromRequest(req);
-    if (!session) {
-      status = 'published';
+    let session: AdminSession | null = null;
+    if (status !== 'published') {
+      session = await resolveOptionalAdminSession(req);
+      if (!session) {
+        status = 'published';
+      }
     }
-  }
 
-  // Trigger background auto-update when World News / Sports News feeds are due (supports Vercel + Node)
-  if (category === 'all' || category === 'world') {
-    triggerStaleProviders(['world-news-rss']);
-  }
-  if (category === 'all' || category === 'sports') {
-    triggerStaleProviders(['sports-news-rss']);
-  }
+    // Trigger background auto-update when World News / Sports News feeds are due
+    if (category === 'all' || category === 'world') {
+      triggerStaleProviders(['world-news-rss']);
+    }
+    if (category === 'all' || category === 'sports') {
+      triggerStaleProviders(['sports-news-rss']);
+    }
 
-  const articles = db.getArticles(category, tag, search, status);
-  res.json({ success: true, count: articles.length, articles });
+    const { articles: allMatched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+      { category, tag, search, status },
+      session ? extractFirestoreAuthCtx(req, session) : {}
+    );
+    const articles = limit > 0 ? allMatched.slice(0, limit) : allMatched;
+    return res.json({
+      success: true,
+      count: articles.length,
+      totalCount: allMatched.length,
+      storageEngine,
+      firestoreCount,
+      cacheVersion: db.getCacheStatus().newsCacheVersion,
+      articles,
+    });
+  } catch (err: any) {
+    recordServerError({ source: 'api', code: 'NEWS_LIST_ERROR', message: err?.message || 'Failed fetching articles' });
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading articles.' });
+  }
 });
 
-app.get('/api/news/:idOrSlug', (req, res) => {
-  const article = db.getArticleBySlugOrId(req.params.idOrSlug);
-  if (!article) {
-    return res.status(404).json({ success: false, error: 'Article not found' });
+app.get('/api/news/:idOrSlug', async (req, res) => {
+  try {
+    const session = await resolveOptionalAdminSession(req);
+    const { article, storageEngine } = await ArticleService.getArticle(
+      req.params.idOrSlug,
+      session ? extractFirestoreAuthCtx(req, session) : {}
+    );
+    if (!article) {
+      return res.status(404).json({ success: false, error: 'Article not found' });
+    }
+    if (article.status !== 'published' && !session) {
+      return res.status(404).json({ success: false, error: 'Article not found' });
+    }
+    db.incrementArticleViews(article.id);
+    return res.json({ success: true, storageEngine, article });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading article.' });
   }
-  if (article.status !== 'published' && !getSessionFromRequest(req)) {
-    return res.status(404).json({ success: false, error: 'Article not found' });
-  }
-  db.incrementArticleViews(article.id);
-  return res.json({ success: true, article });
 });
 
-app.post('/api/news', requireAdminAuth, requirePermission('articles:write'), (req, res) => {
-  const session: AdminSession = (req as any).adminSession;
-  const article = { ...req.body };
-  const actor = getActor(req, session.email);
-  if (!article.titleEn || !article.titleUr) {
-    return res.status(400).json({ success: false, error: 'Both English and Urdu titles are required' });
-  }
-  if (article.status === 'published' && !hasPermission(session.role, 'articles:publish')) {
-    return res.status(403).json({
+app.post('/api/news', requireAdminAuth, requirePermission('articles:write'), async (req, res) => {
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const article = { ...req.body };
+    const actor = getActor(req, session.email);
+    if (!article.titleEn && !article.titleUr) {
+      return res.status(400).json({ success: false, error: 'At least one headline (English or Urdu) is required.' });
+    }
+    if (article.status === 'published' && !hasPermission(session.role, 'articles:publish')) {
+      return res.status(403).json({
+        success: false,
+        error: `Your role (${session.role}) can save drafts/in_review only and lacks "articles:publish" permission.`,
+      });
+    }
+    const result = await ArticleService.saveArticle(article, actor, extractFirestoreAuthCtx(req, session));
+    if (result.article.isBreaking && result.article.status === 'published') {
+      pushNotificationService.alertBreakingNews(result.article).catch(console.error);
+    }
+    return res.json({
+      success: true,
+      article: result.article,
+      storageEngine: result.storageEngine,
+      verifiedReadBack: result.verifiedReadBack,
+      correlationId: result.correlationId,
+      ...(result.firestoreWarning ? { warning: result.firestoreWarning } : {}),
+    });
+  } catch (err: any) {
+    const statusCode = err?.statusCode || 500;
+    if (statusCode >= 500) {
+      recordServerError({
+        source: 'publishing',
+        code: err?.code || 'ARTICLE_SAVE_FAILED',
+        message: err?.message || 'Article save error',
+        correlationId: err?.correlationId,
+      });
+    }
+    return res.status(statusCode).json({
       success: false,
-      error: `Your role (${session.role}) can save drafts/in_review only and lacks "articles:publish" permission.`,
+      code: err?.code || 'ARTICLE_SAVE_FAILED',
+      error: err?.message || 'Failed saving article.',
+      correlationId: err?.correlationId,
     });
   }
-  const saved = db.upsertArticle(article, actor);
-  if (saved.isBreaking && saved.status === 'published') {
-    pushNotificationService.alertBreakingNews(saved).catch(console.error);
-  }
-  return res.json({ success: true, article: saved });
 });
 
-app.post('/api/news/:id/workflow', requireAdminAuth, requirePermission('articles:publish'), (req, res) => {
-  const { id } = req.params;
-  const { status, workflowNotes, scheduledFor, reviewerId } = req.body || {};
-  const actor = getActor(req, 'Editor');
-
-  const article = db.getData().articles.find(a => a.id === id);
-  if (!article) {
-    return res.status(404).json({ success: false, error: 'Article not found' });
+app.post('/api/news/:id/workflow', requireAdminAuth, requirePermission('articles:publish'), async (req, res) => {
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const { id } = req.params;
+    const { status, workflowNotes, scheduledFor, scheduledAt } = req.body || {};
+    const actor = getActor(req, session.email);
+    const result = await ArticleService.transitionStatus(
+      id,
+      status,
+      actor,
+      { scheduledAt: scheduledAt || scheduledFor, notes: workflowNotes },
+      extractFirestoreAuthCtx(req, session)
+    );
+    if (result.article.isBreaking && result.article.status === 'published') {
+      pushNotificationService.alertBreakingNews(result.article).catch(console.error);
+    }
+    return res.json({
+      success: true,
+      article: result.article,
+      storageEngine: result.storageEngine,
+      verifiedReadBack: result.verifiedReadBack,
+      correlationId: result.correlationId,
+      ...(result.firestoreWarning ? { warning: result.firestoreWarning } : {}),
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      code: err?.code || 'WORKFLOW_UPDATE_FAILED',
+      error: err?.message || 'Failed updating article workflow status.',
+    });
   }
-
-  const prevStatus = article.status;
-  article.status = status;
-  if (workflowNotes !== undefined) article.workflowNotes = workflowNotes;
-  if (scheduledFor !== undefined) article.scheduledFor = scheduledFor;
-  if (reviewerId !== undefined) article.reviewerId = reviewerId;
-  if (status === 'published' && prevStatus !== 'published') {
-    article.publishedAt = new Date().toISOString();
-  }
-  article.updatedAt = new Date().toISOString();
-
-  db.upsertArticle(article, actor);
-  if (article.isBreaking && article.status === 'published') {
-    pushNotificationService.alertBreakingNews(article).catch(console.error);
-  }
-  db.logAudit(actor, 'Workflow Status Changed', `Changed article "${article.titleEn}" status from ${prevStatus} to ${status}`);
-  return res.json({ success: true, article });
 });
 
 app.get('/api/news/:id/versions', requireAdminAuth, requirePermission('articles:read'), (req, res) => {
@@ -456,9 +535,10 @@ app.get('/api/news/:id/versions', requireAdminAuth, requirePermission('articles:
   return res.json({ success: true, versions: article.versions || [] });
 });
 
-app.post('/api/news/:id/rollback', requireAdminAuth, requirePermission('articles:publish'), (req, res) => {
+app.post('/api/news/:id/rollback', requireAdminAuth, requirePermission('articles:publish'), async (req, res) => {
+  const session: AdminSession = (req as any).adminSession;
   const { versionId } = req.body || {};
-  const actor = getActor(req, 'Editor');
+  const actor = getActor(req, session.email);
   if (!versionId) {
     return res.status(400).json({ success: false, error: 'versionId is required' });
   }
@@ -466,13 +546,251 @@ app.post('/api/news/:id/rollback', requireAdminAuth, requirePermission('articles
   if (!restored) {
     return res.status(404).json({ success: false, error: 'Article or Version snapshot not found' });
   }
-  return res.json({ success: true, article: restored });
+  const result = await ArticleService.saveArticle(restored, actor, extractFirestoreAuthCtx(req, session)).catch(() => null);
+  return res.json({ success: true, article: result?.article || restored });
 });
 
-app.delete('/api/news/:id', requireAdminAuth, requirePermission('articles:delete'), (req, res) => {
-  const actor = getActor(req, 'Admin');
-  const success = db.deleteArticle(req.params.id, actor);
-  res.json({ success });
+app.delete('/api/news/:id', requireAdminAuth, requirePermission('articles:delete'), async (req, res) => {
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const actor = getActor(req, session.email);
+    const hardDelete = req.query.hard === 'true';
+    const success = await ArticleService.deleteArticle(req.params.id, actor, hardDelete, extractFirestoreAuthCtx(req, session));
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.message || 'Failed deleting article.',
+    });
+  }
+});
+
+// ================= CANONICAL V1 PUBLIC & ADMIN ARTICLES API =================
+app.get('/api/v1/news', async (req, res) => {
+  try {
+    const category = (req.query.category as string) || 'all';
+    const tag = req.query.tag as string | undefined;
+    const search = req.query.search as string | undefined;
+    const page = Math.max(1, parseInt((req.query.page as string) || '1', 10) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt((req.query.limit as string) || '30', 10) || 30));
+    let status = (req.query.status as string) || 'published';
+
+    let session: AdminSession | null = null;
+    if (status !== 'published') {
+      session = await resolveOptionalAdminSession(req);
+      if (!session) status = 'published';
+    }
+
+    const { articles: matched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+      { category, tag, search, status },
+      session ? extractFirestoreAuthCtx(req, session) : {}
+    );
+    const total = matched.length;
+    const startIdx = (page - 1) * limit;
+    const paginated = matched.slice(startIdx, startIdx + limit);
+
+    return res.json({
+      success: true,
+      storageEngine,
+      firestoreCount,
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      cacheVersion: db.getCacheStatus().newsCacheVersion,
+      articles: paginated,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading v1 news.' });
+  }
+});
+
+app.get('/api/v1/news/:slug', async (req, res) => {
+  try {
+    const session = await resolveOptionalAdminSession(req);
+    const { article, storageEngine, redirectTo } = await ArticleService.getArticle(
+      req.params.slug,
+      session ? extractFirestoreAuthCtx(req, session) : {}
+    );
+    if (!article) {
+      if (redirectTo) {
+        return res.status(301).json({
+          success: false,
+          redirect: true,
+          redirectTo: `/en/news/${redirectTo}`,
+        });
+      }
+      return res.status(404).json({ success: false, error: 'Article not found' });
+    }
+    if (article.status !== 'published' && !session) {
+      return res.status(404).json({ success: false, error: 'Article not found' });
+    }
+    db.incrementArticleViews(article.id);
+    return res.json({ success: true, storageEngine, article });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading article.' });
+  }
+});
+
+app.get('/api/v1/admin/articles', requirePermission('articles:read'), async (req, res) => {
+  try {
+    const category = (req.query.category as string) || 'all';
+    const status = (req.query.status as string) || 'all';
+    const search = req.query.search as string | undefined;
+    const includeDeleted = req.query.includeDeleted === 'true';
+
+    const { articles, storageEngine, firestoreCount } = await ArticleService.listArticles(
+      { category, status, search, includeDeleted },
+      extractFirestoreAuthCtx(req)
+    );
+    return res.json({
+      success: true,
+      count: articles.length,
+      storageEngine,
+      firestoreCount,
+      articles,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed listing admin articles.' });
+  }
+});
+
+app.post('/api/v1/admin/articles', requirePermission('articles:write'), async (req, res) => {
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const actor = getActor(req, session.email);
+    const body = req.body || {};
+    if (!body.titleEn && !body.titleUr) {
+      return res.status(400).json({ success: false, error: 'At least one headline (English or Urdu) is required.' });
+    }
+    if (body.status === 'published' && !hasPermission(session.role, 'articles:publish')) {
+      return res.status(403).json({
+        success: false,
+        error: `Role "${session.role}" lacks articles:publish permission.`,
+      });
+    }
+    const result = await ArticleService.saveArticle(body, actor, extractFirestoreAuthCtx(req, session));
+    if (result.article.isBreaking && result.article.status === 'published') {
+      pushNotificationService.alertBreakingNews(result.article).catch(console.error);
+    }
+    return res.json({
+      success: true,
+      article: result.article,
+      storageEngine: result.storageEngine,
+      verifiedReadBack: result.verifiedReadBack,
+      correlationId: result.correlationId,
+      ...(result.firestoreWarning ? { warning: result.firestoreWarning } : {}),
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      code: err?.code || 'ARTICLE_CREATE_FAILED',
+      error: err?.message || 'Failed saving article.',
+      correlationId: err?.correlationId,
+    });
+  }
+});
+
+app.get('/api/v1/admin/articles/:id', requirePermission('articles:read'), async (req, res) => {
+  const { article, storageEngine } = await ArticleService.getArticle(req.params.id, extractFirestoreAuthCtx(req));
+  if (!article) {
+    return res.status(404).json({ success: false, error: 'Article not found.' });
+  }
+  return res.json({ success: true, storageEngine, article });
+});
+
+app.patch('/api/v1/admin/articles/:id', requirePermission('articles:write'), async (req, res) => {
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const actor = getActor(req, session.email);
+    const authCtx = extractFirestoreAuthCtx(req, session);
+    const { article: existing } = await ArticleService.getArticle(req.params.id, authCtx);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Article not found.' });
+    }
+    const patch = req.body || {};
+    if (patch.status === 'published' && !hasPermission(session.role, 'articles:publish')) {
+      return res.status(403).json({
+        success: false,
+        error: `Role "${session.role}" lacks articles:publish permission.`,
+      });
+    }
+    const result = await ArticleService.saveArticle({ ...existing, ...patch, id: existing.id }, actor, authCtx);
+    return res.json({
+      success: true,
+      article: result.article,
+      storageEngine: result.storageEngine,
+      verifiedReadBack: result.verifiedReadBack,
+      correlationId: result.correlationId,
+      ...(result.firestoreWarning ? { warning: result.firestoreWarning } : {}),
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      code: err?.code || 'ARTICLE_UPDATE_FAILED',
+      error: err?.message || 'Failed updating article.',
+    });
+  }
+});
+
+app.delete('/api/v1/admin/articles/:id', requirePermission('articles:delete'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Admin');
+    const hardDelete = req.query.hard === 'true';
+    const success = await ArticleService.deleteArticle(req.params.id, actor, hardDelete, extractFirestoreAuthCtx(req));
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting article.' });
+  }
+});
+
+app.post('/api/v1/admin/articles/:id/publish', requirePermission('articles:publish'), async (req, res) => {
+  try {
+    const result = await ArticleService.transitionStatus(
+      req.params.id,
+      'published',
+      getActor(req, 'Editor'),
+      undefined,
+      extractFirestoreAuthCtx(req)
+    );
+    if (result.article.isBreaking) {
+      pushNotificationService.alertBreakingNews(result.article).catch(console.error);
+    }
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Publish failed.' });
+  }
+});
+
+app.post('/api/v1/admin/articles/:id/schedule', requirePermission('articles:publish'), async (req, res) => {
+  try {
+    const scheduledAt = req.body?.scheduledAt || req.body?.scheduledFor;
+    const result = await ArticleService.transitionStatus(
+      req.params.id,
+      'scheduled',
+      getActor(req, 'Editor'),
+      { scheduledAt },
+      extractFirestoreAuthCtx(req)
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Schedule failed.' });
+  }
+});
+
+app.post('/api/v1/admin/articles/:id/archive', requirePermission('articles:write'), async (req, res) => {
+  try {
+    const result = await ArticleService.transitionStatus(
+      req.params.id,
+      'archived',
+      getActor(req, 'Editor'),
+      undefined,
+      extractFirestoreAuthCtx(req)
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Archive failed.' });
+  }
 });
 
 // ================= EDUCATION, WEATHER, FINANCE, SPORTS, UTILITIES =================
@@ -899,17 +1217,169 @@ app.get('/api/admin/analytics', requirePermission('overview:view'), (_req, res) 
   });
 });
 
-app.get('/api/admin/system/health', requirePermission('health:view'), (_req, res) => {
-  res.json({ success: true, health: db.getSystemHealth() });
+app.get('/api/admin/system/health', requirePermission('health:view'), async (req, res) => {
+  const fsHealth = await checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken).catch(() => null);
+  res.json({
+    success: true,
+    health: {
+      ...db.getSystemHealth(),
+      databaseType: 'Cloud Firestore',
+      storageEngine: fsHealth?.connected ? 'cloud_firestore' : 'json_cache_fallback',
+      firebaseConfigured: true,
+      projectId: firebaseProjectConfig.projectId,
+      firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
+      firestoreConnected: Boolean(fsHealth?.connected),
+    },
+  });
+});
+
+// ================= V1 PRODUCTION FIREBASE FIRESTORE & PUBLISHING DIAGNOSTICS =================
+app.get('/api/v1/admin/system/database-health', requirePermission('health:view'), async (req, res) => {
+  try {
+    const report = await checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Firebase Firestore health probe failed.' });
+  }
+});
+
+app.get('/api/v1/admin/system/publishing-health', requirePermission('health:view'), async (req, res) => {
+  try {
+    const health = await ArticleService.getPublishingHealth(extractFirestoreAuthCtx(req));
+    return res.json({
+      success: true,
+      firebaseConfigured: true,
+      projectId: firebaseProjectConfig.projectId,
+      firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
+      storageEngine: health.firestoreHealth.connected ? 'firestore' : 'json_fallback',
+      counts: health.articleCountsByStatus,
+      missingTranslationsCount: health.missingTranslationsCount,
+      recentLogs: health.recentPublicationLogs,
+      firestoreHealth: health.firestoreHealth,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Publishing health check failed.' });
+  }
+});
+
+app.post('/api/v1/admin/system/test-publishing-pipeline', requirePermission('health:view'), async (req, res) => {
+  try {
+    const result = await ArticleService.runPublishingPipelineSelfTest(
+      getActor(req, 'Diagnostics'),
+      extractFirestoreAuthCtx(req)
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Pipeline self-test failed.' });
+  }
+});
+
+app.post('/api/v1/admin/system/firebase/test-probe', requirePermission('health:view'), async (req, res) => {
+  try {
+    const authCtx = extractFirestoreAuthCtx(req);
+    const ensureRes = await ensureTestConnectionDoc(authCtx);
+    const report = await checkFirestoreHealth(authCtx.firebaseIdToken);
+    return res.status(ensureRes.ok ? 200 : 400).json({
+      success: ensureRes.ok,
+      error: ensureRes.error,
+      report,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Firestore connection probe failed.' });
+  }
+});
+
+app.post('/api/v1/admin/system/firebase/sync-articles', requirePermission('settings:manage'), async (req, res) => {
+  try {
+    const outcome = await ArticleService.seedAllPortalArticlesToFirestore(extractFirestoreAuthCtx(req));
+    db.logAudit(
+      getActor(req),
+      'Firestore Article Sync Completed',
+      `Seeded=${outcome.seededCount}, Skipped=${outcome.skippedCount}, Failed=${outcome.failedCount}`
+    );
+    return res.status(outcome.ok ? 200 : 400).json({ success: outcome.ok, ...outcome });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Firestore sync failed.' });
+  }
+});
+
+app.get('/api/v1/admin/system/firebase-collections', requirePermission('health:view'), async (req, res) => {
+  try {
+    const authCtx = extractFirestoreAuthCtx(req);
+    const fsHealth = await checkFirestoreHealth(authCtx.firebaseIdToken);
+    return res.json({
+      success: true,
+      projectId: firebaseProjectConfig.projectId,
+      firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
+      connected: fsHealth.connected,
+      authMode: fsHealth.authMode,
+      serviceAccountConfigured: hasServiceAccountConfigured(),
+      testConnectionDocExists: fsHealth.testConnectionDocExists,
+      publishedCountInFirestore: fsHealth.publishedCountInFirestore,
+      totalCountInFirestore: fsHealth.totalCountInFirestore,
+      collections: [
+        '/articles/{articleId}',
+        '/categories/{categoryId}',
+        '/siteSettings/{settingId}',
+        '/admins/{adminId}',
+        '/users/{userId}',
+        '/users/{userId}/bookmarks/{bookmarkId}',
+        '/pushPreferences/{prefId}',
+        '/auditLogs/{logId}',
+        '/test/connection',
+      ],
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed checking Firebase collections.' });
+  }
+});
+
+app.get('/api/v1/admin/system/cache-status', requirePermission('health:view'), (_req, res) => {
+  res.json({ success: true, cache: db.getCacheStatus() });
+});
+
+app.post('/api/v1/admin/system/cache-invalidate', requirePermission('settings:manage'), (req, res) => {
+  const bumped = db.bumpNewsCacheVersion();
+  db.logAudit(getActor(req), 'Frontend & API Cache Invalidated', `Cache version -> v${bumped.version}`);
+  res.json({ success: true, ...bumped });
+});
+
+app.get('/api/v1/admin/system/error-logs', requirePermission('health:view'), (req, res) => {
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+  const logs = getServerErrorLogs(limit);
+  res.json({ success: true, count: logs.length, logs });
+});
+
+app.get('/api/v1/admin/system/deployment', requirePermission('health:view'), (_req, res) => {
+  const sys = db.getSystemHealth();
+  res.json({
+    success: true,
+    deployment: {
+      appVersion: process.env.APP_VERSION || '4.2.0',
+      nodeEnv: process.env.NODE_ENV || 'development',
+      nodeVersion: sys.nodeVersion,
+      uptimeSeconds: sys.uptimeSeconds,
+      memoryUsageMb: sys.memoryUsageMb,
+      storageMode: 'cloud_firestore',
+      projectId: firebaseProjectConfig.projectId,
+      firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
+      serviceAccountConfigured: hasServiceAccountConfigured(),
+      timezone: 'Asia/Karachi',
+      checkedAt: new Date().toISOString(),
+    },
+  });
 });
 
 // ================= DYNAMIC SITEMAPS, ROBOTS, FEEDS & ADS.TXT =================
-app.get('/sitemap.xml', (_req, res) => {
+app.get('/sitemap.xml', async (_req, res) => {
+  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildMainSitemapXml());
 });
 
-app.get('/sitemap-news.xml', (_req, res) => {
+app.get('/sitemap-news.xml', async (_req, res) => {
+  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildNewsSitemapXml());
 });
@@ -920,9 +1390,12 @@ app.get('/robots.txt', (_req, res) => {
 });
 
 // Bilingual RSS 2.0 Feeds
-const buildRssFeed = (lang: 'en' | 'ur') => {
+const buildRssFeed = async (lang: 'en' | 'ur') => {
   const baseUrl = SitemapManager.getBaseUrl();
-  const articles = db.getArticles('all', undefined, undefined, 'published').slice(0, 30);
+  const { articles: allPub } = await ArticleService.listArticles({ status: 'published', limit: 30 }).catch(() => ({
+    articles: db.getArticles('all', undefined, undefined, 'published').slice(0, 30),
+  }));
+  const articles = allPub.slice(0, 30);
   const title = lang === 'ur' ? '360 خبرنامہ — تازہ ترین خبریں' : '360Khabarnama — Latest Pakistan & World News';
   const description =
     lang === 'ur'
@@ -968,14 +1441,14 @@ ${items}
 </rss>`;
 };
 
-app.get('/en/feed.xml', (_req, res) => {
+app.get('/en/feed.xml', async (_req, res) => {
   res.header('Content-Type', 'application/rss+xml; charset=utf-8');
-  res.send(buildRssFeed('en'));
+  res.send(await buildRssFeed('en'));
 });
 
-app.get('/ur/feed.xml', (_req, res) => {
+app.get('/ur/feed.xml', async (_req, res) => {
   res.header('Content-Type', 'application/rss+xml; charset=utf-8');
-  res.send(buildRssFeed('ur'));
+  res.send(await buildRssFeed('ur'));
 });
 
 app.get('/ads.txt', (_req, res) => {
@@ -2043,16 +2516,26 @@ app.post('/api/admin/ai/editorial-studio', requirePermission('ai:use'), async (r
 
   const taskMap: Record<string, any> = {
     bilingual_article: 'article_drafting',
+    article_draft: 'article_drafting',
+    story_outline: 'article_drafting',
     urdu_to_english: 'translation',
     english_to_urdu: 'translation',
+    translate_en_ur: 'translation',
+    translate_ur_en: 'translation',
     headlines_5: 'headline_generation',
+    headlines: 'headline_generation',
     seo_meta: 'seo_metadata',
+    classify_tags: 'category_tagging',
     summary_bullets: 'summarization',
+    summarize: 'summarization',
     breaking_alert: 'breaking_alerts',
     social_captions: 'newsletter_social',
     morning_newsletter: 'newsletter_social',
+    newsletter: 'newsletter_social',
     fact_check_prep: 'fact_check_prep',
+    fact_check: 'fact_check_prep',
     rewrite_tone: 'content_rewriting',
+    related_ideas: 'article_drafting',
     faq_schema: 'seo_metadata',
   };
 
@@ -2173,6 +2656,177 @@ Return JSON with overallScore, readabilityLevel, objectivityRating, grammarRatin
       actor: getActor(req),
     });
     return res.json({ success: true, audit: data });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
+
+// Canonical v1 AI Gemini & Editorial Aliases
+app.post('/api/v1/admin/ai/gemini/validate', requirePermission('ai:keys'), async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const body = req.body || {};
+    const result = await AIProviderManager.validateCandidateKey(
+      {
+        providerType: 'gemini',
+        apiKey: body.apiKey,
+        credentialId: body.credentialId,
+        model: body.model,
+        runGenerationTest: body.runGenerationTest !== false,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Gemini validation failed.' });
+  }
+});
+
+app.post('/api/v1/admin/ai/gemini/test', requirePermission('ai:keys'), async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const { credentialId, model, prompt } = req.body || {};
+    if (prompt) {
+      const execRes = await AIProviderRouter.executeTask({
+        task: 'headline_generation',
+        prompt: String(prompt),
+        preferredProviderId: credentialId || undefined,
+        preferredModel: model || undefined,
+        actor: getActor(req, 'Super Admin'),
+        signal: controller.signal,
+      });
+      return res.json({
+        success: true,
+        text: execRes.text,
+        telemetry: {
+          model: execRes.model,
+          providerType: execRes.providerType,
+          credentialId: execRes.credentialId,
+          projectId: execRes.projectId,
+          latencyMs: execRes.latencyMs,
+          totalTokens: execRes.totalTokens,
+        },
+      });
+    }
+    const result = await AIProviderManager.validateCandidateKey(
+      {
+        providerType: 'gemini',
+        apiKey: req.body?.apiKey,
+        credentialId,
+        model,
+        runGenerationTest: true,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return handleAiError(res, err);
+  }
+});
+
+app.get('/api/v1/admin/ai/models', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
+  try {
+    const creds = AIProviderRouter.getAllCredentialsSanitized();
+    const credentialId = req.query.credentialId as string | undefined;
+    if (credentialId) {
+      const discovery = await AIProviderManager.discoverModelsForCredential(credentialId, getActor(req, 'Super Admin'));
+      return res.json({ success: true, ...discovery });
+    }
+    const models = creds.flatMap(c =>
+      (c.availableModels || []).map((m: any) => ({
+        ...m,
+        credentialId: c.id,
+        credentialLabel: c.label,
+        providerType: c.providerType,
+      }))
+    );
+    return res.json({ success: true, count: models.length, models });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed listing AI models.' });
+  }
+});
+
+app.post('/api/v1/admin/ai/translate', requirePermission('ai:use'), async (req, res) => {
+  const { title, summary, text, targetLanguage, credentialId, model } = req.body || {};
+  try {
+    const target = targetLanguage === 'ur' ? 'Urdu' : 'English';
+    const prompt = `Translate into ${target} news journalism style. Preserve facts cleanly.
+Title: ${title || ''}
+Summary: ${summary || ''}
+Body: ${text || ''}
+Return ONLY JSON: { "translatedTitle": "...", "translatedSummary": "...", "translation": "..." }`;
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{
+      translatedTitle?: string;
+      translatedSummary?: string;
+      translation?: string;
+    }>({
+      task: 'translation',
+      prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
+      actor: getActor(req),
+    });
+    return res.json({
+      success: true,
+      translatedTitle: data.translatedTitle || '',
+      translatedSummary: data.translatedSummary || '',
+      translation: data.translation || '',
+      telemetry: meta,
+    });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
+
+app.post('/api/v1/admin/ai/suggest-headlines', requirePermission('ai:use'), async (req, res) => {
+  const { summary, topic, language, credentialId, model } = req.body || {};
+  try {
+    const prompt = `Suggest 3 crisp, factual news headlines in English and Urdu for:
+Topic: ${topic || 'Pakistan News'}
+Summary: ${summary || ''}
+Primary Language Focus: ${language === 'ur' ? 'Urdu' : 'English'}
+Return ONLY JSON: { "headlinesEn": ["..."], "headlinesUr": ["..."] }`;
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{ headlinesEn: string[]; headlinesUr: string[] }>({
+      task: 'headline_generation',
+      prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
+      actor: getActor(req),
+    });
+    return res.json({
+      success: true,
+      headlinesEn: Array.isArray(data.headlinesEn) ? data.headlinesEn : [],
+      headlinesUr: Array.isArray(data.headlinesUr) ? data.headlinesUr : [],
+      telemetry: meta,
+    });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
+
+app.post('/api/v1/admin/ai/generate-seo', requirePermission('ai:use'), async (req, res) => {
+  const { title, content, credentialId, model } = req.body || {};
+  try {
+    const prompt = `Generate bilingual SEO metadata & tags for:
+Title: ${title || ''}
+Snippet: ${String(content || '').slice(0, 800)}
+Return ONLY JSON: { "metaTitleEn": "...", "metaDescription": "...", "tags": ["..."], "slugSuggestion": "..." }`;
+    const { data, meta } = await AIProviderRouter.executeJsonTask({
+      task: 'seo_metadata',
+      prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
+      actor: getActor(req),
+    });
+    return res.json({ success: true, seo: data, telemetry: meta });
   } catch (err) {
     return handleAiError(res, err);
   }
@@ -2428,9 +3082,26 @@ app.get('/api/data-freshness', (_req, res) => {
   res.json({ success: true, freshness, generatedAt: new Date().toISOString() });
 });
 
+// Ensure unmatched /api/* routes return JSON 404 instead of Express default HTML error page
+app.use('/api', (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    code: 'NOT_FOUND',
+    error: `API endpoint not found: ${req.method} ${req.originalUrl}`,
+  });
+});
+
 // Ensure any unhandled error inside /api/* always returns valid JSON instead of HTML/plaintext
-app.use('/api', (err: any, _req: Request, res: Response, _next: NextFunction) => {
+app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => {
   console.error('[API Error]', err);
+  recordServerError({
+    source: 'api',
+    code: err?.code || String(err?.statusCode || err?.status || 500),
+    message: err?.message || 'Internal server error occurred.',
+    statusCode: Number(err?.statusCode || err?.status || 500),
+    method: req.method,
+    path: req.originalUrl,
+  });
   if (res.headersSent) return;
   res.status(err?.statusCode || err?.status || 500).json({
     success: false,
@@ -2482,9 +3153,17 @@ async function setupVite() {
     app.get('*', async (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
       try {
+        let preloadedArticle: any = null;
+        const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
+        if (newsSlugMatch && newsSlugMatch[1]) {
+          const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
+          if (found?.article && found.article.status === 'published') {
+            preloadedArticle = found.article;
+          }
+        }
         const rawHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
         const transformed = await vite.transformIndexHtml(req.originalUrl, rawHtml);
-        const withSeo = MetadataGenerator.injectMetadataIntoHtml(transformed, req.originalUrl);
+        const withSeo = MetadataGenerator.injectMetadataIntoHtml(transformed, req.originalUrl, preloadedArticle);
         if (req.path === '/admin' || req.path.startsWith('/admin/')) {
           res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
         }
@@ -2497,14 +3176,22 @@ async function setupVite() {
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath, { index: false }));
-    app.get('*', (req, res, next) => {
+    app.get('*', async (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
       const indexFile = path.join(distPath, 'index.html');
       if (!fs.existsSync(indexFile)) {
         return res.status(404).send('Production bundle not built yet.');
       }
+      let preloadedArticle: any = null;
+      const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
+      if (newsSlugMatch && newsSlugMatch[1]) {
+        const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
+        if (found?.article && found.article.status === 'published') {
+          preloadedArticle = found.article;
+        }
+      }
       const rawHtml = fs.readFileSync(indexFile, 'utf-8');
-      const withSeo = MetadataGenerator.injectMetadataIntoHtml(rawHtml, req.originalUrl);
+      const withSeo = MetadataGenerator.injectMetadataIntoHtml(rawHtml, req.originalUrl, preloadedArticle);
       if (req.path === '/admin' || req.path.startsWith('/admin/')) {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
       }

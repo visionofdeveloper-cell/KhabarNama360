@@ -1,45 +1,69 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
-import { CricketMatch } from '../types/index.ts';
-import { Trophy, Calendar, MapPin, Activity, Flame, Shield, Users, Bell, BellRing } from 'lucide-react';
+import { Article, CricketMatch } from '../types/index.ts';
+import { Trophy, MapPin, Activity, Users, Bell, BellRing, Newspaper, ArrowRight } from 'lucide-react';
 import { NotificationToggleModal } from '../components/NotificationToggleModal.tsx';
 import { PushNotificationClient } from '../services/pushNotificationClient.ts';
 import { safeFetchJson } from '../utils/safeFetch.ts';
+import { formatKarachiDate } from '../utils/dateTime.ts';
 
-export const CricketView: React.FC = () => {
-  const { isUrdu } = useLanguage();
+interface CricketViewProps {
+  onSelectArticle?: (article: Article) => void;
+}
+
+export const CricketView: React.FC<CricketViewProps> = ({ onSelectArticle }) => {
+  const { isUrdu, t } = useLanguage();
   const [matches, setMatches] = useState<CricketMatch[]>([]);
+  const [sportsArticles, setSportsArticles] = useState<Article[]>([]);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
 
   useEffect(() => {
     setIsPushSubscribed(PushNotificationClient.isLocallySubscribed());
-    const loadMatches = async () => {
-      const data = await safeFetchJson('/api/cricket/matches');
-      if (data.success && Array.isArray(data.matches)) {
-        setMatches(data.matches);
+    const loadSportsData = async () => {
+      const [matchRes, newsRes] = await Promise.all([
+        safeFetchJson('/api/cricket/matches'),
+        safeFetchJson('/api/news?category=sports&limit=9'),
+      ]);
+      if (matchRes.success && Array.isArray(matchRes.matches)) {
+        setMatches(matchRes.matches);
+      }
+      if (newsRes.success && Array.isArray(newsRes.articles)) {
+        setSportsArticles(newsRes.articles);
       }
     };
-    void loadMatches();
-    const interval = setInterval(() => void loadMatches(), 120_000);
+    void loadSportsData();
+    const interval = setInterval(() => void loadSportsData(), 120_000);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void loadMatches();
+      if (document.visibilityState === 'visible') void loadSportsData();
     };
     const onLiveData = (ev: Event) => {
       const detail = (ev as CustomEvent).detail;
       if (detail?.cricketMatches?.length > 0) setMatches(detail.cricketMatches);
+      if (detail?.sportsNews?.length > 0) setSportsArticles(detail.sportsNews);
     };
+    const onArticlesUpdated = () => {
+      void loadSportsData();
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('360kn-sync');
+      bc.onmessage = (msg) => {
+        if (msg?.data?.type === 'articles-updated') void loadSportsData();
+      };
+    } catch {}
+
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('360kn:live-data-updated', onLiveData);
+    window.addEventListener('360kn:articles-updated', onArticlesUpdated);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('360kn:live-data-updated', onLiveData);
+      window.removeEventListener('360kn:articles-updated', onArticlesUpdated);
+      try { bc?.close(); } catch {}
     };
   }, []);
-
-  const liveMatches = matches.filter(m => m.status === 'live');
-  const upcomingMatches = matches.filter(m => m.status === 'upcoming');
 
   const starPlayers = [
     { name: 'Babar Azam', role: 'Top-order Batter', stats: 'ODIs: 5,729 runs @ 56.7 avg', image: 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=300&q=80' },
@@ -114,7 +138,6 @@ export const CricketView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Teams & Scores */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -137,12 +160,10 @@ export const CricketView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Status Note */}
               <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl text-xs text-emerald-900 font-semibold truncate">
                 {isUrdu ? match.statusTextUr : match.statusTextEn}
               </div>
 
-              {/* Batters on crease */}
               {match.currentBatters && (
                 <div className="text-[11px] text-gray-500 flex items-center justify-between pt-1 border-t border-gray-100">
                   <span>Batters: {match.currentBatters.join(' | ')}</span>
@@ -153,6 +174,61 @@ export const CricketView: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Latest Published Sports & Cricket Stories */}
+      {sportsArticles.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <Newspaper className="w-5 h-5 text-emerald-700" />
+              <span>{isUrdu ? 'کھیل و کرکٹ کی تازہ خبریں' : 'Latest Sports & Cricket Coverage'}</span>
+            </h2>
+            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full">
+              {sportsArticles.length}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {sportsArticles.map((art) => {
+              const artTitle = isUrdu ? (art.titleUr || art.titleEn) : (art.titleEn || art.titleUr);
+              const artSummary = isUrdu ? (art.summaryUr || art.summaryEn) : (art.summaryEn || art.summaryUr);
+              return (
+                <div
+                  key={art.id}
+                  onClick={() => onSelectArticle?.(art)}
+                  className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
+                >
+                  <div>
+                    <div className="aspect-16/10 bg-gray-100 overflow-hidden">
+                      <img
+                        src={art.heroImage}
+                        alt={artTitle}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <div className="text-[11px] text-gray-400">
+                        {formatKarachiDate(art.publishedAt || art.updatedAt, isUrdu ? 'ur' : 'en')}
+                      </div>
+                      <h3 className="font-extrabold text-sm text-gray-900 group-hover:text-emerald-700 line-clamp-2">
+                        {artTitle}
+                      </h3>
+                      <p className="text-xs text-gray-600 line-clamp-2">{artSummary}</p>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-emerald-700 font-bold">
+                    <span>{isUrdu ? art.author.nameUr : art.author.nameEn}</span>
+                    <span className="flex items-center gap-1">
+                      <span>{t('common.readMore')}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* National Star Player Profiles */}
       <div className="space-y-4">

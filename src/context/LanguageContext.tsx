@@ -7,7 +7,9 @@ interface LanguageContextType {
   isUrdu: boolean;
   t: (key: string) => string;
   currentRoute: string;
+  articleSlug: string | null;
   navigateTo: (route: string) => void;
+  navigateToArticle: (slug: string) => void;
   selectedArticleId: string | null;
   setSelectedArticleId: (id: string | null) => void;
 }
@@ -58,6 +60,40 @@ const UI_TRANSLATIONS: Record<string, { en: string; ur: string }> = {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
+function parseRouteDetails(
+  pathname: string,
+  hash = '',
+  search = ''
+): { route: string; articleSlug: string | null } {
+  if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
+    return { route: 'admin', articleSlug: null };
+  }
+  const cleanPath = (pathname || '/').replace(/\/+$/, '') || '/';
+  if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) {
+    return { route: 'admin', articleSlug: null };
+  }
+  if (hash === '#/admin' || hash.startsWith('#/admin/')) {
+    return { route: 'admin', articleSlug: null };
+  }
+  if (search) {
+    const params = new URLSearchParams(search);
+    if (params.get('route') === 'admin') {
+      return { route: 'admin', articleSlug: null };
+    }
+  }
+  const stripped = cleanPath.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
+  if (!stripped) return { route: 'home', articleSlug: null };
+  const parts = stripped.split('/').filter(Boolean);
+  if (parts[0] === 'news' && parts[1]) {
+    try {
+      return { route: 'article', articleSlug: decodeURIComponent(parts.slice(1).join('/')) };
+    } catch {
+      return { route: 'article', articleSlug: parts.slice(1).join('/') };
+    }
+  }
+  return { route: parts[0] || 'home', articleSlug: null };
+}
+
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
     const path = typeof window !== 'undefined' ? window.location.pathname : '';
@@ -68,30 +104,13 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return 'ur';
   });
 
-  const parseRouteFromPath = (pathname: string, hash = '', search = ''): string => {
-    if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
-      return 'admin';
-    }
-    const cleanPath = (pathname || '/').replace(/\/+$/, '') || '/';
-    if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) return 'admin';
-    if (hash === '#/admin' || hash.startsWith('#/admin/')) return 'admin';
-    if (search) {
-      const params = new URLSearchParams(search);
-      const qRoute = params.get('route');
-      if (qRoute === 'admin') return 'admin';
-    }
-    const stripped = cleanPath.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
-    if (!stripped) return 'home';
-    const firstSeg = stripped.split('/')[0];
-    return firstSeg || 'home';
-  };
+  const initialParsed =
+    typeof window !== 'undefined'
+      ? parseRouteDetails(window.location.pathname, window.location.hash, window.location.search)
+      : { route: 'home', articleSlug: null };
 
-  const [currentRoute, setCurrentRoute] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return parseRouteFromPath(window.location.pathname, window.location.hash, window.location.search);
-    }
-    return 'home';
-  });
+  const [currentRoute, setCurrentRoute] = useState<string>(initialParsed.route);
+  const [articleSlug, setArticleSlug] = useState<string | null>(initialParsed.articleSlug);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -99,7 +118,9 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const path = window.location.pathname;
       if (path.startsWith('/en/') || path === '/en') setLanguageState('en');
       else if (path.startsWith('/ur/') || path === '/ur') setLanguageState('ur');
-      setCurrentRoute(parseRouteFromPath(path, window.location.hash, window.location.search));
+      const parsed = parseRouteDetails(path, window.location.hash, window.location.search);
+      setCurrentRoute(parsed.route);
+      setArticleSlug(parsed.articleSlug);
     };
     window.addEventListener('popstate', syncRoute);
     window.addEventListener('hashchange', syncRoute);
@@ -113,7 +134,12 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLanguageState(lang);
     localStorage.setItem('pdp_lang', lang);
     if (typeof window !== 'undefined' && currentRoute !== 'admin') {
-      const targetPath = currentRoute === 'home' ? `/${lang}` : `/${lang}/${currentRoute}`;
+      const targetPath =
+        currentRoute === 'article' && articleSlug
+          ? `/${lang}/news/${encodeURIComponent(articleSlug)}`
+          : currentRoute === 'home'
+          ? `/${lang}`
+          : `/${lang}/${currentRoute}`;
       window.history.pushState({}, '', targetPath);
     }
   };
@@ -147,13 +173,29 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentRoute(route);
     if (route !== 'article') {
       setSelectedArticleId(null);
+      setArticleSlug(null);
     }
     if (typeof window !== 'undefined') {
-      const targetUrl = route === 'admin'
-        ? '/admin'
-        : route === 'home'
-        ? `/${language}`
-        : `/${language}/${route}`;
+      const targetUrl =
+        route === 'admin'
+          ? '/admin'
+          : route === 'home'
+          ? `/${language}`
+          : `/${language}/${route}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState({}, '', targetUrl);
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const navigateToArticle = (slug: string) => {
+    const cleanSlug = decodeURIComponent(slug || '').trim();
+    if (!cleanSlug) return;
+    setCurrentRoute('article');
+    setArticleSlug(cleanSlug);
+    if (typeof window !== 'undefined') {
+      const targetUrl = `/${language}/news/${encodeURIComponent(cleanSlug)}`;
       if (window.location.pathname !== targetUrl) {
         window.history.pushState({}, '', targetUrl);
       }
@@ -169,7 +211,9 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isUrdu,
         t,
         currentRoute,
+        articleSlug,
         navigateTo,
+        navigateToArticle,
         selectedArticleId,
         setSelectedArticleId,
       }}

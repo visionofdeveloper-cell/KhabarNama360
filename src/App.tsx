@@ -44,10 +44,39 @@ export interface LivePortalSnapshot {
 const BACKGROUND_REFRESH_MS = 120_000; // Every 2 minutes
 
 function MainPortal() {
-  const { currentRoute, navigateTo } = useLanguage();
+  const { currentRoute, articleSlug, isUrdu, navigateTo, navigateToArticle } = useLanguage();
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [articleLoading, setArticleLoading] = useState(false);
+  const [articleError, setArticleError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [liveSnapshot, setLiveSnapshot] = useState<LivePortalSnapshot | null>(null);
+
+  // Sync canonical article route (/:lang/news/:slug) when loaded or refreshed directly
+  useEffect(() => {
+    if (currentRoute !== 'article' || !articleSlug) return;
+    if (selectedArticle && (selectedArticle.slug === articleSlug || selectedArticle.id === articleSlug)) {
+      return;
+    }
+
+    let cancelled = false;
+    setArticleLoading(true);
+    setArticleError(null);
+
+    void safeFetchJson(`/api/v1/news/${encodeURIComponent(articleSlug)}`).then(res => {
+      if (cancelled) return;
+      if (res.success && res.article) {
+        setSelectedArticle(res.article);
+      } else {
+        setSelectedArticle(null);
+        setArticleError(res.error || 'Article not found');
+      }
+      setArticleLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRoute, articleSlug]);
 
   // Background Scheduler: Periodically fetches latest World News, Sports, Gold Rates & Weather
   useEffect(() => {
@@ -105,18 +134,24 @@ function MainPortal() {
         void syncLiveFeeds();
       }
     };
+    const handleArticlesUpdated = () => {
+      void syncLiveFeeds();
+    };
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('360kn:articles-updated', handleArticlesUpdated);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('360kn:articles-updated', handleArticlesUpdated);
     };
   }, [currentRoute]);
 
   const handleSelectArticle = (article: Article) => {
     setSelectedArticle(article);
-    navigateTo('article');
+    setArticleError(null);
+    navigateToArticle(article.slug || article.id);
   };
 
   const handleSearch = (q: string) => {
@@ -140,13 +175,40 @@ function MainPortal() {
   }
 
   const renderPublicView = () => {
-    if (currentRoute === 'article' && selectedArticle) {
+    if (currentRoute === 'article') {
+      if (articleLoading) {
+        return (
+          <div className="max-w-4xl mx-auto px-4 py-20 text-center text-gray-500 text-sm animate-pulse">
+            {isUrdu ? 'خبر لوڈ کی جا رہی ہے...' : 'Loading story...'}
+          </div>
+        );
+      }
+      if (selectedArticle) {
+        return (
+          <ArticleDetailView
+            article={selectedArticle}
+            onSelectArticle={handleSelectArticle}
+            onBack={() => navigateTo('home')}
+          />
+        );
+      }
       return (
-        <ArticleDetailView
-          article={selectedArticle}
-          onSelectArticle={handleSelectArticle}
-          onBack={() => navigateTo('home')}
-        />
+        <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-4">
+          <div className="bg-white border border-gray-200 rounded-3xl p-8 space-y-3 shadow-xs">
+            <h1 className="text-xl font-black text-gray-900">
+              {isUrdu ? 'یہ خبر دستیاب نہیں ہے' : 'Article Not Found'}
+            </h1>
+            <p className="text-xs text-gray-500">
+              {articleError || (isUrdu ? 'مطلوبہ خبر حذف یا منتقل ہو چکی ہے۔' : 'This story may have been moved or is not currently published.')}
+            </p>
+            <button
+              onClick={() => navigateTo('home')}
+              className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl"
+            >
+              {isUrdu ? 'صفحۂ اول پر واپس جائیں' : 'Return to Homepage'}
+            </button>
+          </div>
+        </div>
       );
     }
 
@@ -182,7 +244,7 @@ function MainPortal() {
       case 'tools':
         return <ToolsView />;
       case 'sports':
-        return <CricketView />;
+        return <CricketView onSelectArticle={handleSelectArticle} />;
       case 'search':
         return <SearchView initialQuery={searchQuery} onSelectArticle={handleSelectArticle} />;
       default:

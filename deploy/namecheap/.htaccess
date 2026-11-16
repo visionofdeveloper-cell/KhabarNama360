@@ -1,0 +1,29 @@
+# 360Khabarnama — Namecheap Shared Hosting (.htaccess) Hardening
+# Preserves Authorization Bearer headers for Firebase ID tokens & blocks private files
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Pass Authorization header through Apache/LiteSpeed to Node.js / Passenger
+  RewriteCond %{HTTP:Authorization} ^(.*)
+  RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+  # Enforce HTTPS on www.360khabarnama.com
+  RewriteCond %{HTTPS} !=on
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# Block direct HTTP access to secrets, server bundles, and local fallback data
+<FilesMatch "^\.(env|git|htaccess)">
+  Require all denied
+</FilesMatch>
+
+<FilesMatch "(service-account|firebase-key|portal_database\.json|server\.mjs|server\.ts)">
+  Require all denied
+</FilesMatch>
+
+RedirectMatch 403 ^/(data|dist-server|src|services|scripts|docs|deploy|database)/.*$

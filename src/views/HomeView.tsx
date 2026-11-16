@@ -116,13 +116,29 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
       if (Array.isArray(detail.currencyRates) && detail.currencyRates.length > 0) setCurrencyRates(detail.currencyRates);
       if (Array.isArray(detail.cricketMatches) && detail.cricketMatches.length > 0) setCricketMatches(detail.cricketMatches);
     };
+    const onArticlesUpdated = () => {
+      void loadHomeFeeds();
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('360kn-sync');
+      bc.onmessage = (msg) => {
+        if (msg?.data?.type === 'articles-updated') {
+          void loadHomeFeeds();
+        }
+      };
+    } catch {}
+
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('360kn:live-data-updated', onLiveData);
+    window.addEventListener('360kn:articles-updated', onArticlesUpdated);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('360kn:live-data-updated', onLiveData);
+      window.removeEventListener('360kn:articles-updated', onArticlesUpdated);
+      try { bc?.close(); } catch {}
     };
   }, []);
 

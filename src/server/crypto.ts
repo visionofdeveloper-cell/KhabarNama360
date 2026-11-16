@@ -8,6 +8,7 @@ import crypto from 'crypto';
 
 function getEncryptionKey(): Buffer {
   const raw =
+    process.env.AI_MASTER_KEY ||
     process.env.SECRETS_ENCRYPTION_KEY ||
     process.env.ADMIN_SESSION_SECRET ||
     process.env.SESSION_SECRET ||

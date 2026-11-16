@@ -40,20 +40,58 @@
           "maxLength": 1500,
           "description": "Urdu article summary."
         },
+        "contentEn": {
+          "type": "string",
+          "maxLength": 150000,
+          "description": "Full English article body."
+        },
+        "contentUr": {
+          "type": "string",
+          "maxLength": 150000,
+          "description": "Full Urdu article body."
+        },
         "category": {
           "type": "string",
           "minLength": 2,
           "maxLength": 64,
           "description": "Category slug."
         },
+        "tags": {
+          "type": "array",
+          "description": "Bounded article tags (max 20)."
+        },
         "status": {
           "type": "string",
-          "enum": ["draft", "in_review", "scheduled", "published", "archived"],
+          "enum": ["draft", "in_review", "scheduled", "published", "archived", "failed"],
           "description": "Editorial workflow state."
         },
         "isBreaking": {
           "type": "boolean",
           "description": "Breaking news ticker flag."
+        },
+        "isFeatured": {
+          "type": "boolean",
+          "description": "Featured slot flag."
+        },
+        "isTrending": {
+          "type": "boolean",
+          "description": "Trending slot flag."
+        },
+        "heroImage": {
+          "type": "string",
+          "maxLength": 1500,
+          "description": "Cover image URL."
+        },
+        "imageCaptionEn": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "imageCaptionUr": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "readingTimeMin": {
+          "type": "integer"
         },
         "authorUid": {
           "type": "string",
@@ -61,10 +99,54 @@
           "pattern": "^[a-zA-Z0-9_\\-]+$",
           "description": "UID of the author/editor who published the article."
         },
+        "authorNameEn": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "authorNameUr": {
+          "type": "string",
+          "maxLength": 160
+        },
         "publishedAt": {
           "type": "string",
           "maxLength": 64,
           "description": "ISO publish timestamp."
+        },
+        "scheduledAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO scheduled publish timestamp."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Optimistic concurrency revision number."
+        },
+        "failureReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "views": {
+          "type": "integer"
+        },
+        "metaTitleEn": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "metaTitleUr": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "metaDescriptionEn": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "metaDescriptionUr": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "canonicalUrl": {
+          "type": "string",
+          "maxLength": 500
         },
         "createdAt": {
           "type": "string",
@@ -77,7 +159,7 @@
           "description": "Server update timestamp."
         }
       },
-      "required": ["id", "slug", "titleEn", "titleUr", "category", "status", "authorUid", "createdAt", "updatedAt"]
+      "required": ["id", "slug", "titleEn", "titleUr", "category", "status", "isBreaking", "authorUid", "createdAt", "updatedAt"]
     },
     "CategoryConfig": {
       "title": "CategoryConfig",

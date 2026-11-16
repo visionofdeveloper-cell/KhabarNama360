@@ -5,6 +5,7 @@
  */
 
 import { db } from '../../src/server/db.ts';
+import { Article } from '../../src/types/index.ts';
 import { SEOEngine } from './SEOEngine.ts';
 
 export interface ResolvedHtmlMetadata {
@@ -38,7 +39,7 @@ const escapeHtml = (val: string) =>
     .replace(/>/g, '&gt;');
 
 export class MetadataGenerator {
-  public static resolveForPath(requestPath: string): ResolvedHtmlMetadata {
+  public static resolveForPath(requestPath: string, preloadedArticle?: Article | null): ResolvedHtmlMetadata {
     const cleanPath = (requestPath || '/').split('?')[0];
     const data = db.getData();
     const settings = data.siteSettings;
@@ -73,7 +74,7 @@ export class MetadataGenerator {
     const newsMatch = stripped.match(/^\/news\/([^/]+)$/);
     if (newsMatch) {
       const slug = decodeURIComponent(newsMatch[1]);
-      const article = db.getArticleBySlugOrId(slug);
+      const article = preloadedArticle || db.getArticleBySlugOrId(slug);
       if (article) {
         const meta = SEOEngine.generateArticleMetadata(article, lang);
         const jsonLd = SEOEngine.generateNewsArticleSchema(article, lang);
@@ -200,8 +201,8 @@ export class MetadataGenerator {
     };
   }
 
-  public static injectMetadataIntoHtml(html: string, requestPath: string): string {
-    const meta = this.resolveForPath(requestPath);
+  public static injectMetadataIntoHtml(html: string, requestPath: string, preloadedArticle?: Article | null): string {
+    const meta = this.resolveForPath(requestPath, preloadedArticle);
     let out = html;
 
     // Update <html ...> lang & dir

@@ -16,6 +16,7 @@ import {
   Sliders,
   KeyRound,
   Activity,
+  Database,
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
@@ -39,7 +40,8 @@ export type AdminModuleId =
   | 'ai-keys'
   | 'users'
   | 'settings'
-  | 'health';
+  | 'health'
+  | 'diagnostics';
 
 export interface AdminNavItem {
   id: AdminModuleId;
@@ -72,6 +74,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { id: 'users', label: 'Staff & RBAC Roles', section: 'System', permission: 'users:manage', icon: Users },
   { id: 'settings', label: 'Global Settings', section: 'System', permission: 'settings:manage', icon: Sliders },
   { id: 'health', label: 'System Health', section: 'System', permission: 'health:view', icon: Activity },
+  { id: 'diagnostics', label: 'System Diagnostics', section: 'System', permission: 'health:view', icon: Database },
 ];
 
 interface AdminSidebarProps {

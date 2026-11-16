@@ -49,7 +49,8 @@ import {
   EditorialDraftRecord,
   SearchConsoleConnection,
   SitemapSettings,
-  SeoAuditLogEntry
+  SeoAuditLogEntry,
+  PublicationLogEntry
 } from '../types/index.ts';
 import {
   DataProvider,
@@ -134,6 +135,9 @@ interface DatabaseSchema {
   aiConnectionTests?: AIConnectionTestRecord[];
   aiHealthStatus?: { lastCheckAt: string; summary: any } | null;
   editorialDrafts?: EditorialDraftRecord[];
+  publicationLogs?: PublicationLogEntry[];
+  newsCacheVersion?: number;
+  lastCacheInvalidationAt?: string;
   cronLocks?: Record<string, { lockedAt: string; lockedBy: string; expiresAt: string }>;
 }
 
@@ -2060,48 +2064,175 @@ class DatabaseManager {
   }
 
   // Articles
-  public getArticles(category?: string, tag?: string, search?: string, status: string = 'published') {
-    let list = this.data.articles;
+  private slugifyText(input: string): string {
+    return (input || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '') || `news-${Date.now()}`;
+  }
+
+  public generateUniqueSlug(candidate: string, excludeArticleId?: string): string {
+    const base = this.slugifyText(candidate);
+    const activeSlugs = new Set(
+      this.data.articles
+        .filter(a => !a.deletedAt && a.id !== excludeArticleId)
+        .map(a => (a.slug || '').toLowerCase())
+    );
+    if (!activeSlugs.has(base)) return base;
+    let counter = 2;
+    while (activeSlugs.has(`${base}-${counter}`)) {
+      counter++;
+    }
+    return `${base}-${counter}`;
+  }
+
+  public getArticles(category?: string, tag?: string, search?: string, status: string = 'published', includeDeleted: boolean = false) {
+    let list = includeDeleted
+      ? this.data.articles
+      : this.data.articles.filter(a => !a.deletedAt);
+
     if (status && status !== 'all') {
       list = list.filter(a => a.status === status);
     }
     if (category && category !== 'all') {
-      list = list.filter(a => a.category.toLowerCase() === category.toLowerCase());
+      list = list.filter(a => (a.category || '').toLowerCase() === category.toLowerCase());
     }
     if (tag) {
-      list = list.filter(a => a.tags.some(t => t.toLowerCase() === tag.toLowerCase()));
+      list = list.filter(a => Array.isArray(a.tags) && a.tags.some(t => t.toLowerCase() === tag.toLowerCase()));
     }
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(a =>
-        a.titleEn.toLowerCase().includes(q) ||
-        a.titleUr.includes(q) ||
-        a.summaryEn.toLowerCase().includes(q) ||
-        a.summaryUr.includes(q)
+        (a.titleEn || '').toLowerCase().includes(q) ||
+        (a.titleUr || '').includes(q) ||
+        (a.summaryEn || '').toLowerCase().includes(q) ||
+        (a.summaryUr || '').includes(q) ||
+        (a.slug || '').toLowerCase().includes(q)
       );
     }
     return list;
   }
 
-  public getArticleBySlugOrId(identifier: string) {
-    return this.data.articles.find(a => a.slug === identifier || a.id === identifier);
+  public getArticleBySlugOrId(identifier: string, includeDeleted: boolean = false) {
+    const clean = decodeURIComponent(identifier || '').trim();
+    return this.data.articles.find(
+      a => (includeDeleted || !a.deletedAt) && (a.slug === clean || a.id === clean)
+    );
   }
 
   public incrementArticleViews(id: string) {
-    const art = this.data.articles.find(a => a.id === id);
+    const art = this.data.articles.find(a => a.id === id && !a.deletedAt);
     if (art) {
-      art.views += 1;
+      art.views = (art.views || 0) + 1;
       this.saveDatabase(this.data);
     }
   }
 
-  public upsertArticle(article: Article, actor: string = 'Editor'): Article {
-    const index = this.data.articles.findIndex(a => a.id === article.id);
+  public bumpNewsCacheVersion(): { version: number; invalidatedAt: string } {
+    const nextVersion = (this.data.newsCacheVersion || 1) + 1;
+    const invalidatedAt = new Date().toISOString();
+    this.data.newsCacheVersion = nextVersion;
+    this.data.lastCacheInvalidationAt = invalidatedAt;
+    this.saveDatabase(this.data);
+    return { version: nextVersion, invalidatedAt };
+  }
+
+  public getCacheStatus() {
+    return {
+      newsCacheVersion: this.data.newsCacheVersion || 1,
+      lastInvalidatedAt: this.data.lastCacheInvalidationAt || null,
+      publishedArticlesCount: this.data.articles.filter(a => !a.deletedAt && a.status === 'published').length,
+      totalActiveArticlesCount: this.data.articles.filter(a => !a.deletedAt).length,
+    };
+  }
+
+  public addPublicationLog(entry: Omit<PublicationLogEntry, 'id' | 'createdAt'>): PublicationLogEntry {
+    if (!this.data.publicationLogs) this.data.publicationLogs = [];
+    const full: PublicationLogEntry = {
+      ...entry,
+      id: `publog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toISOString(),
+    };
+    this.data.publicationLogs.unshift(full);
+    if (this.data.publicationLogs.length > 300) {
+      this.data.publicationLogs = this.data.publicationLogs.slice(0, 300);
+    }
+    this.saveDatabase(this.data);
+    return full;
+  }
+
+  public getPublicationLogs(limit: number = 50): PublicationLogEntry[] {
+    return (this.data.publicationLogs || []).slice(0, limit);
+  }
+
+  public upsertArticle(
+    articleInput: Partial<Article> & { expectedVersion?: number },
+    actor: string = 'Editor',
+    opts?: { storageEngine?: 'firestore' | 'json_fallback'; correlationId?: string }
+  ): Article {
+    const now = new Date().toISOString();
+    const index = articleInput.id
+      ? this.data.articles.findIndex(a => a.id === articleInput.id)
+      : -1;
+
     if (index >= 0) {
       const existing = this.data.articles[index];
+      const currentVersion = existing.version || 1;
+      if (
+        typeof articleInput.expectedVersion === 'number' &&
+        articleInput.expectedVersion !== currentVersion
+      ) {
+        const err: any = new Error(
+          `Optimistic lock conflict: expected version v${articleInput.expectedVersion}, found v${currentVersion}. Reload article and retry.`
+        );
+        err.statusCode = 409;
+        err.code = 'VERSION_CONFLICT';
+        throw err;
+      }
+
+      const nextSlugCandidate = articleInput.slug ? this.slugifyText(articleInput.slug) : existing.slug;
+      if (
+        nextSlugCandidate &&
+        nextSlugCandidate !== existing.slug &&
+        this.data.articles.some(
+          a => !a.deletedAt && a.id !== existing.id && (a.slug || '').toLowerCase() === nextSlugCandidate.toLowerCase()
+        )
+      ) {
+        const err: any = new Error(`Slug "${nextSlugCandidate}" is already in use by another article.`);
+        err.statusCode = 409;
+        err.code = 'DUPLICATE_SLUG';
+        throw err;
+      }
+
+      // Create automatic 301 redirects if a published article's slug changed
+      if (
+        existing.status === 'published' &&
+        nextSlugCandidate &&
+        existing.slug &&
+        nextSlugCandidate !== existing.slug
+      ) {
+        for (const lang of ['en', 'ur'] as const) {
+          const srcPath = `/${lang}/news/${existing.slug}`;
+          const targetPath = `/${lang}/news/${nextSlugCandidate}`;
+          if (!this.data.redirectRules.some(r => r.sourcePath === srcPath && r.active)) {
+            this.data.redirectRules.unshift({
+              id: `red-slug-${Date.now()}-${lang}`,
+              sourcePath: srcPath,
+              targetPath,
+              statusCode: 301,
+              hits: 0,
+              active: true,
+              notes: `Auto 301 redirect after slug update (${existing.id})`,
+              createdAt: now,
+            });
+          }
+        }
+      }
+
       const versionSnapshot: ArticleVersion = {
         versionId: `ver-${Date.now()}`,
-        savedAt: new Date().toISOString(),
+        savedAt: now,
         savedBy: actor,
         titleEn: existing.titleEn,
         titleUr: existing.titleUr,
@@ -2109,50 +2240,146 @@ class DatabaseManager {
         summaryUr: existing.summaryUr,
         contentEn: existing.contentEn,
         contentUr: existing.contentUr,
-        changeNote: `Edited by ${actor}`,
+        changeNote: `Edited by ${actor} (v${currentVersion})`,
       };
 
-      const versions = existing.versions || [];
+      const versions = Array.isArray(existing.versions) ? [...existing.versions] : [];
       versions.unshift(versionSnapshot);
       if (versions.length > 20) versions.pop();
 
-      this.data.articles[index] = {
+      const nextStatus = (articleInput.status || existing.status || 'draft') as Article['status'];
+      const nextPublishedAt =
+        nextStatus === 'published'
+          ? existing.publishedAt || articleInput.publishedAt || now
+          : existing.publishedAt || '';
+
+      const updatedArticle: Article = {
         ...existing,
-        ...article,
+        ...Object.fromEntries(Object.entries(articleInput).filter(([k, v]) => v !== undefined && k !== 'expectedVersion')),
+        id: existing.id,
+        slug: nextSlugCandidate || existing.slug,
+        status: nextStatus,
+        version: currentVersion + 1,
+        publishedAt: nextPublishedAt,
+        updatedAt: now,
+        scheduledAt: articleInput.scheduledAt ?? articleInput.scheduledFor ?? existing.scheduledAt,
+        scheduledFor: articleInput.scheduledFor ?? articleInput.scheduledAt ?? existing.scheduledFor,
+        tags: Array.isArray(articleInput.tags) ? articleInput.tags : existing.tags || [],
         versions,
-        updatedAt: new Date().toISOString(),
       };
-      this.logAudit(actor, 'Article Updated', `Updated article: ${article.titleEn} (Status: ${article.status})`);
+
+      this.data.articles[index] = updatedArticle;
+      this.logAudit(
+        actor,
+        'Article Updated',
+        `Updated article ${updatedArticle.id} "${updatedArticle.titleEn}" (Status: ${updatedArticle.status}, v${updatedArticle.version})`
+      );
+      this.addPublicationLog({
+        articleId: updatedArticle.id,
+        action: existing.status !== updatedArticle.status && updatedArticle.status === 'published' ? 'publish' : 'update',
+        previousStatus: existing.status,
+        nextStatus: updatedArticle.status,
+        actor,
+        correlationId: opts?.correlationId,
+        storageEngine: opts?.storageEngine || 'json_fallback',
+        message: `Saved ${updatedArticle.slug} (v${updatedArticle.version})`,
+      });
+      this.data.newsCacheVersion = (this.data.newsCacheVersion || 1) + 1;
+      this.data.lastCacheInvalidationAt = now;
+      this.saveDatabase(this.data);
+      return updatedArticle;
     } else {
+      const requestedStatus = (articleInput.status || 'draft') as Article['status'];
+      const titleBasis = articleInput.slug || articleInput.titleEn || articleInput.titleUr || 'news-article';
+      const uniqueSlug = this.generateUniqueSlug(titleBasis);
       const newArticle: Article = {
-        ...article,
-        id: article.id || `art-${Date.now()}`,
-        views: article.views || 0,
-        status: article.status || 'published',
-        publishedAt: article.status === 'published' ? (article.publishedAt || new Date().toISOString()) : new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        id: articleInput.id || `art-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        slug: uniqueSlug,
+        titleEn: articleInput.titleEn || '',
+        titleUr: articleInput.titleUr || '',
+        summaryEn: articleInput.summaryEn || '',
+        summaryUr: articleInput.summaryUr || '',
+        contentEn: articleInput.contentEn || '',
+        contentUr: articleInput.contentUr || '',
+        category: articleInput.category || 'pakistan',
+        subcategory: articleInput.subcategory,
+        tags: Array.isArray(articleInput.tags) ? articleInput.tags : ['Pakistan', 'News'],
+        author: articleInput.author || {
+          id: 'admin-1',
+          nameEn: actor || 'Editorial Staff',
+          nameUr: 'اداریہ 360 خبرنامہ',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+          role: 'Editor',
+        },
+        publishedAt: requestedStatus === 'published' ? (articleInput.publishedAt || now) : '',
+        updatedAt: now,
+        scheduledAt: articleInput.scheduledAt || articleInput.scheduledFor,
+        scheduledFor: articleInput.scheduledFor || articleInput.scheduledAt,
+        createdBy: articleInput.createdBy || actor,
+        views: articleInput.views || 0,
+        status: requestedStatus,
+        version: 1,
+        deletedAt: null,
+        heroImage:
+          articleInput.heroImage ||
+          'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
+        imageCaptionEn: articleInput.imageCaptionEn || 'Editorial reporting.',
+        imageCaptionUr: articleInput.imageCaptionUr || 'خصوصی رپورٹنگ۔',
+        isBreaking: Boolean(articleInput.isBreaking),
+        isFeatured: Boolean(articleInput.isFeatured),
+        isTrending: Boolean(articleInput.isTrending),
+        homepageSlot: articleInput.homepageSlot || 'none',
+        readingTimeMin: Number(articleInput.readingTimeMin || 3),
+        seo: articleInput.seo,
         versions: [],
       };
       this.data.articles.unshift(newArticle);
-      this.logAudit(actor, 'Article Created', `Created article: ${article.titleEn} (Status: ${newArticle.status})`);
+      this.logAudit(actor, 'Article Created', `Created article ${newArticle.id}: ${newArticle.titleEn} (Status: ${newArticle.status})`);
+      this.addPublicationLog({
+        articleId: newArticle.id,
+        action: newArticle.status === 'published' ? 'create_and_publish' : 'create',
+        previousStatus: 'none',
+        nextStatus: newArticle.status,
+        actor,
+        correlationId: opts?.correlationId,
+        storageEngine: opts?.storageEngine || 'json_fallback',
+        message: `Created ${newArticle.slug} (v1)`,
+      });
+      this.data.newsCacheVersion = (this.data.newsCacheVersion || 1) + 1;
+      this.data.lastCacheInvalidationAt = now;
+      this.saveDatabase(this.data);
+      return newArticle;
     }
-    this.saveDatabase(this.data);
-    return article;
   }
 
-  public deleteArticle(id: string, actor: string = 'Admin'): boolean {
-    const prevLen = this.data.articles.length;
-    this.data.articles = this.data.articles.filter(a => a.id !== id);
-    if (this.data.articles.length < prevLen) {
-      this.logAudit(actor, 'Article Deleted', `Deleted article ID: ${id}`);
-      this.saveDatabase(this.data);
-      return true;
+  public deleteArticle(id: string, actor: string = 'Admin', hardDelete: boolean = false): boolean {
+    const idx = this.data.articles.findIndex(a => a.id === id);
+    if (idx < 0) return false;
+    const prev = this.data.articles[idx];
+    if (hardDelete) {
+      this.data.articles.splice(idx, 1);
+      this.logAudit(actor, 'Article Permanently Removed', `Hard-deleted article ID: ${id}`);
+    } else {
+      prev.deletedAt = new Date().toISOString();
+      prev.updatedAt = prev.deletedAt;
+      this.logAudit(actor, 'Article Deleted', `Soft-deleted article ID: ${id}`);
+      this.addPublicationLog({
+        articleId: id,
+        action: 'soft_delete',
+        previousStatus: prev.status,
+        nextStatus: 'deleted',
+        actor,
+        storageEngine: 'json_fallback',
+      });
     }
-    return false;
+    this.data.newsCacheVersion = (this.data.newsCacheVersion || 1) + 1;
+    this.data.lastCacheInvalidationAt = new Date().toISOString();
+    this.saveDatabase(this.data);
+    return true;
   }
 
   public rollbackArticle(articleId: string, versionId: string, actor: string = 'Editor'): Article | null {
-    const art = this.data.articles.find(a => a.id === articleId);
+    const art = this.data.articles.find(a => a.id === articleId && !a.deletedAt);
     if (!art || !art.versions) return null;
     const version = art.versions.find(v => v.versionId === versionId);
     if (!version) return null;
@@ -2163,9 +2390,12 @@ class DatabaseManager {
     art.summaryUr = version.summaryUr;
     art.contentEn = version.contentEn;
     art.contentUr = version.contentUr;
+    art.version = (art.version || 1) + 1;
     art.updatedAt = new Date().toISOString();
 
     this.logAudit(actor, 'Article Version Rolled Back', `Restored article "${art.titleEn}" to version ${versionId}`);
+    this.data.newsCacheVersion = (this.data.newsCacheVersion || 1) + 1;
+    this.data.lastCacheInvalidationAt = art.updatedAt;
     this.saveDatabase(this.data);
     return art;
   }

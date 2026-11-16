@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { useFirebase } from '../context/FirebaseContext.tsx';
 import { Article } from '../types/index.ts';
+import { formatKarachiDate } from '../utils/dateTime.ts';
 import { ReadingProgressBar } from '../components/ReadingProgressBar.tsx';
 import {
   Clock,
@@ -48,6 +49,12 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
     }
   ]);
 
+  const resolvedTitle = isUrdu ? (article.titleUr || article.titleEn) : (article.titleEn || article.titleUr);
+  const resolvedSummary = isUrdu ? (article.summaryUr || article.summaryEn) : (article.summaryEn || article.summaryUr);
+  const resolvedContent = isUrdu ? (article.contentUr || article.contentEn || article.summaryUr || article.summaryEn) : (article.contentEn || article.contentUr || article.summaryEn || article.summaryUr);
+  const resolvedCaption = isUrdu ? (article.imageCaptionUr || article.imageCaptionEn) : (article.imageCaptionEn || article.imageCaptionUr);
+  const usingFallbackLang = isUrdu ? (!article.contentUr && Boolean(article.contentEn)) : (!article.contentEn && Boolean(article.contentUr));
+
   const handleCopyLink = () => {
     navigator.clipboard?.writeText(window.location.href);
     setCopied(true);
@@ -55,7 +62,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const text = encodeURIComponent(`${isUrdu ? article.titleUr : article.titleEn} - 360Khabarnama\n${window.location.href}`);
+    const text = encodeURIComponent(`${resolvedTitle} - 360Khabarnama\n${window.location.href}`);
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
@@ -87,7 +94,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
     <>
       <ReadingProgressBar
         targetRef={articleRef}
-        title={isUrdu ? article.titleUr : article.titleEn}
+        title={resolvedTitle}
         readingTimeMin={article.readingTimeMin || 3}
         isUrdu={isUrdu}
         onBack={onBack}
@@ -101,12 +108,15 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
           {t('nav.home')}
         </button>
         <ChevronRight className="w-3.5 h-3.5" />
-        <span className="capitalize hover:text-emerald-700 cursor-pointer font-medium">
+        <button
+          onClick={() => navigateTo(article.category)}
+          className="capitalize hover:text-emerald-700 cursor-pointer font-medium"
+        >
           {article.category}
-        </span>
+        </button>
         <ChevronRight className="w-3.5 h-3.5" />
         <span className="text-gray-400 truncate max-w-xs font-semibold">
-          {isUrdu ? article.titleUr : article.titleEn}
+          {resolvedTitle}
         </span>
       </nav>
 
@@ -119,7 +129,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
         <div className="flex items-center gap-4 text-xs text-gray-500">
           <span className="flex items-center gap-1.5">
             <Calendar className="w-3.5 h-3.5 text-gray-400" />
-            <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
+            <span>{formatKarachiDate(article.publishedAt || article.updatedAt, isUrdu ? 'ur' : 'en')}</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-gray-400" />
@@ -134,13 +144,23 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
 
       {/* Main Headline */}
       <h1 className="text-2xl sm:text-4xl font-black text-gray-950 leading-tight">
-        {isUrdu ? article.titleUr : article.titleEn}
+        {resolvedTitle}
       </h1>
 
       {/* Summary / Subheading */}
-      <p className="text-base sm:text-lg text-gray-600 font-medium border-l-4 border-emerald-600 pl-4 py-1 italic leading-relaxed">
-        {isUrdu ? article.summaryUr : article.summaryEn}
-      </p>
+      {resolvedSummary && (
+        <p className="text-base sm:text-lg text-gray-600 font-medium border-l-4 border-emerald-600 pl-4 py-1 italic leading-relaxed">
+          {resolvedSummary}
+        </p>
+      )}
+
+      {usingFallbackLang && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-800 font-medium">
+          {isUrdu
+            ? 'نوٹ: اس خبر کا مکمل اردو ترجمہ جلد شامل کیا جائے گا؛ فی الحال اصل انگریزی متن پیش کیا جا رہا ہے۔'
+            : 'Note: English full-text translation is pending editorial review; showing original text.'}
+        </div>
+      )}
 
       {/* Author Bar & Action Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4 py-4 border-y border-gray-200">
@@ -244,13 +264,15 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
         <div className="aspect-16/9 rounded-3xl overflow-hidden bg-gray-100 shadow-md">
           <img
             src={article.heroImage}
-            alt={article.titleEn}
+            alt={resolvedTitle}
             className="w-full h-full object-cover"
           />
         </div>
-        <p className="text-xs text-gray-500 italic text-center">
-          {isUrdu ? article.imageCaptionUr : article.imageCaptionEn}
-        </p>
+        {resolvedCaption && (
+          <p className="text-xs text-gray-500 italic text-center">
+            {resolvedCaption}
+          </p>
+        )}
       </div>
 
       {/* In-content Advertisement Slot */}
@@ -258,7 +280,7 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
 
       {/* Full Body Article Text */}
       <div className={`prose max-w-none text-gray-800 space-y-4 font-urdu ${contentClass}`}>
-        {(isUrdu ? article.contentUr : article.contentEn).split('\n\n').map((paragraph, idx) => (
+        {String(resolvedContent || '').split('\n\n').map((paragraph, idx) => (
           <p key={idx} className="leading-relaxed">
             {paragraph}
           </p>

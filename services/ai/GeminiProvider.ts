@@ -99,10 +99,18 @@ export class GeminiProvider {
       config.maxOutputTokens = opts.maxTokens;
     }
 
-    // Gemini 4 series models disallow legacy sampling params in strict mode; only pass temperature when needed
     const isGemini4 = model.startsWith('gemini-4-');
-    if (!isGemini4 && typeof opts.temperature === 'number') {
+    const isGemini3 = model.startsWith('gemini-3');
+    const isGemini25 = model.startsWith('gemini-2.5');
+    if (!isGemini4 && !isGemini3 && typeof opts.temperature === 'number') {
       config.temperature = opts.temperature;
+    }
+    if (isGemini4 && (!opts.maxTokens || opts.maxTokens <= 4096)) {
+      config.thinkingConfig = { thinkingLevel: 'LOW' };
+    } else if (isGemini3 && opts.jsonMode && model.includes('flash-lite')) {
+      config.thinkingConfig = { thinkingLevel: 'MINIMAL' };
+    } else if (isGemini25 && model.includes('flash') && opts.maxTokens && opts.maxTokens <= 1024) {
+      config.thinkingConfig = { thinkingBudget: 0 };
     }
     if (opts.systemInstruction) {
       config.systemInstruction = opts.systemInstruction;
@@ -184,6 +192,26 @@ export class GeminiProvider {
     const cleanModel = model.startsWith('models/') ? model.slice('models/'.length) : model;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
 
+    const isGemini4 = cleanModel.startsWith('gemini-4-');
+    const isGemini3 = cleanModel.startsWith('gemini-3');
+    const isGemini25 = cleanModel.startsWith('gemini-2.5');
+    const generationConfig: Record<string, any> = {
+      maxOutputTokens: isGemini25 && cleanModel.includes('pro') ? 1024 : 512,
+    };
+    if (isGemini4) {
+      generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+    } else if (isGemini3) {
+      generationConfig.thinkingConfig = {
+        thinkingLevel: cleanModel.includes('flash-lite') ? 'MINIMAL' : 'LOW',
+      };
+    } else if (isGemini25) {
+      generationConfig.thinkingConfig = {
+        thinkingBudget: cleanModel.includes('pro') ? 128 : 0,
+      };
+    } else {
+      generationConfig.temperature = 0;
+    }
+
     try {
       const res = await fetchWithTimeout(
         url,
@@ -201,10 +229,7 @@ export class GeminiProvider {
                 parts: [{ text: 'Respond with the exact word: CONNECTED' }],
               },
             ],
-            generationConfig: {
-              temperature: 0,
-              maxOutputTokens: 128,
-            },
+            generationConfig,
           }),
           signal,
         },

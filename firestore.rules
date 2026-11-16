@@ -64,20 +64,45 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'slug', 'titleEn', 'titleUr', 'summaryEn', 'summaryUr',
-          'category', 'status', 'isBreaking', 'authorUid', 'publishedAt',
-          'createdAt', 'updatedAt'
+          'contentEn', 'contentUr', 'category', 'tags', 'status',
+          'isBreaking', 'isFeatured', 'isTrending', 'heroImage',
+          'imageCaptionEn', 'imageCaptionUr', 'readingTimeMin',
+          'authorUid', 'authorNameEn', 'authorNameUr', 'publishedAt',
+          'scheduledAt', 'version', 'failureReason', 'views',
+          'metaTitleEn', 'metaTitleUr', 'metaDescriptionEn', 'metaDescriptionUr',
+          'canonicalUrl', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 180 && data.slug.matches('^[a-z0-9\\-]+$')
-        && data.titleEn is string && data.titleEn.size() >= 3 && data.titleEn.size() <= 300
-        && data.titleUr is string && data.titleUr.size() >= 2 && data.titleUr.size() <= 400
+        && data.titleEn is string && data.titleEn.size() >= 1 && data.titleEn.size() <= 300
+        && data.titleUr is string && data.titleUr.size() >= 1 && data.titleUr.size() <= 400
         && (!('summaryEn' in data) || (data.summaryEn is string && data.summaryEn.size() <= 1200))
         && (!('summaryUr' in data) || (data.summaryUr is string && data.summaryUr.size() <= 1500))
+        && (!('contentEn' in data) || (data.contentEn is string && data.contentEn.size() <= 150000))
+        && (!('contentUr' in data) || (data.contentUr is string && data.contentUr.size() <= 150000))
         && data.category is string && data.category.size() >= 2 && data.category.size() <= 64
-        && data.status in ['draft', 'in_review', 'scheduled', 'published', 'archived']
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 20 && (data.tags.size() == 0 || data.tags[0] is string)))
+        && data.status in ['draft', 'in_review', 'scheduled', 'published', 'archived', 'failed']
         && data.isBreaking is bool
+        && (!('isFeatured' in data) || data.isFeatured is bool)
+        && (!('isTrending' in data) || data.isTrending is bool)
+        && (!('heroImage' in data) || (data.heroImage is string && data.heroImage.size() <= 1500))
+        && (!('imageCaptionEn' in data) || (data.imageCaptionEn is string && data.imageCaptionEn.size() <= 400))
+        && (!('imageCaptionUr' in data) || (data.imageCaptionUr is string && data.imageCaptionUr.size() <= 500))
+        && (!('readingTimeMin' in data) || data.readingTimeMin is int)
         && isValidId(data.authorUid)
+        && (!('authorNameEn' in data) || (data.authorNameEn is string && data.authorNameEn.size() <= 120))
+        && (!('authorNameUr' in data) || (data.authorNameUr is string && data.authorNameUr.size() <= 160))
         && (!('publishedAt' in data) || (data.publishedAt is string && data.publishedAt.size() <= 64))
+        && (!('scheduledAt' in data) || (data.scheduledAt is string && data.scheduledAt.size() <= 64))
+        && (!('version' in data) || data.version is int)
+        && (!('failureReason' in data) || (data.failureReason is string && data.failureReason.size() <= 500))
+        && (!('views' in data) || data.views is int)
+        && (!('metaTitleEn' in data) || (data.metaTitleEn is string && data.metaTitleEn.size() <= 200))
+        && (!('metaTitleUr' in data) || (data.metaTitleUr is string && data.metaTitleUr.size() <= 250))
+        && (!('metaDescriptionEn' in data) || (data.metaDescriptionEn is string && data.metaDescriptionEn.size() <= 500))
+        && (!('metaDescriptionUr' in data) || (data.metaDescriptionUr is string && data.metaDescriptionUr.size() <= 600))
+        && (!('canonicalUrl' in data) || (data.canonicalUrl is string && data.canonicalUrl.size() <= 500))
         && data.createdAt is timestamp
         && data.updatedAt == request.time;
     }
@@ -184,14 +209,20 @@ service cloud.firestore {
     // Health check connection probe (boot verification)
     match /test/connection {
       allow get: if true;
-      allow list, create, update, delete: if false;
+      allow create, update: if isVerifiedUser()
+        && isAdmin()
+        && incoming().keys().hasAll(['status'])
+        && incoming().keys().hasOnly(['status'])
+        && incoming().status is string
+        && incoming().status.size() <= 32;
+      allow list, delete: if false;
     }
 
     // News Articles
     match /articles/{articleId} {
       allow get: if isValidId(articleId)
         && (resource.data.status == 'published' || isAdmin());
-      allow list: if resource.data.status == 'published' || isBootstrappedAdmin();
+      allow list: if resource.data.status == 'published' || isAdmin();
       allow create: if isVerifiedUser()
         && isValidId(articleId)
         && isValidPortalArticle(incoming())
@@ -209,7 +240,12 @@ service cloud.firestore {
         && isAdmin()
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'slug', 'titleEn', 'titleUr', 'summaryEn', 'summaryUr',
-          'category', 'status', 'isBreaking', 'publishedAt', 'updatedAt'
+          'contentEn', 'contentUr', 'category', 'tags', 'status',
+          'isBreaking', 'isFeatured', 'isTrending', 'heroImage',
+          'imageCaptionEn', 'imageCaptionUr', 'readingTimeMin',
+          'authorNameEn', 'authorNameUr', 'publishedAt', 'scheduledAt',
+          'version', 'failureReason', 'views', 'metaTitleEn', 'metaTitleUr',
+          'metaDescriptionEn', 'metaDescriptionUr', 'canonicalUrl', 'updatedAt'
         ]);
       allow delete: if isVerifiedUser()
         && isValidId(articleId)
@@ -390,7 +426,7 @@ service cloud.firestore {
     // Immutable Admin Audit Logs
     match /auditLogs/{logId} {
       allow get: if isValidId(logId) && isAdmin();
-      allow list: if isBootstrappedAdmin();
+      allow list: if isAdmin();
       allow create: if isVerifiedUser()
         && isValidId(logId)
         && isValidAuditEntry(incoming())

@@ -58,7 +58,11 @@ export interface Article {
   reviewerId?: string;
   workflowNotes?: string;
   views: number;
-  status: 'draft' | 'review' | 'in_review' | 'approved' | 'scheduled' | 'published' | 'archived';
+  status: 'draft' | 'review' | 'in_review' | 'approved' | 'scheduled' | 'published' | 'archived' | 'failed';
+  version?: number;
+  deletedAt?: string | null;
+  createdBy?: string;
+  failureReason?: string;
   heroImage: string;
   imageCaptionEn: string;
   imageCaptionUr: string;
@@ -72,6 +76,19 @@ export interface Article {
   readingTimeMin: number;
   seo?: ArticleSeo;
   versions?: ArticleVersion[];
+}
+
+export interface PublicationLogEntry {
+  id: string;
+  articleId: string;
+  action: string;
+  previousStatus?: string;
+  nextStatus: string;
+  actor: string;
+  correlationId?: string;
+  storageEngine: 'firestore' | 'json_fallback';
+  message?: string;
+  createdAt: string;
 }
 
 export interface Category {

@@ -162,7 +162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const { getIdToken } = useFirebase();
 
-  const [activeTab, setActiveTab] = useState<'posts' | 'rates' | 'logs'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'rates' | 'logs' | 'diagnostics'>('posts');
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -184,6 +184,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [syncRuns, setSyncRuns] = useState<any[]>([]);
   const [systemHealth, setSystemHealth] = useState<SystemHealthReport | null>(null);
   const [logSubTab, setLogSubTab] = useState<'audit' | 'sync'>('audit');
+
+  // Firebase & Publishing Diagnostics state
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [firestoreDiag, setFirestoreDiag] = useState<any>(null);
+  const [publishingDiag, setPublishingDiag] = useState<any>(null);
+  const [pipelineDiag, setPipelineDiag] = useState<any>(null);
 
   const authHeaders = useCallback(async (extra: Record<string, string> = {}) => {
     const headers: Record<string, string> = { ...extra };
@@ -231,9 +237,97 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   }, [authHeaders]);
 
+  const loadFirebaseDiagnostics = useCallback(async () => {
+    setDiagLoading(true);
+    try {
+      const headers = await authHeaders();
+      const [dbRes, pubRes] = await Promise.all([
+        safeFetchJson('/api/v1/admin/system/database-health', { credentials: 'include', headers }),
+        safeFetchJson('/api/v1/admin/system/publishing-health', { credentials: 'include', headers }),
+      ]);
+      if (dbRes.success) setFirestoreDiag(dbRes.report);
+      if (pubRes.success) setPublishingDiag(pubRes);
+    } finally {
+      setDiagLoading(false);
+    }
+  }, [authHeaders]);
+
   useEffect(() => {
     void loadDashboardData();
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    if (activeTab === 'diagnostics') {
+      void loadFirebaseDiagnostics();
+    }
+  }, [activeTab, loadFirebaseDiagnostics]);
+
+  const handleQuickProbe = async () => {
+    setDiagLoading(true);
+    setBanner(null);
+    try {
+      const headers = await authHeaders({ 'Content-Type': 'application/json' });
+      const res = await safeFetchJson('/api/v1/admin/system/firebase/test-probe', {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+      });
+      if (res.report) setFirestoreDiag(res.report);
+      setBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? 'Firebase Firestore /test/connection write + read probe succeeded!'
+          : res.error || 'Firestore write probe failed.',
+      });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  const handleQuickSyncFirestore = async () => {
+    setDiagLoading(true);
+    setBanner(null);
+    try {
+      const headers = await authHeaders({ 'Content-Type': 'application/json' });
+      const res = await safeFetchJson('/api/v1/admin/system/firebase/sync-articles', {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+      });
+      setBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? `Firestore sync completed: ${res.seededCount || 0} synced, ${res.skippedCount || 0} unchanged.`
+          : res.error || 'Failed syncing articles to Firestore.',
+      });
+      await loadFirebaseDiagnostics();
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  const handleQuickPipelineTest = async () => {
+    setDiagLoading(true);
+    setBanner(null);
+    try {
+      const headers = await authHeaders({ 'Content-Type': 'application/json' });
+      const res = await safeFetchJson('/api/v1/admin/system/test-publishing-pipeline', {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+      });
+      if (res.result) setPipelineDiag(res.result);
+      setBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? `Firestore publishing pipeline self-test passed in ${res.result?.totalDurationMs}ms.`
+          : res.error || 'Publishing pipeline test failed.',
+      });
+      await loadFirebaseDiagnostics();
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const startNewPost = () => {
     setEditingPost({
@@ -287,6 +381,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.success) {
         setBanner({ type: 'success', text: `Saved post "${res.article?.titleEn || payload.titleEn}".` });
         setEditingPost(null);
+        try {
+          window.dispatchEvent(new CustomEvent('360kn:articles-updated'));
+          const bc = new BroadcastChannel('360kn-sync');
+          bc.postMessage({ type: 'articles-updated', timestamp: Date.now() });
+          bc.close();
+        } catch {}
         await loadDashboardData();
       } else {
         setBanner({ type: 'error', text: res.error || 'Could not save news post.' });
@@ -310,6 +410,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
       if (res.success) {
         setBanner({ type: 'success', text: `Deleted "${title}".` });
+        try {
+          window.dispatchEvent(new CustomEvent('360kn:articles-updated'));
+          const bc = new BroadcastChannel('360kn-sync');
+          bc.postMessage({ type: 'articles-updated', timestamp: Date.now() });
+          bc.close();
+        } catch {}
         await loadDashboardData();
       } else {
         setBanner({ type: 'error', text: res.error || 'Unable to delete article.' });
@@ -536,6 +642,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <ScrollText className="w-4 h-4" />
             <span>System Logs ({auditLogs.length})</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('diagnostics')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-2 transition-colors ${
+              activeTab === 'diagnostics'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-900 text-gray-300 hover:bg-gray-800 border border-gray-800'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Firebase &amp; Diagnostics</span>
+          </button>
         </div>
 
         {/* TAB 1: MANAGE NEWS POSTS */}
@@ -607,8 +725,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <option value="published">Published</option>
                       <option value="draft">Draft</option>
                       <option value="in_review">In Review</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="archived">Archived</option>
                     </select>
                   </div>
+                  {editingPost.status === 'scheduled' && (
+                    <div>
+                      <label className="block font-bold text-gray-300 mb-1">Scheduled Date &amp; Time</label>
+                      <input
+                        type="datetime-local"
+                        value={
+                          editingPost.scheduledAt || editingPost.scheduledFor
+                            ? new Date(editingPost.scheduledAt || editingPost.scheduledFor || '').toISOString().slice(0, 16)
+                            : ''
+                        }
+                        onChange={e => {
+                          const iso = e.target.value ? new Date(e.target.value).toISOString() : undefined;
+                          setEditingPost({ ...editingPost, scheduledAt: iso, scheduledFor: iso });
+                        }}
+                        className="w-full p-2.5 bg-gray-950 border border-gray-800 rounded-xl text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
                   <div className="flex items-end gap-4 pb-2">
                     <label className="inline-flex items-center gap-2 cursor-pointer">
                       <input
@@ -747,10 +885,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             className={`uppercase font-bold px-2 py-0.5 rounded ${
                               article.status === 'published'
                                 ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
+                                : article.status === 'scheduled'
+                                ? 'bg-blue-950 text-blue-300 border border-blue-700/50'
+                                : article.status === 'failed'
+                                ? 'bg-rose-950 text-rose-300 border border-rose-700/50'
+                                : article.status === 'archived'
+                                ? 'bg-gray-800 text-gray-400 border border-gray-700'
                                 : 'bg-amber-950 text-amber-300 border border-amber-700/50'
                             }`}
                           >
-                            {article.status}
+                            {article.status.replace('_', ' ')}
                           </span>
                           {article.isBreaking && (
                             <span className="uppercase font-bold px-2 py-0.5 rounded bg-red-950 text-red-300">
@@ -760,6 +904,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <span className="text-gray-500 font-mono">
                             {new Date(article.publishedAt || article.updatedAt).toLocaleDateString()}
                           </span>
+                          {article.status === 'published' && article.slug && (
+                            <a
+                              href={`/en/news/${encodeURIComponent(article.slug)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-400 hover:underline font-mono font-bold"
+                            >
+                              /en/news/{article.slug}
+                            </a>
+                          )}
                         </div>
                         <p className="text-xs sm:text-sm font-bold text-white truncate">{article.titleEn}</p>
                         <p className="text-xs text-gray-400 truncate" dir="rtl">{article.titleUr}</p>
@@ -1060,6 +1214,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     ))
                   )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* TAB 4: FIREBASE CONNECTION TEST & PUBLISHING DIAGNOSTICS */}
+        {activeTab === 'diagnostics' && (
+          <section className="space-y-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3">
+                <div>
+                  <h2 className="text-sm font-black text-white">Firebase Connection Test &amp; Publishing Diagnostics</h2>
+                  <p className="text-xs text-gray-400">
+                    Live verification for Cloud Firestore writes, reads, EN/UR article persistence, and public feed visibility.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={diagLoading}
+                    onClick={() => void handleQuickProbe()}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
+                  >
+                    Test /test/connection
+                  </button>
+                  <button
+                    type="button"
+                    disabled={diagLoading}
+                    onClick={() => void handleQuickSyncFirestore()}
+                    className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-100 text-xs font-bold rounded-xl border border-gray-700"
+                  >
+                    Sync Articles to Firestore
+                  </button>
+                  <button
+                    type="button"
+                    disabled={diagLoading}
+                    onClick={() => void handleQuickPipelineTest()}
+                    className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
+                  >
+                    Run Publishing Self-Test
+                  </button>
+                </div>
+              </div>
+
+              {firestoreDiag && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 bg-gray-950 border border-gray-800 rounded-xl">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Firestore Status</div>
+                    <div className={`mt-1 font-black ${firestoreDiag.connected ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {firestoreDiag.connected ? 'Connected' : 'Error'} ({firestoreDiag.latencyMs}ms)
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-950 border border-gray-800 rounded-xl">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Auth Mode</div>
+                    <div className="mt-1 font-mono font-bold text-white truncate">{firestoreDiag.authMode}</div>
+                  </div>
+                  <div className="p-3 bg-gray-950 border border-gray-800 rounded-xl">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Firestore Articles</div>
+                    <div className="mt-1 font-mono font-bold text-emerald-300">
+                      {firestoreDiag.publishedCountInFirestore ?? 0} pub / {firestoreDiag.totalCountInFirestore ?? 0} total
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-950 border border-gray-800 rounded-xl">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Missing EN/UR Translations</div>
+                    <div className="mt-1 font-mono font-bold text-amber-300">
+                      {publishingDiag?.missingTranslationsCount ?? 0}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {pipelineDiag && (
+                <div className="p-4 bg-gray-950 border border-gray-800 rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center justify-between font-mono">
+                    <span className={pipelineDiag.ok ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                      Pipeline Result: {pipelineDiag.ok ? 'PASS' : 'FAIL'} ({pipelineDiag.totalDurationMs}ms)
+                    </span>
+                    <span className="text-gray-400">Engine: {pipelineDiag.storageEngine}</span>
+                  </div>
+                  <div className="divide-y divide-gray-800">
+                    {(pipelineDiag.steps || []).map((s: any, idx: number) => (
+                      <div key={idx} className="py-1.5 flex items-center justify-between gap-2 text-[11px] font-mono">
+                        <span className={s.ok ? 'text-emerald-300' : 'text-red-300'}>
+                          {s.ok ? '✓' : '✗'} {s.step}
+                        </span>
+                        <span className="text-gray-400 truncate max-w-md">{s.detail} ({s.durationMs}ms)</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

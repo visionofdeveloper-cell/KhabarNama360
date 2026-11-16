@@ -49,17 +49,17 @@ export class AIUnavailableError extends Error {
 }
 
 export const AI_TASK_CATALOG: { task: AITaskType; label: string; defaultModel: string }[] = [
-  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-3.5-flash' },
-  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-3.5-flash' },
-  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-3.5-flash' },
-  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-3.5-flash-lite' },
-  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-3.5-flash' },
-  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-3.5-flash-lite' },
+  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-4-hydrogen' },
 ];
 
 export class AIProviderRouter {
@@ -79,7 +79,7 @@ export class AIProviderRouter {
             providerType: 'gemini',
             label: 'Server Environment GEMINI_API_KEY',
             projectId: process.env.GOOGLE_CLOUD_PROJECT || 'env-gemini-project',
-            model: 'gemini-3.5-flash-lite',
+            model: 'gemini-4-hydrogen',
             encryptedSecret: '',
             maskedKey: maskSecret(process.env.GEMINI_API_KEY!),
             enabled: true,

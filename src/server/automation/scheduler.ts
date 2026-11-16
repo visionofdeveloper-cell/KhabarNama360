@@ -3,6 +3,7 @@ import { SyncJobRun } from './types.ts';
 import { ProviderRegistry } from '../../../services/automation/ProviderRegistry.ts';
 import { JobScheduler } from '../../../services/automation/JobScheduler.ts';
 import { AIProviderManager } from '../../../services/ai/AIProviderManager.ts';
+import { ArticleService } from '../articleService.ts';
 
 class AutomationScheduler {
   private isRunning: boolean = false;
@@ -17,10 +18,12 @@ class AutomationScheduler {
 
     // Lightweight startup sync without blocking boot
     this.runAllSyncs(true).catch(console.error);
+    ArticleService.publishDueScheduledArticles('Startup Scheduler').catch(console.error);
 
     // Master evaluation tick every 5 minutes (aligned with shared hosting cron interval)
     this.intervalTimer = setInterval(() => {
       JobScheduler.runDueJobs('scheduler').catch(console.error);
+      ArticleService.publishDueScheduledArticles('Interval Scheduler').catch(console.error);
       // Lightweight AI provider health check every 30 minutes (model-list check only — zero paid inference)
       const now = Date.now();
       if (now - this.lastAiHealthCheckAt >= 30 * 60 * 1000 && db.getAiProviders().some(p => p.enabled)) {

@@ -42,26 +42,30 @@ function scoreGeminiModel(id: string): number {
     lower.includes('computer-use') ||
     lower.includes('robotics') ||
     lower.includes('deep-research') ||
-    lower.includes('antigravity')
+    lower.includes('antigravity') ||
+    lower.includes('gemini-1.5') ||
+    lower.includes('gemini-1.0') ||
+    lower.includes('gemini-2.0') ||
+    lower === 'gemini-pro' ||
+    lower.startsWith('gemini-pro-')
   ) {
     return -100;
   }
   let score = 10;
-  if (lower === 'gemini-3.5-flash-lite') score += 95;
+  if (lower === 'gemini-4-hydrogen') score += 96;
   else if (lower === 'gemini-3.1-flash-lite') score += 92;
-  else if (lower === 'gemini-flash-lite-latest') score += 88;
-  else if (lower === 'gemini-3.8-flash') score += 85;
-  else if (lower === 'gemini-3.7-flash') score += 82;
-  else if (lower === 'gemini-3.6-flash') score += 80;
-  else if (lower === 'gemini-3.5-flash') score += 78;
-  else if (lower === 'gemini-flash-latest') score += 75;
-  else if (lower === 'gemini-4-hydrogen') score += 68;
-  else if (lower.includes('gemini-4')) score += 64;
-  else if (lower.includes('gemini-3') && lower.includes('flash')) score += 60;
-  else if (lower.includes('gemini-2.5-flash')) score += 30;
-  else if (lower.includes('gemini-2.0-flash')) score += 20;
+  else if (lower === 'gemini-4-argon') score += 84;
+  else if (lower === 'gemini-4-carbon') score += 80;
+  else if (lower === 'gemini-3.5-flash-lite') score += 78;
+  else if (lower === 'gemini-flash-lite-latest') score += 75;
+  else if (lower === 'gemini-flash-latest') score += 72;
+  else if (lower === 'gemini-2.5-flash') score += 68;
+  else if (lower.includes('gemini-4')) score += 65;
+  else if (lower.includes('gemini-3') && lower.includes('flash')) score += 62;
+  else if (lower.includes('gemini-2.5-flash')) score += 55;
+  else if (lower.includes('gemini-2.5-pro')) score += 48;
   else if (lower.includes('flash')) score += 45;
-  else if (lower.includes('pro') || lower.includes('argon') || lower.includes('carbon')) score += 40;
+  else if (lower.includes('argon') || lower.includes('carbon') || lower.includes('pro')) score += 40;
   if (lower.includes('preview') || lower.includes('exp')) score -= 10;
   return score;
 }

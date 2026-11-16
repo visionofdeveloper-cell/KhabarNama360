@@ -16,6 +16,7 @@ const BOOTSTRAPPED_ADMIN_EMAIL = 'visionofdeveloper@gmail.com';
 export interface AdminSession {
   sessionId: string;
   userId: string;
+  firebaseUid?: string;
   email: string;
   nameEn: string;
   role: UserRole;
@@ -137,7 +138,10 @@ const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 const SESSION_SECRET =
   process.env.ADMIN_SESSION_SECRET ||
   process.env.SESSION_SECRET ||
-  crypto.createHash('sha256').update(`360khabarnama:${process.env.GEMINI_API_KEY || 'kn360-default-secret'}`).digest('hex');
+  crypto
+    .createHash('sha256')
+    .update(`360khabarnama:${process.env.SITE_URL || 'kn360'}:${process.env.AI_MASTER_KEY || 'kn360-stable-session-secret'}`)
+    .digest('hex');
 
 const activeSessions = new Map<string, AdminSession>();
 const revokedSessions = new Set<string>();
@@ -577,6 +581,7 @@ export async function authenticateAdminWithFirebase(
     const session: AdminSession = {
       sessionId,
       userId: decoded.uid,
+      firebaseUid: decoded.uid,
       email,
       nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
       role: assignedRole,
@@ -597,43 +602,61 @@ export async function authenticateAdminWithFirebase(
   }
 }
 
+export async function resolveOptionalAdminSession(req: Request): Promise<AdminSession | null> {
+  const session = getSessionFromRequest(req);
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+
+  if (session) {
+    if (bearerToken && !session.firebaseUid) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(bearerToken);
+        if (decoded?.uid && decoded.email_verified) {
+          session.firebaseUid = decoded.uid;
+        }
+      } catch {}
+    }
+    return session;
+  }
+
+  if (bearerToken) {
+    try {
+      const decoded = await adminAuth.verifyIdToken(bearerToken);
+      const email = (decoded.email || '').trim().toLowerCase();
+      const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
+        const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
+        return {
+          sessionId: `fb-${decoded.uid}`,
+          userId: decoded.uid,
+          firebaseUid: decoded.uid,
+          email,
+          nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
+          role: assignedRole,
+          permissions: getPermissionsForRole(assignedRole),
+          mfaVerified: true,
+          ipAddress: req.ip || '127.0.0.1',
+          userAgent: req.headers['user-agent'] || 'Unknown',
+          createdAt: new Date().toISOString(),
+          expiresAt: Date.now() + SESSION_TTL_MS,
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   try {
     if (req.path.startsWith('/auth/')) {
       return next();
     }
 
-    const session = getSessionFromRequest(req);
+    const session = await resolveOptionalAdminSession(req);
     if (session) {
       (req as any).adminSession = session;
       return next();
-    }
-
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.slice(7).trim();
-      try {
-        const decoded = await adminAuth.verifyIdToken(token);
-        const email = (decoded.email || '').trim().toLowerCase();
-        const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
-        if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
-          const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
-          (req as any).adminSession = {
-            sessionId: `fb-${decoded.uid}`,
-            userId: decoded.uid,
-            email,
-            nameEn: staffUser?.nameEn || decoded.name || 'Administrator',
-            role: assignedRole,
-            permissions: getPermissionsForRole(assignedRole),
-            mfaVerified: true,
-            ipAddress: req.ip || '127.0.0.1',
-            userAgent: req.headers['user-agent'] || 'Unknown',
-            createdAt: new Date().toISOString(),
-            expiresAt: Date.now() + SESSION_TTL_MS,
-          };
-          return next();
-        }
-      } catch {}
     }
 
     return res.status(401).json({

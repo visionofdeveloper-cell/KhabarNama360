@@ -66,7 +66,7 @@ export class AIProviderManager {
           providerType: 'gemini',
           label: 'Server Environment GEMINI_API_KEY',
           projectId: process.env.GOOGLE_CLOUD_PROJECT || 'env-gemini-project',
-          model: 'gemini-3.5-flash-lite',
+          model: 'gemini-4-hydrogen',
           encryptedSecret: '',
           maskedKey: maskSecret(rawKey),
           enabled: true,
