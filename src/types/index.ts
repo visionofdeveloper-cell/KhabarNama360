@@ -62,6 +62,7 @@ export interface Article {
   version?: number;
   deletedAt?: string | null;
   createdBy?: string;
+  updatedBy?: string;
   failureReason?: string;
   heroImage: string;
   imageCaptionEn: string;
@@ -86,7 +87,7 @@ export interface PublicationLogEntry {
   nextStatus: string;
   actor: string;
   correlationId?: string;
-  storageEngine: 'firestore' | 'json_fallback';
+  storageEngine: 'supabase' | 'firestore' | 'json_fallback';
   message?: string;
   createdAt: string;
 }

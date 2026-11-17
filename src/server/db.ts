@@ -2169,7 +2169,7 @@ class DatabaseManager {
   public upsertArticle(
     articleInput: Partial<Article> & { expectedVersion?: number },
     actor: string = 'Editor',
-    opts?: { storageEngine?: 'firestore' | 'json_fallback'; correlationId?: string }
+    opts?: { storageEngine?: 'supabase' | 'firestore' | 'json_fallback'; correlationId?: string }
   ): Article {
     const now = new Date().toISOString();
     const index = articleInput.id

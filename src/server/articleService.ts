@@ -19,8 +19,18 @@ import {
   seedMissingArticlesToFirestore,
   upsertFirestoreArticle,
 } from './firestore.ts';
+import {
+  deleteSupabaseArticle,
+  getSupabaseArticle,
+  isSupabaseConfigured,
+  listSupabaseArticles,
+  upsertSupabaseArticle,
+} from './supabaseAdmin.ts';
+import { checkSupabaseHealth } from './databaseHealth.ts';
 import { hasServiceAccountConfigured } from '../lib/firebase-admin.ts';
 import { recordServerError, getServerErrorLogs } from './errorTracker.ts';
+
+export type ArticleStorageEngine = 'supabase' | 'firestore' | 'json_fallback';
 
 export interface ArticleFilterOptions {
   status?: string;
@@ -34,11 +44,12 @@ export interface ArticleFilterOptions {
 
 export interface SaveArticleResult {
   article: Article;
-  storageEngine: 'firestore' | 'json_fallback';
+  storageEngine: ArticleStorageEngine;
   verifiedReadBack: boolean;
   cacheVersion: number;
   correlationId: string;
   firestoreWarning?: string;
+  supabaseWarning?: string;
 }
 
 export interface PipelineStepResult {
@@ -48,7 +59,7 @@ export interface PipelineStepResult {
   detail: string;
 }
 
-function mergeArticleLists(firestoreList: Article[], localList: Article[], statusFilter?: string): Article[] {
+function mergeArticleLists(remoteList: Article[], localList: Article[], statusFilter?: string): Article[] {
   const map = new Map<string, Article>();
 
   for (const localArt of localList) {
@@ -57,10 +68,10 @@ function mergeArticleLists(firestoreList: Article[], localList: Article[], statu
     }
   }
 
-  // Cloud Firestore records take strict precedence over cached seed items
-  for (const fsArt of firestoreList) {
-    if (!fsArt.deletedAt) {
-      map.set(fsArt.id, fsArt);
+  // Primary remote DB records (Supabase PostgreSQL or Cloud Firestore) take strict precedence over local cache
+  for (const remoteArt of remoteList) {
+    if (!remoteArt.deletedAt) {
+      map.set(remoteArt.id, remoteArt);
     }
   }
 
@@ -80,7 +91,8 @@ function mergeArticleLists(firestoreList: Article[], localList: Article[], statu
 
 export class ArticleService {
   /**
-   * Lists articles directly from Cloud Firestore (primary) merged with seed/local cache.
+   * Lists articles from Supabase PostgreSQL (when configured) or Cloud Firestore (fallback),
+   * merged cleanly with cached articles for low-latency SSR/RSS feeds.
    * Public requests strictly query status == 'published'. Admin requests retrieve all statuses.
    */
   public static async listArticles(
@@ -89,8 +101,9 @@ export class ArticleService {
   ): Promise<{
     articles: Article[];
     total: number;
-    storageEngine: 'firestore' | 'json_fallback';
+    storageEngine: ArticleStorageEngine;
     firestoreCount: number;
+    supabaseCount: number;
   }> {
     const statusFilter = filters.status || 'published';
     const localMatches = db.getArticles(
@@ -101,36 +114,68 @@ export class ArticleService {
       Boolean(filters.includeDeleted)
     );
 
-    const fsRes = await listFirestoreArticles(
-      {
+    const deletedIds = new Set(
+      db
+        .getArticles(undefined, undefined, undefined, 'all', true)
+        .filter((a) => a.deletedAt)
+        .map((a) => a.id)
+    );
+
+    let combined = localMatches;
+    let storageEngine: ArticleStorageEngine = 'json_fallback';
+    let firestoreCount = 0;
+    let supabaseCount = 0;
+
+    if (isSupabaseConfigured()) {
+      const sbRes = await listSupabaseArticles({
         status: statusFilter,
         category: filters.category,
         tag: filters.tag,
         search: filters.search,
+        includeDeleted: Boolean(filters.includeDeleted),
         limit: 250,
-      },
-      authCtx.firebaseIdToken
-    );
-
-    let combined = localMatches;
-    let storageEngine: 'firestore' | 'json_fallback' = 'json_fallback';
-    let firestoreCount = 0;
-
-    if (fsRes.ok) {
-      storageEngine = 'firestore';
-      firestoreCount = fsRes.articles.length;
-
-      // Apply local soft-delete tombstone exclusion
-      const deletedIds = new Set(db.getArticles(undefined, undefined, undefined, 'all', true).filter((a) => a.deletedAt).map((a) => a.id));
-      const activeFsArticles = fsRes.articles.filter((a) => !deletedIds.has(a.id));
-
-      combined = mergeArticleLists(activeFsArticles, localMatches, statusFilter);
-    } else if (fsRes.error) {
-      recordServerError({
-        source: 'firestore',
-        code: 'FIRESTORE_LIST_WARNING',
-        message: `Firestore query fallback to cache: ${fsRes.error}`,
       });
+
+      if (sbRes.ok) {
+        storageEngine = 'supabase';
+        supabaseCount = sbRes.articles.length;
+        const activeSbArticles = filters.includeDeleted
+          ? sbRes.articles
+          : sbRes.articles.filter((a) => !deletedIds.has(a.id));
+        combined = mergeArticleLists(activeSbArticles, localMatches, statusFilter);
+      } else if (sbRes.error) {
+        recordServerError({
+          source: 'supabase',
+          code: 'SUPABASE_LIST_WARNING',
+          message: `Supabase query fallback: ${sbRes.error}`,
+        });
+      }
+    }
+
+    if (storageEngine !== 'supabase') {
+      const fsRes = await listFirestoreArticles(
+        {
+          status: statusFilter,
+          category: filters.category,
+          tag: filters.tag,
+          search: filters.search,
+          limit: 250,
+        },
+        authCtx.firebaseIdToken
+      );
+
+      if (fsRes.ok) {
+        storageEngine = 'firestore';
+        firestoreCount = fsRes.articles.length;
+        const activeFsArticles = fsRes.articles.filter((a) => !deletedIds.has(a.id));
+        combined = mergeArticleLists(activeFsArticles, localMatches, statusFilter);
+      } else if (fsRes.error) {
+        recordServerError({
+          source: 'firestore',
+          code: 'FIRESTORE_LIST_WARNING',
+          message: `Firestore query fallback to cache: ${fsRes.error}`,
+        });
+      }
     }
 
     const total = combined.length;
@@ -142,12 +187,13 @@ export class ArticleService {
       total,
       storageEngine,
       firestoreCount,
+      supabaseCount,
     };
   }
 
   /**
-   * Resolves an article by document ID or canonical slug from Cloud Firestore first,
-   * checking redirects if not found directly.
+   * Resolves an article by document ID or canonical slug from Supabase (when configured)
+   * or Cloud Firestore, checking redirects if not found directly.
    */
   public static async getArticle(
     idOrSlug: string,
@@ -155,10 +201,17 @@ export class ArticleService {
   ): Promise<{
     article: Article | null;
     redirectTo?: string;
-    storageEngine: 'firestore' | 'json_fallback';
+    storageEngine: ArticleStorageEngine;
   }> {
     const clean = decodeURIComponent(idOrSlug || '').trim();
     if (!clean) return { article: null, storageEngine: 'json_fallback' };
+
+    if (isSupabaseConfigured()) {
+      const sbRes = await getSupabaseArticle(clean);
+      if (sbRes.ok && sbRes.article && !sbRes.article.deletedAt) {
+        return { article: sbRes.article, storageEngine: 'supabase' };
+      }
+    }
 
     const fsRes = await getFirestoreArticle(clean, authCtx.firebaseIdToken);
     if (fsRes.ok && fsRes.article && !fsRes.article.deletedAt) {
@@ -169,7 +222,7 @@ export class ArticleService {
     if (local) {
       return {
         article: local,
-        storageEngine: fsRes.ok ? 'firestore' : 'json_fallback',
+        storageEngine: isSupabaseConfigured() ? 'supabase' : fsRes.ok ? 'firestore' : 'json_fallback',
       };
     }
 
@@ -183,16 +236,17 @@ export class ArticleService {
     if (matched?.targetPath) {
       const nextSlug = matched.targetPath.split('/').pop();
       if (nextSlug) {
-        return { article: null, redirectTo: nextSlug, storageEngine: 'firestore' };
+        return { article: null, redirectTo: nextSlug, storageEngine: isSupabaseConfigured() ? 'supabase' : 'firestore' };
       }
     }
 
-    return { article: null, storageEngine: fsRes.ok ? 'firestore' : 'json_fallback' };
+    return { article: null, storageEngine: isSupabaseConfigured() ? 'supabase' : fsRes.ok ? 'firestore' : 'json_fallback' };
   }
 
   /**
-   * Saves or updates a bilingual news article permanently in Cloud Firestore,
-   * verifying read-after-write integrity and invalidating public feed caches.
+   * Saves or updates a news article permanently in Supabase PostgreSQL (when configured)
+   * or Cloud Firestore, verifying read-after-write integrity and invalidating public feed caches.
+   * Supports single-language (English-only or Urdu-only) as well as bilingual articles.
    */
   public static async saveArticle(
     input: Partial<Article> & { expectedVersion?: number },
@@ -201,39 +255,66 @@ export class ArticleService {
   ): Promise<SaveArticleResult> {
     const correlationId = `pub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-    // Normalize both languages safely without dropping partial bilingual drafts
-    const normalizedInput: Partial<Article> & { expectedVersion?: number } = {
-      ...input,
-      titleEn: (input.titleEn || input.titleUr || '').trim(),
-      titleUr: (input.titleUr || input.titleEn || '').trim(),
-      summaryEn: (input.summaryEn || '').trim(),
-      summaryUr: (input.summaryUr || '').trim(),
-      contentEn: (input.contentEn || input.summaryEn || '').trim(),
-      contentUr: (input.contentUr || input.summaryUr || '').trim(),
-    };
+    const rawTitleEn = (input.titleEn || '').trim();
+    const rawTitleUr = (input.titleUr || '').trim();
 
-    if (!normalizedInput.titleEn && !normalizedInput.titleUr) {
+    if (!rawTitleEn && !rawTitleUr) {
       const err: any = new Error('At least one headline (English or Urdu) is required.');
       err.statusCode = 400;
       err.code = 'MISSING_HEADLINE';
       throw err;
     }
 
-    // Check if authenticated client has Firebase credentials or server Service Account
-    const hasFirestoreWriteAuth = Boolean(authCtx.firebaseIdToken || hasServiceAccountConfigured());
+    // Preserve single-language drafts accurately while supplying non-empty fallback strings for bilingual cards
+    const normalizedInput: Partial<Article> & { expectedVersion?: number } = {
+      ...input,
+      titleEn: rawTitleEn || rawTitleUr,
+      titleUr: rawTitleUr || rawTitleEn,
+      summaryEn: (input.summaryEn || '').trim(),
+      summaryUr: (input.summaryUr || '').trim(),
+      contentEn: (input.contentEn || input.summaryEn || '').trim(),
+      contentUr: (input.contentUr || input.summaryUr || '').trim(),
+    };
 
-    // Update local optimistic/slug/redirect layer first so slug collisions & version conflicts fail cleanly
+    const supabaseActive = isSupabaseConfigured();
+    const hasFirestoreWriteAuth = Boolean(authCtx.firebaseIdToken || hasServiceAccountConfigured());
+    const intendedEngine: ArticleStorageEngine = supabaseActive
+      ? 'supabase'
+      : hasFirestoreWriteAuth
+      ? 'firestore'
+      : 'json_fallback';
+
+    // Update local slug/redirect/revision layer first so slug collisions & version conflicts fail cleanly
     const savedLocal = db.upsertArticle(normalizedInput, actor, {
-      storageEngine: hasFirestoreWriteAuth ? 'firestore' : 'json_fallback',
+      storageEngine: intendedEngine,
       correlationId,
     });
 
     let finalArticle = savedLocal;
-    let storageEngine: 'firestore' | 'json_fallback' = 'json_fallback';
+    let storageEngine: ArticleStorageEngine = 'json_fallback';
     let verifiedReadBack = true;
     let firestoreWarning: string | undefined;
 
-    if (hasFirestoreWriteAuth) {
+    if (supabaseActive) {
+      const sbWrite = await upsertSupabaseArticle(savedLocal, actor);
+      if (!sbWrite.ok || !sbWrite.article) {
+        const err: any = new Error(
+          `Supabase PostgreSQL save failed [${sbWrite.code || 'WRITE_ERROR'}]: ${sbWrite.error || 'Unable to commit row.'}`
+        );
+        err.statusCode = 500;
+        err.code = sbWrite.code || 'SUPABASE_WRITE_FAILED';
+        err.correlationId = correlationId;
+        throw err;
+      }
+      finalArticle = sbWrite.article;
+      storageEngine = 'supabase';
+      verifiedReadBack = true;
+
+      // Best-effort secondary mirror to Firestore only if Firebase admin auth is already active
+      if (hasFirestoreWriteAuth) {
+        await upsertFirestoreArticle(finalArticle, authCtx).catch(() => {});
+      }
+    } else if (hasFirestoreWriteAuth) {
       const fsWrite = await upsertFirestoreArticle(savedLocal, authCtx);
       if (!fsWrite.ok || !fsWrite.article) {
         const err: any = new Error(
@@ -249,10 +330,10 @@ export class ArticleService {
       verifiedReadBack = true;
     } else {
       firestoreWarning =
-        'Saved in workspace cache only — sign in with Firebase Admin Google account or configure FIREBASE_SERVICE_ACCOUNT_JSON to write permanently to Cloud Firestore.';
+        'Saved in local workspace persistence only — configure SUPABASE_URL + SUPABASE_SECRET_KEY (or Firebase Admin credentials) for external database sync.';
       recordServerError({
-        source: 'firestore',
-        code: 'NO_FIRESTORE_WRITE_AUTH',
+        source: 'publishing',
+        code: 'LOCAL_CACHE_ONLY_SAVE',
         message: firestoreWarning,
         correlationId,
       });
@@ -317,6 +398,17 @@ export class ArticleService {
     const existing = db.getArticleBySlugOrId(id, true) || (await this.getArticle(id, authCtx)).article;
     const okLocal = db.deleteArticle(id, actor, hardDelete);
 
+    if (isSupabaseConfigured()) {
+      const sbDel = await deleteSupabaseArticle(id, hardDelete);
+      if (!sbDel.ok) {
+        recordServerError({
+          source: 'supabase',
+          code: 'SUPABASE_DELETE_ERROR',
+          message: sbDel.error || `Failed deleting ${id} from Supabase.`,
+        });
+      }
+    }
+
     if (authCtx.firebaseIdToken || hasServiceAccountConfigured()) {
       if (hardDelete) {
         const fsDel = await deleteFirestoreArticle(id, authCtx);
@@ -341,7 +433,11 @@ export class ArticleService {
       action: hardDelete ? 'hard_delete' : 'delete',
       nextStatus: hardDelete ? 'deleted' : 'archived',
       actor,
-      storageEngine: authCtx.firebaseIdToken || hasServiceAccountConfigured() ? 'firestore' : 'json_fallback',
+      storageEngine: isSupabaseConfigured()
+        ? 'supabase'
+        : authCtx.firebaseIdToken || hasServiceAccountConfigured()
+        ? 'firestore'
+        : 'json_fallback',
       message: `Article ${id} ${hardDelete ? 'permanently removed' : 'archived/soft-deleted'}.`,
     });
 
@@ -400,14 +496,18 @@ export class ArticleService {
 
   public static async getPublishingHealth(authCtx: FirestoreAuthContext = {}): Promise<{
     firestoreHealth: Awaited<ReturnType<typeof checkFirestoreHealth>>;
+    supabaseHealth: Awaited<ReturnType<typeof checkSupabaseHealth>>;
     cacheStatus: ReturnType<typeof db.getCacheStatus>;
     articleCountsByStatus: Record<string, number>;
     missingTranslationsCount: number;
     recentPublicationLogs: PublicationLogEntry[];
     recentErrors: ReturnType<typeof getServerErrorLogs>;
   }> {
-    const firestoreHealth = await checkFirestoreHealth(authCtx.firebaseIdToken);
-    const mergedRes = await this.listArticles({ status: 'all' }, authCtx);
+    const [firestoreHealth, supabaseHealth, mergedRes] = await Promise.all([
+      checkFirestoreHealth(authCtx.firebaseIdToken),
+      checkSupabaseHealth({ runWriteTest: false }),
+      this.listArticles({ status: 'all' }, authCtx),
+    ]);
     const allActive = mergedRes.articles;
 
     const counts: Record<string, number> = {
@@ -430,6 +530,7 @@ export class ArticleService {
 
     return {
       firestoreHealth,
+      supabaseHealth,
       cacheStatus: {
         ...db.getCacheStatus(),
         publishedArticlesCount: counts.published,
@@ -443,12 +544,8 @@ export class ArticleService {
   }
 
   /**
-   * Executes a live Cloud Firestore Publishing Pipeline Self-Test:
-   *   1. Verify Firestore /test/connection & reachability
-   *   2. Create bilingual EN/UR draft in Cloud Firestore + Read-After-Write
-   *   3. Publish article in Cloud Firestore
-   *   4. Verify public Firestore query (`status == 'published'`) & slug retrieval
-   *   5. Archive & clean up probe document cleanly (zero leftover test articles)
+   * Executes a live Database Publishing Pipeline Self-Test:
+   * Uses Supabase PostgreSQL when configured, otherwise Cloud Firestore.
    */
   public static async runPublishingPipelineSelfTest(
     actor: string = 'Super Admin',
@@ -456,7 +553,7 @@ export class ArticleService {
   ): Promise<{
     ok: boolean;
     totalDurationMs: number;
-    storageEngine: 'firestore' | 'json_fallback';
+    storageEngine: ArticleStorageEngine;
     steps: PipelineStepResult[];
     error?: string;
     testedAt: string;
@@ -465,34 +562,51 @@ export class ArticleService {
     const probeId = `art-diag-probe-${Date.now()}`;
     const probeSlug = `diag-probe-${Date.now()}`;
     const steps: PipelineStepResult[] = [];
+    const supabaseActive = isSupabaseConfigured();
     const canWriteFirestore = Boolean(authCtx.firebaseIdToken || hasServiceAccountConfigured());
+    const targetEngine: ArticleStorageEngine = supabaseActive
+      ? 'supabase'
+      : canWriteFirestore
+      ? 'firestore'
+      : 'json_fallback';
 
     try {
-      const t0 = Date.now();
-      const health = await checkFirestoreHealth(authCtx.firebaseIdToken);
-      if (canWriteFirestore && !health.testConnectionDocExists) {
-        await ensureTestConnectionDoc(authCtx);
+      if (supabaseActive) {
+        const t0 = Date.now();
+        const sbHealth = await checkSupabaseHealth({ runWriteTest: false });
+        steps.push({
+          step: '1. Verify Supabase PostgreSQL Connectivity & Schema',
+          ok: sbHealth.connected && sbHealth.articlesTableAvailable,
+          durationMs: Date.now() - t0,
+          detail: `Host=${sbHealth.projectHost}, tablesReady=${sbHealth.articlesTableAvailable}, rlsOk=${sbHealth.rlsPolicyCheckOk}`,
+        });
+      } else {
+        const t0 = Date.now();
+        const health = await checkFirestoreHealth(authCtx.firebaseIdToken);
+        if (canWriteFirestore && !health.testConnectionDocExists) {
+          await ensureTestConnectionDoc(authCtx);
+        }
+        steps.push({
+          step: '1. Verify Cloud Firestore Connectivity & Auth',
+          ok: health.connected && canWriteFirestore,
+          durationMs: Date.now() - t0,
+          detail: canWriteFirestore
+            ? `Project=${health.projectId}, DB=${health.firestoreDatabaseId}, authMode=${health.authMode}`
+            : `Connected=${health.connected}, no Supabase keys or Firebase Service Account supplied.`,
+        });
       }
-      steps.push({
-        step: '1. Verify Cloud Firestore Connectivity & Auth',
-        ok: health.connected && canWriteFirestore,
-        durationMs: Date.now() - t0,
-        detail: canWriteFirestore
-          ? `Project=${health.projectId}, DB=${health.firestoreDatabaseId}, authMode=${health.authMode}`
-          : `Connected=${health.connected}, but no Firebase Admin ID token or Service Account was supplied for write test.`,
-      });
 
       const t1 = Date.now();
       const created = await this.saveArticle(
         {
           id: probeId,
           slug: probeSlug,
-          titleEn: 'Diagnostic Firebase Pipeline Probe',
-          titleUr: 'فائر بیس پبلشنگ تشخیصی جانچ',
-          summaryEn: 'Automated temporary Cloud Firestore self-test article',
-          summaryUr: 'کلاؤڈ فائر اسٹور کی خودکار جانچ کا مضمون',
-          contentEn: 'Automated bilingual Cloud Firestore write and read-after-write verification.',
-          contentUr: 'انگریزی اور اردو مواد کی کلاؤڈ فائر اسٹور میں مستقل تصدیق۔',
+          titleEn: 'Diagnostic Pipeline Probe',
+          titleUr: 'پبلشنگ تشخیصی جانچ',
+          summaryEn: 'Automated temporary persistence self-test article',
+          summaryUr: 'خودکار جانچ کا مضمون',
+          contentEn: 'Automated bilingual write and read-after-write verification.',
+          contentUr: 'انگریزی اور اردو مواد کی مستقل تصدیق۔',
           category: 'pakistan',
           status: 'draft',
           tags: ['diag-test'],
@@ -501,17 +615,17 @@ export class ArticleService {
         authCtx
       );
       steps.push({
-        step: '2. Save Bilingual Draft to Cloud Firestore & Read-After-Write',
-        ok: created.verifiedReadBack && created.storageEngine === 'firestore' && created.article.status === 'draft',
+        step: `2. Save Draft to ${supabaseActive ? 'Supabase PostgreSQL' : 'Database'} & Read-After-Write`,
+        ok: created.verifiedReadBack && created.storageEngine === targetEngine && created.article.status === 'draft',
         durationMs: Date.now() - t1,
-        detail: `ID=${created.article.id}, engine=${created.storageEngine}, EN+UR saved=${Boolean(created.article.contentEn && created.article.contentUr)}`,
+        detail: `ID=${created.article.id}, engine=${created.storageEngine}, EN+UR=${Boolean(created.article.contentEn && created.article.contentUr)}`,
       });
 
       const t2 = Date.now();
       const published = await this.transitionStatus(probeId, 'published', actor, undefined, authCtx);
       steps.push({
-        step: '3. Publish Article in Cloud Firestore',
-        ok: published.article.status === 'published' && published.storageEngine === 'firestore' && Boolean(published.article.publishedAt),
+        step: '3. Publish Article & Set Timestamp',
+        ok: published.article.status === 'published' && published.storageEngine === targetEngine && Boolean(published.article.publishedAt),
         durationMs: Date.now() - t2,
         detail: `publishedAt=${published.article.publishedAt}, engine=${published.storageEngine}`,
       });
@@ -519,12 +633,12 @@ export class ArticleService {
       const t3 = Date.now();
       const listRes = await this.listArticles({ status: 'published', search: probeSlug }, {});
       const visiblePublicly = listRes.articles.some((a) => a.id === probeId);
-      const bySlug = await getFirestoreArticle(probeSlug);
+      const slugLookup = supabaseActive ? await getSupabaseArticle(probeSlug) : await getFirestoreArticle(probeSlug);
       steps.push({
-        step: '4. Public Unauthenticated Firestore Query & Slug Visibility',
-        ok: visiblePublicly && Boolean(bySlug.ok && bySlug.article),
+        step: '4. Public Published Query & Slug Visibility',
+        ok: visiblePublicly && Boolean(slugLookup.ok && slugLookup.article),
         durationMs: Date.now() - t3,
-        detail: `publicListMatch=${visiblePublicly}, slugDocFound=${Boolean(bySlug.article)}`,
+        detail: `publicListMatch=${visiblePublicly}, slugDocFound=${Boolean(slugLookup.article)}`,
       });
 
       const t4 = Date.now();
@@ -534,13 +648,13 @@ export class ArticleService {
         step: '5. Archive Transition & Probe Cleanup',
         ok: archived.article.status === 'archived' && deleted,
         durationMs: Date.now() - t4,
-        detail: deleted ? 'Temporary probe archived and removed cleanly from Firestore & cache.' : 'Cleanup incomplete.',
+        detail: deleted ? 'Temporary probe archived and removed cleanly.' : 'Cleanup incomplete.',
       });
 
       return {
         ok: steps.every((s) => s.ok),
         totalDurationMs: Date.now() - started,
-        storageEngine: canWriteFirestore ? 'firestore' : 'json_fallback',
+        storageEngine: targetEngine,
         steps,
         testedAt: new Date().toISOString(),
       };
@@ -552,12 +666,12 @@ export class ArticleService {
         step: 'Pipeline Exception',
         ok: false,
         durationMs: Date.now() - started,
-        detail: err?.message || 'Unexpected error during Firestore self-test.',
+        detail: err?.message || 'Unexpected error during publishing self-test.',
       });
       return {
         ok: false,
         totalDurationMs: Date.now() - started,
-        storageEngine: canWriteFirestore ? 'firestore' : 'json_fallback',
+        storageEngine: targetEngine,
         steps,
         error: err?.message || 'Publishing pipeline self-test failed',
         testedAt: new Date().toISOString(),

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -31,6 +32,8 @@ import { AdminPermission } from './src/types/index.ts';
 import { ArticleService } from './src/server/articleService.ts';
 import { checkFirestoreHealth, ensureTestConnectionDoc, FirestoreAuthContext } from './src/server/firestore.ts';
 import { firebaseProjectConfig, hasServiceAccountConfigured } from './src/lib/firebase-admin.ts';
+import { checkSupabaseHealth } from './src/server/databaseHealth.ts';
+import { isSupabaseConfigured, resolveSupabaseEnvConfig } from './src/server/supabaseAdmin.ts';
 import { getServerErrorLogs, recordServerError } from './src/server/errorTracker.ts';
 import { SEOEngine } from './services/seo/SEOEngine.ts';
 import { SEOAuditService } from './services/seo/SEOAuditService.ts';
@@ -409,7 +412,7 @@ app.get('/api/news', async (req, res) => {
       triggerStaleProviders(['sports-news-rss']);
     }
 
-    const { articles: allMatched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+    const { articles: allMatched, storageEngine, firestoreCount, supabaseCount } = await ArticleService.listArticles(
       { category, tag, search, status },
       session ? extractFirestoreAuthCtx(req, session) : {}
     );
@@ -420,6 +423,7 @@ app.get('/api/news', async (req, res) => {
       totalCount: allMatched.length,
       storageEngine,
       firestoreCount,
+      supabaseCount,
       cacheVersion: db.getCacheStatus().newsCacheVersion,
       articles,
     });
@@ -581,7 +585,7 @@ app.get('/api/v1/news', async (req, res) => {
       if (!session) status = 'published';
     }
 
-    const { articles: matched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+    const { articles: matched, storageEngine, firestoreCount, supabaseCount } = await ArticleService.listArticles(
       { category, tag, search, status },
       session ? extractFirestoreAuthCtx(req, session) : {}
     );
@@ -593,6 +597,7 @@ app.get('/api/v1/news', async (req, res) => {
       success: true,
       storageEngine,
       firestoreCount,
+      supabaseCount,
       page,
       limit,
       total,
@@ -1218,13 +1223,24 @@ app.get('/api/admin/analytics', requirePermission('overview:view'), (_req, res) 
 });
 
 app.get('/api/admin/system/health', requirePermission('health:view'), async (req, res) => {
-  const fsHealth = await checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken).catch(() => null);
+  const [fsHealth, sbHealth] = await Promise.all([
+    checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken).catch(() => null),
+    checkSupabaseHealth({ runWriteTest: false }).catch(() => null),
+  ]);
+  const sbCfg = resolveSupabaseEnvConfig();
   res.json({
     success: true,
     health: {
       ...db.getSystemHealth(),
-      databaseType: 'Cloud Firestore',
-      storageEngine: fsHealth?.connected ? 'cloud_firestore' : 'json_cache_fallback',
+      databaseType: sbCfg.configured ? 'Supabase PostgreSQL' : 'Cloud Firestore',
+      storageEngine: sbHealth?.connected
+        ? 'supabase_postgresql'
+        : fsHealth?.connected
+        ? 'cloud_firestore'
+        : 'json_cache_fallback',
+      supabaseConfigured: sbCfg.configured,
+      supabaseConnected: Boolean(sbHealth?.connected),
+      supabaseProjectHost: sbCfg.projectHost,
       firebaseConfigured: true,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
@@ -1233,7 +1249,30 @@ app.get('/api/admin/system/health', requirePermission('health:view'), async (req
   });
 });
 
-// ================= V1 PRODUCTION FIREBASE FIRESTORE & PUBLISHING DIAGNOSTICS =================
+// ================= V1 PRODUCTION DATABASE (SUPABASE & FIREBASE) & PUBLISHING DIAGNOSTICS =================
+app.get('/api/v1/admin/system/supabase-health', requirePermission('health:view'), async (_req, res) => {
+  try {
+    const report = await checkSupabaseHealth({ runWriteTest: false });
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Supabase health probe failed.' });
+  }
+});
+
+app.post('/api/v1/admin/system/supabase-test', requirePermission('health:view'), async (_req, res) => {
+  try {
+    const report = await checkSupabaseHealth({ runWriteTest: true });
+    const ok = Boolean(report.connected && report.articlesTableAvailable && report.readTestOk && report.authorizedWriteTestOk !== false);
+    return res.status(ok ? 200 : 400).json({
+      success: ok,
+      error: report.errorMessage || (ok ? undefined : 'Supabase connection or schema verification failed.'),
+      report,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Supabase write test failed.' });
+  }
+});
+
 app.get('/api/v1/admin/system/database-health', requirePermission('health:view'), async (req, res) => {
   try {
     const report = await checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken);
@@ -1246,12 +1285,19 @@ app.get('/api/v1/admin/system/database-health', requirePermission('health:view')
 app.get('/api/v1/admin/system/publishing-health', requirePermission('health:view'), async (req, res) => {
   try {
     const health = await ArticleService.getPublishingHealth(extractFirestoreAuthCtx(req));
+    const sbActive = isSupabaseConfigured() && health.supabaseHealth.connected;
     return res.json({
       success: true,
+      supabaseConfigured: isSupabaseConfigured(),
+      supabaseHealth: health.supabaseHealth,
       firebaseConfigured: true,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
-      storageEngine: health.firestoreHealth.connected ? 'firestore' : 'json_fallback',
+      storageEngine: sbActive
+        ? 'supabase'
+        : health.firestoreHealth.connected
+        ? 'firestore'
+        : 'json_fallback',
       counts: health.articleCountsByStatus,
       missingTranslationsCount: health.missingTranslationsCount,
       recentLogs: health.recentPublicationLogs,
@@ -1353,15 +1399,18 @@ app.get('/api/v1/admin/system/error-logs', requirePermission('health:view'), (re
 
 app.get('/api/v1/admin/system/deployment', requirePermission('health:view'), (_req, res) => {
   const sys = db.getSystemHealth();
+  const sbCfg = resolveSupabaseEnvConfig();
   res.json({
     success: true,
     deployment: {
-      appVersion: process.env.APP_VERSION || '4.2.0',
+      appVersion: process.env.APP_VERSION || '1.0.0',
       nodeEnv: process.env.NODE_ENV || 'development',
       nodeVersion: sys.nodeVersion,
       uptimeSeconds: sys.uptimeSeconds,
       memoryUsageMb: sys.memoryUsageMb,
-      storageMode: 'cloud_firestore',
+      storageMode: sbCfg.configured ? 'supabase_postgresql' : 'cloud_firestore',
+      supabaseConfigured: sbCfg.configured,
+      supabaseProjectHost: sbCfg.projectHost,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
       serviceAccountConfigured: hasServiceAccountConfigured(),

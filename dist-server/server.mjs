@@ -86,6 +86,7 @@ var init_LinkAuditEngine = __esm({
 });
 
 // server.ts
+import "dotenv/config";
 import express from "express";
 import dotenv2 from "dotenv";
 import fs3 from "fs";
@@ -7686,17 +7687,440 @@ async function checkFirestoreHealth(bearerToken) {
   }
 }
 
+// src/server/supabaseAdmin.ts
+import { createClient } from "@supabase/supabase-js";
+function resolveSupabaseEnvConfig() {
+  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const sbSecret = (process.env.SUPABASE_SECRET_KEY || "").trim();
+  const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  const secretKey = sbSecret || legacyService;
+  const secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
+  const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
+  const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  const publishableKey = sbPub || legacyAnon;
+  const publishableKeyMode = sbPub ? "sb_publishable" : legacyAnon ? "legacy_anon" : "missing";
+  let projectHost = null;
+  if (url) {
+    try {
+      projectHost = new URL(url).hostname;
+    } catch {
+      projectHost = "invalid-url";
+    }
+  }
+  return {
+    url,
+    publishableKey,
+    secretKey,
+    secretKeyMode,
+    publishableKeyMode,
+    configured: Boolean(url && secretKey && projectHost && projectHost !== "invalid-url"),
+    projectHost
+  };
+}
+function isSupabaseConfigured() {
+  return resolveSupabaseEnvConfig().configured;
+}
+var cachedAdminClient = null;
+var cachedAdminSignature = "";
+function getSupabaseAdminClient() {
+  const cfg = resolveSupabaseEnvConfig();
+  if (!cfg.configured) return null;
+  const sig = `${cfg.url}:${cfg.secretKey.slice(0, 8)}`;
+  if (!cachedAdminClient || cachedAdminSignature !== sig) {
+    cachedAdminClient = createClient(cfg.url, cfg.secretKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    cachedAdminSignature = sig;
+  }
+  return cachedAdminClient;
+}
+function getSupabaseAnonClient() {
+  const cfg = resolveSupabaseEnvConfig();
+  if (!cfg.url || !cfg.publishableKey) return null;
+  return createClient(cfg.url, cfg.publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+function mapRowToArticle(row) {
+  const seoObj = typeof row.seo_json === "object" && row.seo_json ? row.seo_json : {};
+  const tagsArr = Array.isArray(row.tags) ? row.tags : [];
+  const versionsArr = Array.isArray(row.versions_json) ? row.versions_json : void 0;
+  return {
+    id: String(row.id),
+    slug: String(row.slug),
+    titleEn: String(row.title_en || ""),
+    titleUr: String(row.title_ur || ""),
+    summaryEn: String(row.summary_en || ""),
+    summaryUr: String(row.summary_ur || ""),
+    contentEn: String(row.content_en || ""),
+    contentUr: String(row.content_ur || ""),
+    category: String(row.category || "pakistan"),
+    tags: tagsArr.map((t) => String(t)),
+    status: row.status || "draft",
+    isBreaking: Boolean(row.is_breaking),
+    isFeatured: Boolean(row.is_featured),
+    isTrending: Boolean(row.is_trending),
+    heroImage: String(row.hero_image || "") || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80",
+    imageCaptionEn: String(row.image_caption_en || ""),
+    imageCaptionUr: String(row.image_caption_ur || ""),
+    readingTimeMin: Number(row.reading_time_min || 3) || 3,
+    author: {
+      id: String(row.author_id || "admin-desk"),
+      nameEn: String(row.author_name_en || "360Khabarnama Editorial"),
+      nameUr: String(row.author_name_ur || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1"),
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      role: row.author_role || "Editor"
+    },
+    publishedAt: row.published_at ? String(row.published_at) : "",
+    scheduledAt: row.scheduled_at ? String(row.scheduled_at) : void 0,
+    version: Number(row.version || 1) || 1,
+    versions: versionsArr,
+    workflowNotes: row.workflow_notes ? String(row.workflow_notes) : void 0,
+    failureReason: row.failure_reason ? String(row.failure_reason) : void 0,
+    views: Number(row.views || 0) || 0,
+    seo: seoObj,
+    createdBy: row.created_by ? String(row.created_by) : void 0,
+    updatedBy: row.updated_by ? String(row.updated_by) : void 0,
+    updatedAt: row.updated_at ? String(row.updated_at) : (/* @__PURE__ */ new Date()).toISOString(),
+    deletedAt: row.deleted_at ? String(row.deleted_at) : void 0
+  };
+}
+function buildArticleRow(article, actor) {
+  return {
+    id: article.id,
+    slug: article.slug,
+    title_en: article.titleEn || "",
+    title_ur: article.titleUr || "",
+    summary_en: article.summaryEn || "",
+    summary_ur: article.summaryUr || "",
+    content_en: article.contentEn || "",
+    content_ur: article.contentUr || "",
+    category: (article.category || "pakistan").toLowerCase(),
+    tags: Array.isArray(article.tags) ? article.tags : [],
+    status: article.status || "draft",
+    is_breaking: Boolean(article.isBreaking),
+    is_featured: Boolean(article.isFeatured),
+    is_trending: Boolean(article.isTrending),
+    hero_image: article.heroImage || "",
+    image_caption_en: article.imageCaptionEn || "",
+    image_caption_ur: article.imageCaptionUr || "",
+    reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),
+    author_id: article.author?.id || article.createdBy || "admin-desk",
+    author_name_en: article.author?.nameEn || "360Khabarnama Editorial",
+    author_name_ur: article.author?.nameUr || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1",
+    author_role: article.author?.role || "Editor",
+    seo_json: article.seo || {},
+    versions_json: Array.isArray(article.versions) ? article.versions : [],
+    workflow_notes: article.workflowNotes || "",
+    failure_reason: article.failureReason || "",
+    version: Math.max(1, Math.round(Number(article.version || 1))),
+    views: Math.max(0, Math.round(Number(article.views || 0))),
+    published_at: article.publishedAt ? article.publishedAt : null,
+    scheduled_at: article.scheduledAt || article.scheduledFor || null,
+    deleted_at: article.deletedAt || null,
+    created_by: article.createdBy || actor,
+    updated_by: actor,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function listSupabaseArticles(filters) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return { ok: false, articles: [], error: "Supabase secret key/URL not configured." };
+  }
+  try {
+    let query = client.from("articles").select("*").order("published_at", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }).limit(Math.min(Math.max(Number(filters.limit || 250), 1), 500));
+    if (!filters.includeDeleted) {
+      query = query.is("deleted_at", null);
+    }
+    if (filters.status && filters.status !== "all") {
+      query = query.eq("status", filters.status);
+    }
+    if (filters.category && filters.category !== "all") {
+      query = query.eq("category", filters.category.toLowerCase());
+    }
+    const { data, error } = await query;
+    if (error) {
+      return { ok: false, articles: [], error: `${error.code || "SUPABASE_QUERY"}: ${error.message}` };
+    }
+    let articles = (data || []).map(mapRowToArticle);
+    if (filters.tag) {
+      const tLower = filters.tag.toLowerCase();
+      articles = articles.filter((a) => a.tags.some((t) => t.toLowerCase() === tLower));
+    }
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      articles = articles.filter(
+        (a) => a.titleEn.toLowerCase().includes(q) || a.titleUr.includes(q) || a.summaryEn.toLowerCase().includes(q) || a.summaryUr.includes(q) || a.slug.toLowerCase().includes(q)
+      );
+    }
+    return { ok: true, articles };
+  } catch (err) {
+    return { ok: false, articles: [], error: err?.message || "Supabase article query error" };
+  }
+}
+async function getSupabaseArticle(idOrSlug) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return { ok: false, article: null, error: "Supabase not configured." };
+  }
+  const clean = decodeURIComponent(idOrSlug || "").trim();
+  if (!clean) return { ok: true, article: null };
+  try {
+    const byId = await client.from("articles").select("*").eq("id", clean).maybeSingle();
+    if (byId.error) {
+      return { ok: false, article: null, error: `${byId.error.code || "SUPABASE_GET"}: ${byId.error.message}` };
+    }
+    if (byId.data) {
+      return { ok: true, article: mapRowToArticle(byId.data) };
+    }
+    const bySlug = await client.from("articles").select("*").eq("slug", clean.toLowerCase()).maybeSingle();
+    if (bySlug.error) {
+      return { ok: false, article: null, error: `${bySlug.error.code || "SUPABASE_GET"}: ${bySlug.error.message}` };
+    }
+    return { ok: true, article: bySlug.data ? mapRowToArticle(bySlug.data) : null };
+  } catch (err) {
+    return { ok: false, article: null, error: err?.message || "Supabase get article error" };
+  }
+}
+async function upsertSupabaseArticle(article, actor) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      ok: false,
+      code: "SUPABASE_NOT_CONFIGURED",
+      error: "SUPABASE_URL and SUPABASE_SECRET_KEY are required for Supabase PostgreSQL persistence."
+    };
+  }
+  try {
+    const row = buildArticleRow(article, actor);
+    const { data, error } = await client.from("articles").upsert(row, { onConflict: "id" }).select("*").single();
+    if (error || !data) {
+      const msg = error?.message || "Supabase upsert returned no record.";
+      recordServerError({
+        source: "supabase",
+        code: error?.code || "SUPABASE_WRITE_FAILED",
+        message: `Supabase upsert failed for ${article.id}: ${msg}`
+      });
+      return {
+        ok: false,
+        code: error?.code || "SUPABASE_WRITE_FAILED",
+        error: msg
+      };
+    }
+    const verify = await client.from("articles").select("*").eq("id", data.id).single();
+    if (verify.error || !verify.data) {
+      return {
+        ok: false,
+        code: "SUPABASE_READ_AFTER_WRITE_FAILED",
+        error: verify.error?.message || "Upsert succeeded but read-after-write lookup failed."
+      };
+    }
+    return { ok: true, article: mapRowToArticle(verify.data) };
+  } catch (err) {
+    return {
+      ok: false,
+      code: "SUPABASE_EXCEPTION",
+      error: err?.message || "Unexpected error saving article to Supabase."
+    };
+  }
+}
+async function deleteSupabaseArticle(id, hardDelete = false) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    if (hardDelete) {
+      const { error: error2 } = await client.from("articles").delete().eq("id", id);
+      if (error2) return { ok: false, error: error2.message };
+      return { ok: true };
+    }
+    const { error } = await client.from("articles").update({ deleted_at: (/* @__PURE__ */ new Date()).toISOString(), status: "archived", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase delete failed" };
+  }
+}
+
+// src/server/databaseHealth.ts
+function sanitizeSupabaseDiagnosticText(raw) {
+  if (!raw) return "";
+  return String(raw).replace(/sb_secret_[A-Za-z0-9\-_]+/g, "[REDACTED_SB_SECRET]").replace(/sb_publishable_[A-Za-z0-9\-_]+/g, "[REDACTED_SB_PUBLISHABLE]").replace(/eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/g, "[REDACTED_JWT]").replace(/Bearer\s+[A-Za-z0-9\-_.]+/gi, "Bearer [REDACTED]").replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, "postgresql://[REDACTED]").replace(/AIza[0-9A-Za-z\-_]{20,}/g, "[REDACTED_GEMINI_KEY]").replace(/xai-[0-9A-Za-z\-_]{16,}/g, "[REDACTED_XAI_KEY]").replace(/(apikey|token|secret|password|key)=([^&\s]+)/gi, "$1=[REDACTED]").slice(0, 500);
+}
+async function checkSupabaseHealth(options) {
+  const started = Date.now();
+  const cfg = resolveSupabaseEnvConfig();
+  const missingEnvVars = [];
+  if (!cfg.url) missingEnvVars.push("SUPABASE_URL");
+  if (!cfg.publishableKey) missingEnvVars.push("SUPABASE_PUBLISHABLE_KEY");
+  if (!cfg.secretKey) missingEnvVars.push("SUPABASE_SECRET_KEY");
+  const recentLogs = db.getPublicationLogs(10);
+  const recentErrors = getServerErrorLogs(10).filter(
+    (e) => e.source === "supabase" || e.source === "publishing" || e.source === "firestore"
+  );
+  const latestSuccessfulSaveAt = recentLogs[0]?.createdAt || null;
+  const latestPublishingError = recentErrors[0]?.message || null;
+  if (!cfg.configured) {
+    return {
+      configured: false,
+      connected: false,
+      pingOk: false,
+      pingLatencyMs: Date.now() - started,
+      sdkPackage: "@supabase/supabase-js",
+      projectHost: cfg.projectHost,
+      secretKeyMode: cfg.secretKeyMode,
+      publishableKeyMode: cfg.publishableKeyMode,
+      secretsRedacted: true,
+      schemaVersion: "supabase-core-002 (pending migration)",
+      articlesTableAvailable: false,
+      readTestOk: false,
+      readPermissionDetail: "Skipped: Supabase credentials missing.",
+      authorizedWriteTestOk: null,
+      writePermissionDetail: "Skipped: Supabase secret key missing.",
+      rlsPolicyCheckOk: null,
+      rlsPolicyDetail: "Skipped: Supabase credentials are not configured in server environment.",
+      publishedCount: 0,
+      totalCount: null,
+      latestSuccessfulSaveAt,
+      latestPublishingError: latestPublishingError ? sanitizeSupabaseDiagnosticText(latestPublishingError) : null,
+      latencyMs: Date.now() - started,
+      checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      errorCode: "SUPABASE_ENV_MISSING",
+      errorMessage: `Missing required Supabase environment variable(s): ${missingEnvVars.join(", ")}`,
+      missingEnvVars
+    };
+  }
+  const adminClient = getSupabaseAdminClient();
+  let pingOk = false;
+  let pingLatencyMs = 0;
+  let articlesTableAvailable = false;
+  let readTestOk = false;
+  let readPermissionDetail = "Pending read check on public.articles";
+  let publishedCount = 0;
+  let totalCount = null;
+  let authorizedWriteTestOk = null;
+  let writePermissionDetail = 'Click "Test Supabase Connection" to run authorized write + read-after-write probe.';
+  let rlsPolicyCheckOk = null;
+  let rlsPolicyDetail = "Publishable key not set; anon RLS check skipped.";
+  let errorCode = null;
+  let errorMessage = null;
+  try {
+    const pingStart = Date.now();
+    const totalRes = await adminClient.from("articles").select("id", { count: "exact", head: true }).is("deleted_at", null);
+    pingLatencyMs = Date.now() - pingStart;
+    if (totalRes.error) {
+      errorCode = totalRes.error.code || "SUPABASE_TABLE_ERROR";
+      errorMessage = sanitizeSupabaseDiagnosticText(totalRes.error.message);
+      readPermissionDetail = `Read rejected: ${errorMessage}`;
+    } else {
+      pingOk = true;
+      articlesTableAvailable = true;
+      readTestOk = true;
+      totalCount = typeof totalRes.count === "number" ? totalRes.count : 0;
+      const pubRes = await adminClient.from("articles").select("id", { count: "exact", head: true }).eq("status", "published").is("deleted_at", null);
+      publishedCount = typeof pubRes.count === "number" ? pubRes.count : 0;
+      readPermissionDetail = `Verified SELECT on public.articles (${publishedCount} published, ${totalCount} total rows).`;
+    }
+    const anonClient = getSupabaseAnonClient();
+    if (anonClient && articlesTableAvailable) {
+      const draftProbe = await anonClient.from("articles").select("id").eq("status", "draft").limit(1);
+      const writeProbe = await anonClient.from("articles").insert({
+        id: `rls-probe-${Date.now()}`,
+        slug: `rls-probe-${Date.now()}`,
+        title_en: "Unauthorized RLS Probe",
+        status: "draft"
+      });
+      const draftsBlocked = !draftProbe.data || draftProbe.data.length === 0 || Boolean(draftProbe.error);
+      const anonWriteBlocked = Boolean(writeProbe.error);
+      rlsPolicyCheckOk = draftsBlocked && anonWriteBlocked;
+      rlsPolicyDetail = rlsPolicyCheckOk ? "Verified: publishable client blocked from reading drafts and blocked from inserting articles." : `RLS Alert: draftsBlocked=${draftsBlocked}, anonWriteBlocked=${anonWriteBlocked}`;
+    }
+    if (options?.runWriteTest && articlesTableAvailable) {
+      const probeId = `art-sb-probe-${Date.now()}`;
+      const probeSlug = `sb-probe-${Date.now()}`;
+      const saveRes = await upsertSupabaseArticle(
+        {
+          id: probeId,
+          slug: probeSlug,
+          titleEn: "Supabase Connection Write Probe",
+          titleUr: "\u0633\u067E\u0627\u0628\u06CC\u0633 \u06A9\u0646\u06A9\u0634\u0646 \u062C\u0627\u0646\u0686",
+          summaryEn: "Temporary automated write probe.",
+          summaryUr: "\u0639\u0627\u0631\u0636\u06CC \u062C\u0627\u0646\u0686 \u06A9\u0627 \u0645\u0636\u0645\u0648\u0646\u06D4",
+          contentEn: "Temporary automated Supabase write probe content.",
+          contentUr: "\u0639\u0627\u0631\u0636\u06CC \u0645\u0648\u0627\u062F\u06D4",
+          category: "pakistan",
+          tags: ["diag-probe"],
+          status: "draft",
+          isBreaking: false,
+          isFeatured: false,
+          isTrending: false,
+          heroImage: "",
+          imageCaptionEn: "",
+          imageCaptionUr: "",
+          readingTimeMin: 1,
+          author: { id: "diag", nameEn: "Diagnostics", nameUr: "\u062A\u0634\u062E\u06CC\u0635", avatar: "", role: "Super Admin" },
+          publishedAt: "",
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          views: 0
+        },
+        "Supabase Diagnostics"
+      );
+      if (saveRes.ok) {
+        authorizedWriteTestOk = true;
+        await deleteSupabaseArticle(probeId, true);
+        writePermissionDetail = "Verified authorized INSERT/UPSERT, read-after-write verification, and DELETE cleanup on public.articles.";
+      } else {
+        authorizedWriteTestOk = false;
+        errorCode = saveRes.code || "SUPABASE_WRITE_FAILED";
+        errorMessage = sanitizeSupabaseDiagnosticText(saveRes.error || "Authorized write probe failed.");
+        writePermissionDetail = `Write probe failed: ${errorMessage}`;
+      }
+    }
+  } catch (err) {
+    errorCode = "SUPABASE_UNREACHABLE";
+    errorMessage = sanitizeSupabaseDiagnosticText(err?.message || "Unable to reach Supabase host.");
+  }
+  return {
+    configured: cfg.configured,
+    connected: articlesTableAvailable && readTestOk && !errorMessage,
+    pingOk,
+    pingLatencyMs,
+    sdkPackage: "@supabase/supabase-js",
+    projectHost: cfg.projectHost,
+    secretKeyMode: cfg.secretKeyMode,
+    publishableKeyMode: cfg.publishableKeyMode,
+    secretsRedacted: true,
+    schemaVersion: "supabase-core-002",
+    articlesTableAvailable,
+    readTestOk,
+    readPermissionDetail: sanitizeSupabaseDiagnosticText(readPermissionDetail),
+    authorizedWriteTestOk,
+    writePermissionDetail: sanitizeSupabaseDiagnosticText(writePermissionDetail),
+    rlsPolicyCheckOk,
+    rlsPolicyDetail: sanitizeSupabaseDiagnosticText(rlsPolicyDetail),
+    publishedCount,
+    totalCount,
+    latestSuccessfulSaveAt,
+    latestPublishingError: latestPublishingError ? sanitizeSupabaseDiagnosticText(latestPublishingError) : null,
+    latencyMs: Date.now() - started,
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    errorCode,
+    errorMessage: errorMessage ? sanitizeSupabaseDiagnosticText(errorMessage) : null,
+    missingEnvVars
+  };
+}
+
 // src/server/articleService.ts
-function mergeArticleLists(firestoreList, localList, statusFilter) {
+function mergeArticleLists(remoteList, localList, statusFilter) {
   const map = /* @__PURE__ */ new Map();
   for (const localArt of localList) {
     if (!localArt.deletedAt) {
       map.set(localArt.id, localArt);
     }
   }
-  for (const fsArt of firestoreList) {
-    if (!fsArt.deletedAt) {
-      map.set(fsArt.id, fsArt);
+  for (const remoteArt of remoteList) {
+    if (!remoteArt.deletedAt) {
+      map.set(remoteArt.id, remoteArt);
     }
   }
   let merged = Array.from(map.values());
@@ -7712,7 +8136,8 @@ function mergeArticleLists(firestoreList, localList, statusFilter) {
 }
 var ArticleService = class {
   /**
-   * Lists articles directly from Cloud Firestore (primary) merged with seed/local cache.
+   * Lists articles from Supabase PostgreSQL (when configured) or Cloud Firestore (fallback),
+   * merged cleanly with cached articles for low-latency SSR/RSS feeds.
    * Public requests strictly query status == 'published'. Admin requests retrieve all statuses.
    */
   static async listArticles(filters = {}, authCtx = {}) {
@@ -7724,31 +8149,58 @@ var ArticleService = class {
       statusFilter,
       Boolean(filters.includeDeleted)
     );
-    const fsRes = await listFirestoreArticles(
-      {
-        status: statusFilter,
-        category: filters.category,
-        tag: filters.tag,
-        search: filters.search,
-        limit: 250
-      },
-      authCtx.firebaseIdToken
+    const deletedIds = new Set(
+      db.getArticles(void 0, void 0, void 0, "all", true).filter((a) => a.deletedAt).map((a) => a.id)
     );
     let combined = localMatches;
     let storageEngine = "json_fallback";
     let firestoreCount = 0;
-    if (fsRes.ok) {
-      storageEngine = "firestore";
-      firestoreCount = fsRes.articles.length;
-      const deletedIds = new Set(db.getArticles(void 0, void 0, void 0, "all", true).filter((a) => a.deletedAt).map((a) => a.id));
-      const activeFsArticles = fsRes.articles.filter((a) => !deletedIds.has(a.id));
-      combined = mergeArticleLists(activeFsArticles, localMatches, statusFilter);
-    } else if (fsRes.error) {
-      recordServerError({
-        source: "firestore",
-        code: "FIRESTORE_LIST_WARNING",
-        message: `Firestore query fallback to cache: ${fsRes.error}`
+    let supabaseCount = 0;
+    if (isSupabaseConfigured()) {
+      const sbRes = await listSupabaseArticles({
+        status: statusFilter,
+        category: filters.category,
+        tag: filters.tag,
+        search: filters.search,
+        includeDeleted: Boolean(filters.includeDeleted),
+        limit: 250
       });
+      if (sbRes.ok) {
+        storageEngine = "supabase";
+        supabaseCount = sbRes.articles.length;
+        const activeSbArticles = filters.includeDeleted ? sbRes.articles : sbRes.articles.filter((a) => !deletedIds.has(a.id));
+        combined = mergeArticleLists(activeSbArticles, localMatches, statusFilter);
+      } else if (sbRes.error) {
+        recordServerError({
+          source: "supabase",
+          code: "SUPABASE_LIST_WARNING",
+          message: `Supabase query fallback: ${sbRes.error}`
+        });
+      }
+    }
+    if (storageEngine !== "supabase") {
+      const fsRes = await listFirestoreArticles(
+        {
+          status: statusFilter,
+          category: filters.category,
+          tag: filters.tag,
+          search: filters.search,
+          limit: 250
+        },
+        authCtx.firebaseIdToken
+      );
+      if (fsRes.ok) {
+        storageEngine = "firestore";
+        firestoreCount = fsRes.articles.length;
+        const activeFsArticles = fsRes.articles.filter((a) => !deletedIds.has(a.id));
+        combined = mergeArticleLists(activeFsArticles, localMatches, statusFilter);
+      } else if (fsRes.error) {
+        recordServerError({
+          source: "firestore",
+          code: "FIRESTORE_LIST_WARNING",
+          message: `Firestore query fallback to cache: ${fsRes.error}`
+        });
+      }
     }
     const total = combined.length;
     const offset = Math.max(0, Number(filters.offset || 0));
@@ -7757,16 +8209,23 @@ var ArticleService = class {
       articles: combined.slice(offset, offset + limit),
       total,
       storageEngine,
-      firestoreCount
+      firestoreCount,
+      supabaseCount
     };
   }
   /**
-   * Resolves an article by document ID or canonical slug from Cloud Firestore first,
-   * checking redirects if not found directly.
+   * Resolves an article by document ID or canonical slug from Supabase (when configured)
+   * or Cloud Firestore, checking redirects if not found directly.
    */
   static async getArticle(idOrSlug, authCtx = {}) {
     const clean = decodeURIComponent(idOrSlug || "").trim();
     if (!clean) return { article: null, storageEngine: "json_fallback" };
+    if (isSupabaseConfigured()) {
+      const sbRes = await getSupabaseArticle(clean);
+      if (sbRes.ok && sbRes.article && !sbRes.article.deletedAt) {
+        return { article: sbRes.article, storageEngine: "supabase" };
+      }
+    }
     const fsRes = await getFirestoreArticle(clean, authCtx.firebaseIdToken);
     if (fsRes.ok && fsRes.article && !fsRes.article.deletedAt) {
       return { article: fsRes.article, storageEngine: "firestore" };
@@ -7775,7 +8234,7 @@ var ArticleService = class {
     if (local) {
       return {
         article: local,
-        storageEngine: fsRes.ok ? "firestore" : "json_fallback"
+        storageEngine: isSupabaseConfigured() ? "supabase" : fsRes.ok ? "firestore" : "json_fallback"
       };
     }
     const rules = db.getRedirectRules().filter((r) => r.active && r.statusCode === 301);
@@ -7785,42 +8244,65 @@ var ArticleService = class {
     if (matched?.targetPath) {
       const nextSlug = matched.targetPath.split("/").pop();
       if (nextSlug) {
-        return { article: null, redirectTo: nextSlug, storageEngine: "firestore" };
+        return { article: null, redirectTo: nextSlug, storageEngine: isSupabaseConfigured() ? "supabase" : "firestore" };
       }
     }
-    return { article: null, storageEngine: fsRes.ok ? "firestore" : "json_fallback" };
+    return { article: null, storageEngine: isSupabaseConfigured() ? "supabase" : fsRes.ok ? "firestore" : "json_fallback" };
   }
   /**
-   * Saves or updates a bilingual news article permanently in Cloud Firestore,
-   * verifying read-after-write integrity and invalidating public feed caches.
+   * Saves or updates a news article permanently in Supabase PostgreSQL (when configured)
+   * or Cloud Firestore, verifying read-after-write integrity and invalidating public feed caches.
+   * Supports single-language (English-only or Urdu-only) as well as bilingual articles.
    */
   static async saveArticle(input, actor = "Editor", authCtx = {}) {
     const correlationId = `pub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const normalizedInput = {
-      ...input,
-      titleEn: (input.titleEn || input.titleUr || "").trim(),
-      titleUr: (input.titleUr || input.titleEn || "").trim(),
-      summaryEn: (input.summaryEn || "").trim(),
-      summaryUr: (input.summaryUr || "").trim(),
-      contentEn: (input.contentEn || input.summaryEn || "").trim(),
-      contentUr: (input.contentUr || input.summaryUr || "").trim()
-    };
-    if (!normalizedInput.titleEn && !normalizedInput.titleUr) {
+    const rawTitleEn = (input.titleEn || "").trim();
+    const rawTitleUr = (input.titleUr || "").trim();
+    if (!rawTitleEn && !rawTitleUr) {
       const err = new Error("At least one headline (English or Urdu) is required.");
       err.statusCode = 400;
       err.code = "MISSING_HEADLINE";
       throw err;
     }
+    const normalizedInput = {
+      ...input,
+      titleEn: rawTitleEn || rawTitleUr,
+      titleUr: rawTitleUr || rawTitleEn,
+      summaryEn: (input.summaryEn || "").trim(),
+      summaryUr: (input.summaryUr || "").trim(),
+      contentEn: (input.contentEn || input.summaryEn || "").trim(),
+      contentUr: (input.contentUr || input.summaryUr || "").trim()
+    };
+    const supabaseActive = isSupabaseConfigured();
     const hasFirestoreWriteAuth = Boolean(authCtx.firebaseIdToken || hasServiceAccountConfigured());
+    const intendedEngine = supabaseActive ? "supabase" : hasFirestoreWriteAuth ? "firestore" : "json_fallback";
     const savedLocal = db.upsertArticle(normalizedInput, actor, {
-      storageEngine: hasFirestoreWriteAuth ? "firestore" : "json_fallback",
+      storageEngine: intendedEngine,
       correlationId
     });
     let finalArticle = savedLocal;
     let storageEngine = "json_fallback";
     let verifiedReadBack = true;
     let firestoreWarning;
-    if (hasFirestoreWriteAuth) {
+    if (supabaseActive) {
+      const sbWrite = await upsertSupabaseArticle(savedLocal, actor);
+      if (!sbWrite.ok || !sbWrite.article) {
+        const err = new Error(
+          `Supabase PostgreSQL save failed [${sbWrite.code || "WRITE_ERROR"}]: ${sbWrite.error || "Unable to commit row."}`
+        );
+        err.statusCode = 500;
+        err.code = sbWrite.code || "SUPABASE_WRITE_FAILED";
+        err.correlationId = correlationId;
+        throw err;
+      }
+      finalArticle = sbWrite.article;
+      storageEngine = "supabase";
+      verifiedReadBack = true;
+      if (hasFirestoreWriteAuth) {
+        await upsertFirestoreArticle(finalArticle, authCtx).catch(() => {
+        });
+      }
+    } else if (hasFirestoreWriteAuth) {
       const fsWrite = await upsertFirestoreArticle(savedLocal, authCtx);
       if (!fsWrite.ok || !fsWrite.article) {
         const err = new Error(
@@ -7835,10 +8317,10 @@ var ArticleService = class {
       storageEngine = "firestore";
       verifiedReadBack = true;
     } else {
-      firestoreWarning = "Saved in workspace cache only \u2014 sign in with Firebase Admin Google account or configure FIREBASE_SERVICE_ACCOUNT_JSON to write permanently to Cloud Firestore.";
+      firestoreWarning = "Saved in local workspace persistence only \u2014 configure SUPABASE_URL + SUPABASE_SECRET_KEY (or Firebase Admin credentials) for external database sync.";
       recordServerError({
-        source: "firestore",
-        code: "NO_FIRESTORE_WRITE_AUTH",
+        source: "publishing",
+        code: "LOCAL_CACHE_ONLY_SAVE",
         message: firestoreWarning,
         correlationId
       });
@@ -7880,6 +8362,16 @@ var ArticleService = class {
   static async deleteArticle(id, actor = "Admin", hardDelete = false, authCtx = {}) {
     const existing = db.getArticleBySlugOrId(id, true) || (await this.getArticle(id, authCtx)).article;
     const okLocal = db.deleteArticle(id, actor, hardDelete);
+    if (isSupabaseConfigured()) {
+      const sbDel = await deleteSupabaseArticle(id, hardDelete);
+      if (!sbDel.ok) {
+        recordServerError({
+          source: "supabase",
+          code: "SUPABASE_DELETE_ERROR",
+          message: sbDel.error || `Failed deleting ${id} from Supabase.`
+        });
+      }
+    }
     if (authCtx.firebaseIdToken || hasServiceAccountConfigured()) {
       if (hardDelete) {
         const fsDel = await deleteFirestoreArticle(id, authCtx);
@@ -7904,7 +8396,7 @@ var ArticleService = class {
       action: hardDelete ? "hard_delete" : "delete",
       nextStatus: hardDelete ? "deleted" : "archived",
       actor,
-      storageEngine: authCtx.firebaseIdToken || hasServiceAccountConfigured() ? "firestore" : "json_fallback",
+      storageEngine: isSupabaseConfigured() ? "supabase" : authCtx.firebaseIdToken || hasServiceAccountConfigured() ? "firestore" : "json_fallback",
       message: `Article ${id} ${hardDelete ? "permanently removed" : "archived/soft-deleted"}.`
     });
     return okLocal;
@@ -7943,8 +8435,11 @@ var ArticleService = class {
     return res;
   }
   static async getPublishingHealth(authCtx = {}) {
-    const firestoreHealth = await checkFirestoreHealth(authCtx.firebaseIdToken);
-    const mergedRes = await this.listArticles({ status: "all" }, authCtx);
+    const [firestoreHealth, supabaseHealth, mergedRes] = await Promise.all([
+      checkFirestoreHealth(authCtx.firebaseIdToken),
+      checkSupabaseHealth({ runWriteTest: false }),
+      this.listArticles({ status: "all" }, authCtx)
+    ]);
     const allActive = mergedRes.articles;
     const counts = {
       all: allActive.length,
@@ -7964,6 +8459,7 @@ var ArticleService = class {
     }
     return {
       firestoreHealth,
+      supabaseHealth,
       cacheStatus: {
         ...db.getCacheStatus(),
         publishedArticlesCount: counts.published,
@@ -7976,42 +8472,51 @@ var ArticleService = class {
     };
   }
   /**
-   * Executes a live Cloud Firestore Publishing Pipeline Self-Test:
-   *   1. Verify Firestore /test/connection & reachability
-   *   2. Create bilingual EN/UR draft in Cloud Firestore + Read-After-Write
-   *   3. Publish article in Cloud Firestore
-   *   4. Verify public Firestore query (`status == 'published'`) & slug retrieval
-   *   5. Archive & clean up probe document cleanly (zero leftover test articles)
+   * Executes a live Database Publishing Pipeline Self-Test:
+   * Uses Supabase PostgreSQL when configured, otherwise Cloud Firestore.
    */
   static async runPublishingPipelineSelfTest(actor = "Super Admin", authCtx = {}) {
     const started = Date.now();
     const probeId = `art-diag-probe-${Date.now()}`;
     const probeSlug = `diag-probe-${Date.now()}`;
     const steps = [];
+    const supabaseActive = isSupabaseConfigured();
     const canWriteFirestore = Boolean(authCtx.firebaseIdToken || hasServiceAccountConfigured());
+    const targetEngine = supabaseActive ? "supabase" : canWriteFirestore ? "firestore" : "json_fallback";
     try {
-      const t0 = Date.now();
-      const health = await checkFirestoreHealth(authCtx.firebaseIdToken);
-      if (canWriteFirestore && !health.testConnectionDocExists) {
-        await ensureTestConnectionDoc(authCtx);
+      if (supabaseActive) {
+        const t0 = Date.now();
+        const sbHealth = await checkSupabaseHealth({ runWriteTest: false });
+        steps.push({
+          step: "1. Verify Supabase PostgreSQL Connectivity & Schema",
+          ok: sbHealth.connected && sbHealth.articlesTableAvailable,
+          durationMs: Date.now() - t0,
+          detail: `Host=${sbHealth.projectHost}, tablesReady=${sbHealth.articlesTableAvailable}, rlsOk=${sbHealth.rlsPolicyCheckOk}`
+        });
+      } else {
+        const t0 = Date.now();
+        const health = await checkFirestoreHealth(authCtx.firebaseIdToken);
+        if (canWriteFirestore && !health.testConnectionDocExists) {
+          await ensureTestConnectionDoc(authCtx);
+        }
+        steps.push({
+          step: "1. Verify Cloud Firestore Connectivity & Auth",
+          ok: health.connected && canWriteFirestore,
+          durationMs: Date.now() - t0,
+          detail: canWriteFirestore ? `Project=${health.projectId}, DB=${health.firestoreDatabaseId}, authMode=${health.authMode}` : `Connected=${health.connected}, no Supabase keys or Firebase Service Account supplied.`
+        });
       }
-      steps.push({
-        step: "1. Verify Cloud Firestore Connectivity & Auth",
-        ok: health.connected && canWriteFirestore,
-        durationMs: Date.now() - t0,
-        detail: canWriteFirestore ? `Project=${health.projectId}, DB=${health.firestoreDatabaseId}, authMode=${health.authMode}` : `Connected=${health.connected}, but no Firebase Admin ID token or Service Account was supplied for write test.`
-      });
       const t1 = Date.now();
       const created = await this.saveArticle(
         {
           id: probeId,
           slug: probeSlug,
-          titleEn: "Diagnostic Firebase Pipeline Probe",
-          titleUr: "\u0641\u0627\u0626\u0631 \u0628\u06CC\u0633 \u067E\u0628\u0644\u0634\u0646\u06AF \u062A\u0634\u062E\u06CC\u0635\u06CC \u062C\u0627\u0646\u0686",
-          summaryEn: "Automated temporary Cloud Firestore self-test article",
-          summaryUr: "\u06A9\u0644\u0627\u0624\u0688 \u0641\u0627\u0626\u0631 \u0627\u0633\u0679\u0648\u0631 \u06A9\u06CC \u062E\u0648\u062F\u06A9\u0627\u0631 \u062C\u0627\u0646\u0686 \u06A9\u0627 \u0645\u0636\u0645\u0648\u0646",
-          contentEn: "Automated bilingual Cloud Firestore write and read-after-write verification.",
-          contentUr: "\u0627\u0646\u06AF\u0631\u06CC\u0632\u06CC \u0627\u0648\u0631 \u0627\u0631\u062F\u0648 \u0645\u0648\u0627\u062F \u06A9\u06CC \u06A9\u0644\u0627\u0624\u0688 \u0641\u0627\u0626\u0631 \u0627\u0633\u0679\u0648\u0631 \u0645\u06CC\u06BA \u0645\u0633\u062A\u0642\u0644 \u062A\u0635\u062F\u06CC\u0642\u06D4",
+          titleEn: "Diagnostic Pipeline Probe",
+          titleUr: "\u067E\u0628\u0644\u0634\u0646\u06AF \u062A\u0634\u062E\u06CC\u0635\u06CC \u062C\u0627\u0646\u0686",
+          summaryEn: "Automated temporary persistence self-test article",
+          summaryUr: "\u062E\u0648\u062F\u06A9\u0627\u0631 \u062C\u0627\u0646\u0686 \u06A9\u0627 \u0645\u0636\u0645\u0648\u0646",
+          contentEn: "Automated bilingual write and read-after-write verification.",
+          contentUr: "\u0627\u0646\u06AF\u0631\u06CC\u0632\u06CC \u0627\u0648\u0631 \u0627\u0631\u062F\u0648 \u0645\u0648\u0627\u062F \u06A9\u06CC \u0645\u0633\u062A\u0642\u0644 \u062A\u0635\u062F\u06CC\u0642\u06D4",
           category: "pakistan",
           status: "draft",
           tags: ["diag-test"]
@@ -8020,28 +8525,28 @@ var ArticleService = class {
         authCtx
       );
       steps.push({
-        step: "2. Save Bilingual Draft to Cloud Firestore & Read-After-Write",
-        ok: created.verifiedReadBack && created.storageEngine === "firestore" && created.article.status === "draft",
+        step: `2. Save Draft to ${supabaseActive ? "Supabase PostgreSQL" : "Database"} & Read-After-Write`,
+        ok: created.verifiedReadBack && created.storageEngine === targetEngine && created.article.status === "draft",
         durationMs: Date.now() - t1,
-        detail: `ID=${created.article.id}, engine=${created.storageEngine}, EN+UR saved=${Boolean(created.article.contentEn && created.article.contentUr)}`
+        detail: `ID=${created.article.id}, engine=${created.storageEngine}, EN+UR=${Boolean(created.article.contentEn && created.article.contentUr)}`
       });
       const t2 = Date.now();
       const published = await this.transitionStatus(probeId, "published", actor, void 0, authCtx);
       steps.push({
-        step: "3. Publish Article in Cloud Firestore",
-        ok: published.article.status === "published" && published.storageEngine === "firestore" && Boolean(published.article.publishedAt),
+        step: "3. Publish Article & Set Timestamp",
+        ok: published.article.status === "published" && published.storageEngine === targetEngine && Boolean(published.article.publishedAt),
         durationMs: Date.now() - t2,
         detail: `publishedAt=${published.article.publishedAt}, engine=${published.storageEngine}`
       });
       const t3 = Date.now();
       const listRes = await this.listArticles({ status: "published", search: probeSlug }, {});
       const visiblePublicly = listRes.articles.some((a) => a.id === probeId);
-      const bySlug = await getFirestoreArticle(probeSlug);
+      const slugLookup = supabaseActive ? await getSupabaseArticle(probeSlug) : await getFirestoreArticle(probeSlug);
       steps.push({
-        step: "4. Public Unauthenticated Firestore Query & Slug Visibility",
-        ok: visiblePublicly && Boolean(bySlug.ok && bySlug.article),
+        step: "4. Public Published Query & Slug Visibility",
+        ok: visiblePublicly && Boolean(slugLookup.ok && slugLookup.article),
         durationMs: Date.now() - t3,
-        detail: `publicListMatch=${visiblePublicly}, slugDocFound=${Boolean(bySlug.article)}`
+        detail: `publicListMatch=${visiblePublicly}, slugDocFound=${Boolean(slugLookup.article)}`
       });
       const t4 = Date.now();
       const archived = await this.transitionStatus(probeId, "archived", actor, void 0, authCtx);
@@ -8050,12 +8555,12 @@ var ArticleService = class {
         step: "5. Archive Transition & Probe Cleanup",
         ok: archived.article.status === "archived" && deleted,
         durationMs: Date.now() - t4,
-        detail: deleted ? "Temporary probe archived and removed cleanly from Firestore & cache." : "Cleanup incomplete."
+        detail: deleted ? "Temporary probe archived and removed cleanly." : "Cleanup incomplete."
       });
       return {
         ok: steps.every((s) => s.ok),
         totalDurationMs: Date.now() - started,
-        storageEngine: canWriteFirestore ? "firestore" : "json_fallback",
+        storageEngine: targetEngine,
         steps,
         testedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
@@ -8068,12 +8573,12 @@ var ArticleService = class {
         step: "Pipeline Exception",
         ok: false,
         durationMs: Date.now() - started,
-        detail: err?.message || "Unexpected error during Firestore self-test."
+        detail: err?.message || "Unexpected error during publishing self-test."
       });
       return {
         ok: false,
         totalDurationMs: Date.now() - started,
-        storageEngine: canWriteFirestore ? "firestore" : "json_fallback",
+        storageEngine: targetEngine,
         steps,
         error: err?.message || "Publishing pipeline self-test failed",
         testedAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -10943,7 +11448,7 @@ app.get("/api/news", async (req, res) => {
     if (category === "all" || category === "sports") {
       triggerStaleProviders(["sports-news-rss"]);
     }
-    const { articles: allMatched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+    const { articles: allMatched, storageEngine, firestoreCount, supabaseCount } = await ArticleService.listArticles(
       { category, tag, search, status },
       session ? extractFirestoreAuthCtx(req, session) : {}
     );
@@ -10954,6 +11459,7 @@ app.get("/api/news", async (req, res) => {
       totalCount: allMatched.length,
       storageEngine,
       firestoreCount,
+      supabaseCount,
       cacheVersion: db.getCacheStatus().newsCacheVersion,
       articles
     });
@@ -11105,7 +11611,7 @@ app.get("/api/v1/news", async (req, res) => {
       session = await resolveOptionalAdminSession(req);
       if (!session) status = "published";
     }
-    const { articles: matched, storageEngine, firestoreCount } = await ArticleService.listArticles(
+    const { articles: matched, storageEngine, firestoreCount, supabaseCount } = await ArticleService.listArticles(
       { category, tag, search, status },
       session ? extractFirestoreAuthCtx(req, session) : {}
     );
@@ -11116,6 +11622,7 @@ app.get("/api/v1/news", async (req, res) => {
       success: true,
       storageEngine,
       firestoreCount,
+      supabaseCount,
       page,
       limit,
       total,
@@ -11663,19 +12170,47 @@ app.get("/api/admin/analytics", requirePermission("overview:view"), (_req, res) 
   });
 });
 app.get("/api/admin/system/health", requirePermission("health:view"), async (req, res) => {
-  const fsHealth = await checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken).catch(() => null);
+  const [fsHealth, sbHealth] = await Promise.all([
+    checkFirestoreHealth(extractFirestoreAuthCtx(req).firebaseIdToken).catch(() => null),
+    checkSupabaseHealth({ runWriteTest: false }).catch(() => null)
+  ]);
+  const sbCfg = resolveSupabaseEnvConfig();
   res.json({
     success: true,
     health: {
       ...db.getSystemHealth(),
-      databaseType: "Cloud Firestore",
-      storageEngine: fsHealth?.connected ? "cloud_firestore" : "json_cache_fallback",
+      databaseType: sbCfg.configured ? "Supabase PostgreSQL" : "Cloud Firestore",
+      storageEngine: sbHealth?.connected ? "supabase_postgresql" : fsHealth?.connected ? "cloud_firestore" : "json_cache_fallback",
+      supabaseConfigured: sbCfg.configured,
+      supabaseConnected: Boolean(sbHealth?.connected),
+      supabaseProjectHost: sbCfg.projectHost,
       firebaseConfigured: true,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
       firestoreConnected: Boolean(fsHealth?.connected)
     }
   });
+});
+app.get("/api/v1/admin/system/supabase-health", requirePermission("health:view"), async (_req, res) => {
+  try {
+    const report = await checkSupabaseHealth({ runWriteTest: false });
+    return res.json({ success: true, report });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Supabase health probe failed." });
+  }
+});
+app.post("/api/v1/admin/system/supabase-test", requirePermission("health:view"), async (_req, res) => {
+  try {
+    const report = await checkSupabaseHealth({ runWriteTest: true });
+    const ok = Boolean(report.connected && report.articlesTableAvailable && report.readTestOk && report.authorizedWriteTestOk !== false);
+    return res.status(ok ? 200 : 400).json({
+      success: ok,
+      error: report.errorMessage || (ok ? void 0 : "Supabase connection or schema verification failed."),
+      report
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Supabase write test failed." });
+  }
 });
 app.get("/api/v1/admin/system/database-health", requirePermission("health:view"), async (req, res) => {
   try {
@@ -11688,12 +12223,15 @@ app.get("/api/v1/admin/system/database-health", requirePermission("health:view")
 app.get("/api/v1/admin/system/publishing-health", requirePermission("health:view"), async (req, res) => {
   try {
     const health = await ArticleService.getPublishingHealth(extractFirestoreAuthCtx(req));
+    const sbActive = isSupabaseConfigured() && health.supabaseHealth.connected;
     return res.json({
       success: true,
+      supabaseConfigured: isSupabaseConfigured(),
+      supabaseHealth: health.supabaseHealth,
       firebaseConfigured: true,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
-      storageEngine: health.firestoreHealth.connected ? "firestore" : "json_fallback",
+      storageEngine: sbActive ? "supabase" : health.firestoreHealth.connected ? "firestore" : "json_fallback",
       counts: health.articleCountsByStatus,
       missingTranslationsCount: health.missingTranslationsCount,
       recentLogs: health.recentPublicationLogs,
@@ -11787,15 +12325,18 @@ app.get("/api/v1/admin/system/error-logs", requirePermission("health:view"), (re
 });
 app.get("/api/v1/admin/system/deployment", requirePermission("health:view"), (_req, res) => {
   const sys = db.getSystemHealth();
+  const sbCfg = resolveSupabaseEnvConfig();
   res.json({
     success: true,
     deployment: {
-      appVersion: process.env.APP_VERSION || "4.2.0",
+      appVersion: process.env.APP_VERSION || "1.0.0",
       nodeEnv: process.env.NODE_ENV || "development",
       nodeVersion: sys.nodeVersion,
       uptimeSeconds: sys.uptimeSeconds,
       memoryUsageMb: sys.memoryUsageMb,
-      storageMode: "cloud_firestore",
+      storageMode: sbCfg.configured ? "supabase_postgresql" : "cloud_firestore",
+      supabaseConfigured: sbCfg.configured,
+      supabaseProjectHost: sbCfg.projectHost,
       projectId: firebaseProjectConfig.projectId,
       firestoreDatabaseId: firebaseProjectConfig.firestoreDatabaseId,
       serviceAccountConfigured: hasServiceAccountConfigured(),
@@ -13510,6 +14051,23 @@ export {
  *   1. Service Account OAuth2 JWT token (when FIREBASE_SERVICE_ACCOUNT_JSON / BASE64 / GOOGLE_APPLICATION_CREDENTIALS is set)
  *   2. Verified Admin Firebase ID Token (forwarded from authenticated admin request)
  *   3. Public Web API Key (for public queries on status == 'published' & /test/connection)
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Trusted Server-Side Supabase PostgreSQL Admin Client & Article Repository
+ *
+ * Supports SUPABASE_URL, SUPABASE_SECRET_KEY (and legacy SUPABASE_SERVICE_ROLE_KEY),
+ * and SUPABASE_PUBLISHABLE_KEY (with legacy SUPABASE_ANON_KEY).
+ * Never exposes secret credentials to client bundles.
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Live Supabase Connection, Schema, Write & RLS Diagnostics
+ *
+ * Strictly executes real database queries/mutations when configured and never
+ * fabricates "Connected" status when credentials or tables are absent.
  */
 /**
  * @license

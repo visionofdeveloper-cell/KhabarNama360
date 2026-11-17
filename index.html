@@ -3,6 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        try {
+          var d = Object.getOwnPropertyDescriptor(window, 'fetch') ||
+            (window.Window && Object.getOwnPropertyDescriptor(window.Window.prototype, 'fetch'));
+          if (d && d.get && !d.set && d.configurable) {
+            var currentFetch = window.fetch.bind(window);
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function () { return currentFetch; },
+              set: function (next) { if (typeof next === 'function') currentFetch = next; }
+            });
+          }
+        } catch (_e) {}
+        window.addEventListener('error', function (ev) {
+          if (
+            ev &&
+            typeof ev.filename === 'string' &&
+            ev.filename.indexOf('chrome-extension://') === 0 &&
+            typeof ev.message === 'string' &&
+            ev.message.indexOf('Cannot set property fetch') !== -1
+          ) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/assets/aistudio/fav_8df1a0eb.png" />
     <link rel="apple-touch-icon" href="/assets/aistudio/fav_8df1a0eb.png" />
     <title>360Khabarnama | 360 خبرنامہ - News, Results, Finance & Islamic Resources</title>

@@ -7,7 +7,7 @@
 export interface ServerErrorLogEntry {
   id: string;
   timestamp: string;
-  source: 'api' | 'firestore' | 'publishing' | 'ai' | 'auth' | 'scheduler';
+  source: 'api' | 'supabase' | 'firestore' | 'publishing' | 'ai' | 'auth' | 'scheduler';
   code: string;
   message: string;
   statusCode?: number;

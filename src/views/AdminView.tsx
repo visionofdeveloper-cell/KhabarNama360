@@ -241,6 +241,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   // Toast feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [lastSavedReceipt, setLastSavedReceipt] = useState<{
+    id: string;
+    slug: string;
+    status: string;
+    storageEngine: string;
+    savedAt: string;
+    title: string;
+    warning?: string;
+  } | null>(null);
 
   const notify = (message: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ type, message });
@@ -384,14 +393,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const handleSaveArticle = async (e: React.FormEvent) => {
     e.preventDefault();
     setComposerError(null);
-    if (!formData.titleEn || !formData.titleUr) {
-      const msg = 'Please provide both English and Urdu headlines';
+    if (!formData.titleEn?.trim() && !formData.titleUr?.trim()) {
+      const msg = 'Please provide at least one headline (English or Urdu) before saving.';
       setComposerError(msg);
       notify(msg, 'error');
       return;
     }
 
-    const finalSlug = (formData.slug || '').trim() || slugify(formData.titleEn || 'news-article');
+    const finalSlug = (formData.slug || '').trim() || slugify(formData.titleEn || formData.titleUr || 'news-article');
     const payload = {
       ...formData,
       id: editingArticleId || `art-${Date.now()}`,
@@ -407,8 +416,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         body: JSON.stringify(payload),
       });
       const { data } = await safeParseResponse(res);
-      if (res.ok && data.success) {
-        notify(editingArticleId ? 'Article updated and verified!' : 'Article saved and verified!');
+      if (res.ok && data.success && data.article) {
+        setLastSavedReceipt({
+          id: data.article.id,
+          slug: data.article.slug,
+          status: data.article.status,
+          storageEngine: data.storageEngine || 'database',
+          savedAt: new Date().toISOString(),
+          title: data.article.titleEn || data.article.titleUr,
+          warning: data.warning,
+        });
+        notify(
+          editingArticleId
+            ? `Article updated (${data.article.status}) via ${data.storageEngine || 'db'}!`
+            : `Article saved (${data.article.status}) via ${data.storageEngine || 'db'}!`
+        );
         resetComposer();
         setComposerError(null);
         setActiveModule('articles');
@@ -597,13 +619,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       if (res.ok && d.success && d.seo) {
         setFormData(prev => ({
           ...prev,
-          tags: Array.isArray(d.seo.tags) ? d.seo.tags : prev.tags,
+          tags: Array.isArray(d.seo.tags) && d.seo.tags.length > 0 ? d.seo.tags : prev.tags,
           slug: !manualSlugEdited && !editingArticleId && d.seo.slugSuggestion ? d.seo.slugSuggestion : prev.slug,
           seo: {
             ...(prev.seo || {}),
             metaTitleEn: d.seo.metaTitleEn || prev.seo?.metaTitleEn,
             metaDescriptionEn: d.seo.metaDescription || prev.seo?.metaDescriptionEn,
-            focusKeywords: Array.isArray(d.seo.tags) ? d.seo.tags : prev.seo?.focusKeywords,
+            ogTitleEn: d.seo.metaTitleEn || prev.seo?.ogTitleEn,
+            ogDescriptionEn: d.seo.metaDescription || prev.seo?.ogDescriptionEn,
+            focusKeywords: Array.isArray(d.seo.tags) && d.seo.tags.length > 0 ? d.seo.tags : prev.seo?.focusKeywords,
           },
         }));
         if (d.telemetry) setComposerTelemetry(d.telemetry);
@@ -925,6 +949,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                   <span>AI Vault</span>
                 </button>
               )}
+              {hasPermission('health:view') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveModule('diagnostics')}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-slate-700 inline-flex items-center gap-1.5"
+                >
+                  <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>System Diagnostics</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1041,20 +1075,61 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
             </button>
           </div>
 
+          {lastSavedReceipt && (
+            <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="font-black text-emerald-950">
+                  Save Confirmation — {lastSavedReceipt.title}
+                </div>
+                <div className="text-[11px] font-mono text-emerald-900 flex flex-wrap gap-3">
+                  <span>ID: {lastSavedReceipt.id}</span>
+                  <span>Status: {lastSavedReceipt.status.toUpperCase()}</span>
+                  <span>Engine: {lastSavedReceipt.storageEngine}</span>
+                  <span>Saved: {formatKarachiDateTime(lastSavedReceipt.savedAt)}</span>
+                </div>
+                {lastSavedReceipt.warning && (
+                  <div className="text-[11px] text-amber-800 font-semibold">{lastSavedReceipt.warning}</div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {lastSavedReceipt.status === 'published' && (
+                  <a
+                    href={`/en/news/${encodeURIComponent(lastSavedReceipt.slug)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg"
+                  >
+                    Open Public URL ↗
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setLastSavedReceipt(null)}
+                  className="px-2.5 py-1.5 bg-white border border-emerald-300 text-emerald-900 rounded-lg font-bold"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1 bg-gray-100 p-1 rounded-lg">
-              {['all', 'published', 'in_review', 'scheduled', 'draft', 'archived', 'failed'].map(st => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setArticleFilterStatus(st)}
-                  className={`px-3 py-1 rounded-md font-bold uppercase ${
-                    articleFilterStatus === st ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600'
-                  }`}
-                >
-                  {st.replace('_', ' ')} ({st === 'all' ? articles.length : articles.filter(a => a.status === st).length})
-                </button>
-              ))}
+              {['all', 'published', 'in_review', 'scheduled', 'draft', 'archived', 'failed'].map(st => {
+                const label = st === 'in_review' ? 'Pending Review' : st.replace('_', ' ');
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setArticleFilterStatus(st)}
+                    className={`px-3 py-1 rounded-md font-bold uppercase ${
+                      articleFilterStatus === st ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600'
+                    }`}
+                  >
+                    {label} ({st === 'all' ? articles.length : articles.filter(a => a.status === st).length})
+                  </button>
+                );
+              })}
             </div>
             <div className="relative w-64">
               <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />

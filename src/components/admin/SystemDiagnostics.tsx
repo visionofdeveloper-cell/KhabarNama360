@@ -18,8 +18,19 @@ import {
 } from 'lucide-react';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
 import { formatKarachiDateTime } from '../../utils/dateTime.ts';
+import { getSupabaseClient, isBrowserSupabaseConfigured } from '../../lib/supabaseClient.ts';
+
+function sanitizeDiagText(raw: string): string {
+  return String(raw || '')
+    .replace(/sb_secret_[A-Za-z0-9\-_]+/g, '[REDACTED_SB_SECRET]')
+    .replace(/sb_publishable_[A-Za-z0-9\-_]+/g, '[REDACTED_SB_PUBLISHABLE]')
+    .replace(/eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/g, '[REDACTED_JWT]')
+    .replace(/Bearer\s+[A-Za-z0-9\-_.]+/gi, 'Bearer [REDACTED]')
+    .replace(/(apikey|token|secret|password|key)=([^&\s]+)/gi, '$1=[REDACTED]');
+}
 
 type DiagTab =
+  | 'supabase'
   | 'database'
   | 'publishing'
   | 'persistence'
@@ -31,7 +42,8 @@ type DiagTab =
   | 'collections';
 
 const DIAG_TABS: { id: DiagTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'database', label: 'Firebase Health', icon: Database },
+  { id: 'supabase', label: 'Supabase Database', icon: Database },
+  { id: 'database', label: 'Firebase Health', icon: Server },
   { id: 'publishing', label: 'Publishing Pipeline', icon: Zap },
   { id: 'persistence', label: 'Article Persistence', icon: Layers },
   { id: 'public_api', label: 'Public API', icon: Globe },
@@ -43,11 +55,22 @@ const DIAG_TABS: { id: DiagTab; label: string; icon: React.ComponentType<{ class
 ];
 
 export const SystemDiagnostics: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<DiagTab>('database');
+  const [activeTab, setActiveTab] = useState<DiagTab>('supabase');
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionBanner, setActionBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [supabaseHealth, setSupabaseHealth] = useState<any>(null);
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [browserSdkReport, setBrowserSdkReport] = useState<{
+    configured: boolean;
+    publicReadOk: boolean | null;
+    publicReadCount: number | null;
+    draftRlsBlocked: boolean | null;
+    anonWriteBlocked: boolean | null;
+    latencyMs: number | null;
+    detail: string;
+  } | null>(null);
   const [dbHealth, setDbHealth] = useState<any>(null);
   const [pubHealth, setPubHealth] = useState<any>(null);
   const [pipelineResult, setPipelineResult] = useState<any>(null);
@@ -59,10 +82,82 @@ export const SystemDiagnostics: React.FC = () => {
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [collectionsInfo, setCollectionsInfo] = useState<any>(null);
 
+  const runBrowserSupabaseSdkProbe = async () => {
+    if (!isBrowserSupabaseConfigured()) {
+      setBrowserSdkReport({
+        configured: false,
+        publicReadOk: null,
+        publicReadCount: null,
+        draftRlsBlocked: null,
+        anonWriteBlocked: null,
+        latencyMs: null,
+        detail: 'VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are not set in client bundle; browser SDK probe skipped (server-side SDK handles private operations).',
+      });
+      return;
+    }
+
+    const client = getSupabaseClient();
+    if (!client) return;
+    const t0 = performance.now();
+    try {
+      const pubRes = await client
+        .from('articles')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'published')
+        .is('deleted_at', null);
+
+      const draftRes = await client.from('articles').select('id').eq('status', 'draft').limit(1);
+      const writeRes = await client.from('articles').insert({
+        id: `client-rls-probe-${Date.now()}`,
+        slug: `client-rls-probe-${Date.now()}`,
+        title_en: 'Client SDK Write Probe',
+        status: 'draft',
+      });
+
+      const publicReadOk = !pubRes.error;
+      const draftRlsBlocked = Boolean(draftRes.error) || !draftRes.data || draftRes.data.length === 0;
+      const anonWriteBlocked = Boolean(writeRes.error);
+      setBrowserSdkReport({
+        configured: true,
+        publicReadOk,
+        publicReadCount: typeof pubRes.count === 'number' ? pubRes.count : 0,
+        draftRlsBlocked,
+        anonWriteBlocked,
+        latencyMs: Math.round(performance.now() - t0),
+        detail: publicReadOk
+          ? `Browser @supabase/supabase-js read verified (${pubRes.count ?? 0} published). RLS: draftsBlocked=${draftRlsBlocked}, anonWriteBlocked=${anonWriteBlocked}.`
+          : `Browser SDK read error: ${sanitizeDiagText(pubRes.error?.message || 'Unknown error')}`,
+      });
+    } catch (err: any) {
+      setBrowserSdkReport({
+        configured: true,
+        publicReadOk: false,
+        publicReadCount: null,
+        draftRlsBlocked: null,
+        anonWriteBlocked: null,
+        latencyMs: Math.round(performance.now() - t0),
+        detail: sanitizeDiagText(err?.message || 'Browser Supabase SDK probe failed.'),
+      });
+    }
+  };
+
   const loadTab = async (tab: DiagTab) => {
     setLoading(true);
     try {
       switch (tab) {
+        case 'supabase': {
+          setSupabaseError(null);
+          const [res] = await Promise.all([
+            safeFetchJson('/api/v1/admin/system/supabase-health', { credentials: 'include' }),
+            runBrowserSupabaseSdkProbe(),
+          ]);
+          if (res.success && res.report) {
+            setSupabaseHealth(res.report);
+          } else {
+            setSupabaseError(res.error || 'Unable to retrieve Supabase diagnostics.');
+          }
+          break;
+        }
         case 'database': {
           const res = await safeFetchJson('/api/v1/admin/system/database-health', { credentials: 'include' });
           if (res.success) setDbHealth(res.report);
@@ -140,6 +235,32 @@ export const SystemDiagnostics: React.FC = () => {
           : res.error || 'Publishing pipeline self-test encountered an error.',
       });
       await loadTab('publishing');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleTestSupabase = async () => {
+    setActionBusy(true);
+    setActionBanner(null);
+    setSupabaseError(null);
+    try {
+      const [res] = await Promise.all([
+        safeFetchJson('/api/v1/admin/system/supabase-test', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        runBrowserSupabaseSdkProbe(),
+      ]);
+      if (res.report) setSupabaseHealth(res.report);
+      else if (!res.success) setSupabaseError(res.error || 'Supabase connection test failed.');
+      setActionBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? `Supabase PostgreSQL connection, RLS isolation, and authorized write test verified (${res.report?.latencyMs}ms).`
+          : res.error || 'Supabase connection or write test failed.',
+      });
     } finally {
       setActionBusy(false);
     }
@@ -225,9 +346,9 @@ export const SystemDiagnostics: React.FC = () => {
     <div className="space-y-4 text-xs">
       <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-black text-gray-900">Firebase &amp; Publishing Diagnostics Console</h2>
+          <h2 className="text-base font-black text-gray-900">System &amp; Database Diagnostics Console</h2>
           <p className="text-gray-500">
-            Live verification for Google Cloud Firestore persistence, bilingual EN/UR publishing visibility, Gemini API &amp; security rules.
+            Official Supabase SDK &amp; Cloud Firestore verification: connectivity, RLS policies, articles table permissions, publishing &amp; AI status.
           </p>
         </div>
         <button
@@ -241,7 +362,7 @@ export const SystemDiagnostics: React.FC = () => {
         </button>
       </div>
 
-      {/* 9 Diagnostic Tabs */}
+      {/* Diagnostic Tabs */}
       <div className="flex flex-wrap gap-1.5 bg-white border border-gray-200 rounded-xl p-2">
         {DIAG_TABS.map(tab => {
           const Icon = tab.icon;
@@ -276,6 +397,156 @@ export const SystemDiagnostics: React.FC = () => {
             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
           )}
           <span>{actionBanner.text}</span>
+        </div>
+      )}
+
+      {/* TAB 0: SUPABASE POSTGRESQL HEALTH */}
+      {activeTab === 'supabase' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <div>
+              <h3 className="font-black text-gray-900 text-sm">Supabase PostgreSQL SDK, Permissions &amp; RLS Diagnostics</h3>
+              <p className="text-gray-500">
+                Uses official <code className="font-mono">@supabase/supabase-js</code> SDK to verify host connectivity, <code className="font-mono">articles</code> read/write permissions, and Row-Level Security.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={actionBusy || loading}
+              onClick={handleTestSupabase}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>{actionBusy ? 'Testing Supabase SDK...' : 'Test Supabase Connection'}</span>
+            </button>
+          </div>
+
+          {supabaseError && !supabaseHealth && (
+            <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 font-semibold">
+              {supabaseError}
+            </div>
+          )}
+
+          {!supabaseHealth && loading && (
+            <div className="p-6 text-center text-gray-500 font-semibold">
+              Running Supabase SDK connectivity and RLS verification...
+            </div>
+          )}
+
+          {supabaseHealth && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Supabase Connectivity</div>
+                  <div className="mt-1 flex items-center gap-1.5 font-black text-sm">
+                    {supabaseHealth.connected ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span className="text-emerald-700">Connected</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4 text-rose-600" />
+                        <span className="text-rose-700">{supabaseHealth.configured ? 'Error' : 'Not Configured'}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-gray-500 mt-0.5">
+                    Ping: {supabaseHealth.pingOk ? `OK (${supabaseHealth.pingLatencyMs}ms)` : `${supabaseHealth.latencyMs}ms`} • {supabaseHealth.sdkPackage || '@supabase/supabase-js'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Project Host / Key Mode</div>
+                  <div className="mt-1 font-mono font-bold text-gray-800 truncate">{supabaseHealth.projectHost || 'Unconfigured'}</div>
+                  <div className="text-[10px] font-mono text-gray-500 truncate">
+                    Secret: {supabaseHealth.secretKeyMode} (Redacted)
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Articles Table Permissions</div>
+                  <div className="mt-1 font-mono font-bold text-gray-800">
+                    Read: {supabaseHealth.readTestOk ? 'Allowed' : 'Failed/Unverified'}
+                  </div>
+                  <div className="text-[10px] font-mono text-gray-500">
+                    Write: {supabaseHealth.authorizedWriteTestOk === null ? 'Click Test to Verify' : supabaseHealth.authorizedWriteTestOk ? 'Allowed (Verified)' : 'Denied'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">PostgreSQL Row Counts</div>
+                  <div className="mt-1 font-mono font-black text-gray-900">
+                    {supabaseHealth.publishedCount ?? 0} published / {supabaseHealth.totalCount ?? '—'} total
+                  </div>
+                  <div className="text-[10px] font-mono text-gray-500 truncate">
+                    Last Save: {supabaseHealth.latestSuccessfulSaveAt ? formatKarachiDateTime(supabaseHealth.latestSuccessfulSaveAt) : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                <div className="p-3 bg-gray-50 border rounded-xl space-y-1.5">
+                  <div className="font-bold text-gray-800">Server-Side Permissions &amp; RLS Audit</div>
+                  <div className="text-gray-700">
+                    <span className="font-semibold">Read Permission:</span> {supabaseHealth.readPermissionDetail || (supabaseHealth.readTestOk ? 'Verified' : 'Pending')}
+                  </div>
+                  <div className="text-gray-700">
+                    <span className="font-semibold">Write Permission:</span> {supabaseHealth.writePermissionDetail || 'Click Test Supabase Connection'}
+                  </div>
+                  <div className="font-mono text-gray-700 pt-0.5">
+                    RLS Policy Status:{' '}
+                    <span className={supabaseHealth.rlsPolicyCheckOk ? 'text-emerald-700 font-bold' : 'text-amber-800 font-bold'}>
+                      {supabaseHealth.rlsPolicyCheckOk === null ? 'Not Tested' : supabaseHealth.rlsPolicyCheckOk ? 'Isolated (Pass)' : 'Check Required'}
+                    </span>
+                  </div>
+                  <div className="text-gray-600">{supabaseHealth.rlsPolicyDetail}</div>
+                </div>
+
+                <div className="p-3 bg-gray-50 border rounded-xl space-y-1.5">
+                  <div className="font-bold text-gray-800">Client Browser Supabase SDK Check (Publishable Key)</div>
+                  {browserSdkReport ? (
+                    <>
+                      <div className="font-mono text-gray-700">
+                        Browser SDK Configured: <span className="font-bold">{browserSdkReport.configured ? 'Yes' : 'No (Server-Only Mode)'}</span>
+                        {browserSdkReport.latencyMs !== null && ` • ${browserSdkReport.latencyMs}ms`}
+                      </div>
+                      {browserSdkReport.configured && (
+                        <div className="font-mono text-gray-700">
+                          Public SELECT: {browserSdkReport.publicReadOk ? 'OK' : 'Error'} ({browserSdkReport.publicReadCount ?? 0}) • Drafts Blocked:{' '}
+                          {browserSdkReport.draftRlsBlocked ? 'Yes' : 'No'} • Anon Write Blocked: {browserSdkReport.anonWriteBlocked ? 'Yes' : 'No'}
+                        </div>
+                      )}
+                      <div className="text-gray-600">{browserSdkReport.detail}</div>
+                    </>
+                  ) : (
+                    <div className="text-gray-500">Initializing browser SDK probe...</div>
+                  )}
+                </div>
+              </div>
+
+              {(supabaseHealth.errorMessage || (supabaseHealth.missingEnvVars || []).length > 0) && (
+                <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="font-bold">Supabase Connection Status [{supabaseHealth.errorCode || 'ERROR'}]</div>
+                    <div>{supabaseHealth.errorMessage}</div>
+                    {(supabaseHealth.missingEnvVars || []).length > 0 && (
+                      <div className="font-mono text-[11px]">
+                        Missing Env Vars: {supabaseHealth.missingEnvVars.join(', ')} — Apply <code>/database/supabase_migrations/001_supabase_core_schema.sql</code> and <code>002_supabase_rls_policies.sql</code> in Supabase SQL Editor.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {supabaseHealth.latestPublishingError && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 text-[11px]">
+                  <span className="font-bold">Latest Publishing Notice:</span> {supabaseHealth.latestPublishingError}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
