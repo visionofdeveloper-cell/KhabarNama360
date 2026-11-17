@@ -134,6 +134,7 @@ interface DatabaseSchema {
   aiUsageLogs?: AIUsageLog[];
   aiConnectionTests?: AIConnectionTestRecord[];
   aiHealthStatus?: { lastCheckAt: string; summary: any } | null;
+  aiEnvSuppressed?: { gemini?: boolean; grok?: boolean };
   editorialDrafts?: EditorialDraftRecord[];
   publicationLogs?: PublicationLogEntry[];
   newsCacheVersion?: number;
@@ -1932,6 +1933,7 @@ class DatabaseManager {
         if (!parsed.aiUsageLogs) parsed.aiUsageLogs = [];
         if (!parsed.aiConnectionTests) parsed.aiConnectionTests = [];
         if (!('aiHealthStatus' in parsed)) parsed.aiHealthStatus = null;
+        if (!parsed.aiEnvSuppressed) parsed.aiEnvSuppressed = { gemini: false, grok: false };
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
 
@@ -2020,6 +2022,7 @@ class DatabaseManager {
       aiUsageLogs: [],
       aiConnectionTests: [],
       aiHealthStatus: null,
+      aiEnvSuppressed: { gemini: false, grok: false },
       editorialDrafts: [],
       cronLocks: {},
     };
@@ -3225,6 +3228,83 @@ class DatabaseManager {
 
   public getAiHealthStatus(): { lastCheckAt: string; summary: any } | null {
     return this.data.aiHealthStatus || null;
+  }
+
+  public getAiEnvSuppressed(): { gemini: boolean; grok: boolean } {
+    return {
+      gemini: Boolean(this.data.aiEnvSuppressed?.gemini),
+      grok: Boolean(this.data.aiEnvSuppressed?.grok),
+    };
+  }
+
+  public setAiEnvSuppressed(patch: { gemini?: boolean; grok?: boolean }): void {
+    this.data.aiEnvSuppressed = {
+      ...(this.data.aiEnvSuppressed || {}),
+      ...patch,
+    };
+    this.saveDatabase(this.data);
+  }
+
+  public resetAllAiCredentials(actor: string = 'Super Admin'): {
+    removedCount: number;
+    removedProviders: { id: string; providerType: string; maskedKey: string }[];
+  } {
+    const existing = this.data.aiProviders || [];
+    const targetToRemove = existing.filter(
+      p => p.providerType === 'gemini' || p.providerType === 'grok'
+    );
+    const removedProviders = targetToRemove.map(p => ({
+      id: p.id,
+      providerType: p.providerType,
+      maskedKey: p.maskedKey,
+    }));
+    const removedIds = new Set(targetToRemove.map(p => p.id));
+
+    // Remove previously stored Gemini and Grok credentials
+    this.data.aiProviders = existing.filter(p => !removedIds.has(p.id));
+
+    // Clear active task-to-credential associations
+    if (this.data.aiTaskRoutes) {
+      for (const taskKey of Object.keys(this.data.aiTaskRoutes)) {
+        const route = this.data.aiTaskRoutes[taskKey];
+        if (!route) continue;
+        this.data.aiTaskRoutes[taskKey] = {
+          ...route,
+          primaryCredentialId: '',
+          primaryModel: '',
+          fallbackCredentialId: '',
+          fallbackModel: '',
+        };
+      }
+    }
+
+    // Clear old health status & cached validation results while preserving redacted usage/audit history
+    this.data.aiHealthStatus = null;
+    this.data.aiConnectionTests = [];
+    this.data.aiEnvSuppressed = { gemini: true, grok: true };
+
+    // Ensure preserved usage logs have no raw secrets anywhere
+    if (Array.isArray(this.data.aiUsageLogs)) {
+      this.data.aiUsageLogs = this.data.aiUsageLogs.map(log => ({
+        ...log,
+        errorMessage: log.errorMessage
+          ? log.errorMessage
+              .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED_GEMINI_KEY]')
+              .replace(/xai-[0-9A-Za-z_-]{16,}/g, '[REDACTED_XAI_KEY]')
+          : log.errorMessage,
+      }));
+    }
+
+    this.logAudit(
+      actor,
+      'AI Credentials Reset',
+      `Reset all stored Gemini/Grok AI credentials (${removedProviders.length} removed), cleared route bindings & caches, suppressed env fallback.`
+    );
+    this.saveDatabase(this.data);
+    return {
+      removedCount: removedProviders.length,
+      removedProviders,
+    };
   }
 
   // --- Editorial Studio Drafts ---

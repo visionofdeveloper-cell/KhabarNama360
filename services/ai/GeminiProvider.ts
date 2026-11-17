@@ -10,7 +10,10 @@ import {
   classifyProviderError,
   fetchWithTimeout,
   generateCorrelationId,
+  getGenerationTimeoutMs,
+  getInferenceTimeoutMs,
   ProviderExecutionError,
+  sleepWithAbort,
 } from './AIConnectionValidator.ts';
 import { AIModelDiscovery } from './AIModelDiscovery.ts';
 
@@ -76,9 +79,13 @@ export class GeminiProvider {
 
     const client = this.createClient(cleanKey);
     const timeoutController = new AbortController();
-    const timeoutMs = opts.timeoutMs || 35000;
+    const timeoutMs = opts.timeoutMs || getInferenceTimeoutMs();
     const timer = setTimeout(
-      () => timeoutController.abort(new Error(`Gemini request timed out after ${timeoutMs}ms`)),
+      () => {
+        const timeoutErr = new Error(`Gemini request timed out after ${timeoutMs}ms`);
+        timeoutErr.name = 'TimeoutError';
+        timeoutController.abort(timeoutErr);
+      },
       timeoutMs
     );
 
@@ -180,29 +187,47 @@ export class GeminiProvider {
 
   /**
    * Minimal live generateContent test using official v1beta REST endpoint and x-goog-api-key header.
+   * Uses a configurable 45000-60000ms window, tiny prompt ("Reply with OK."), minimal thinking,
+   * and at most one bounded jittered retry on transient timeout/5xx within remaining budget.
    */
   public static async testGeneration(
     apiKey: string,
     model: string,
-    signal?: AbortSignal
-  ): Promise<{ text: string; model: string; latencyMs: number; correlationId: string }> {
+    signal?: AbortSignal,
+    options?: { timeoutMs?: number; retryOnTransient?: boolean; deadlineMs?: number }
+  ): Promise<{
+    text: string;
+    model: string;
+    latencyMs: number;
+    correlationId: string;
+    retried: boolean;
+    finishReason?: string;
+    tokenUsage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+  }> {
     const cleanKey = apiKey.trim();
     const correlationId = generateCorrelationId('gem-gen');
-    const start = Date.now();
+    const overallStart = Date.now();
     const cleanModel = model.startsWith('models/') ? model.slice('models/'.length) : model;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent`;
+
+    const configuredTimeoutMs = options?.timeoutMs
+      ? Math.max(15000, Math.min(60000, options.timeoutMs))
+      : getGenerationTimeoutMs();
+    const deadlineMs = options?.deadlineMs || (overallStart + Math.min(58000, configuredTimeoutMs + 10000));
+    const allowRetry = options?.retryOnTransient !== false;
 
     const isGemini4 = cleanModel.startsWith('gemini-4-');
     const isGemini3 = cleanModel.startsWith('gemini-3');
     const isGemini25 = cleanModel.startsWith('gemini-2.5');
     const generationConfig: Record<string, any> = {
-      maxOutputTokens: isGemini25 && cleanModel.includes('pro') ? 1024 : 512,
+      maxOutputTokens: isGemini25 && cleanModel.includes('pro') ? 256 : 32,
     };
     if (isGemini4) {
+      // Gemini 4 supports LOW (MINIMAL returns 400 on gemini-4-*)
       generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
     } else if (isGemini3) {
       generationConfig.thinkingConfig = {
-        thinkingLevel: cleanModel.includes('flash-lite') ? 'MINIMAL' : 'LOW',
+        thinkingLevel: cleanModel.includes('flash') ? 'MINIMAL' : 'LOW',
       };
     } else if (isGemini25) {
       generationConfig.thinkingConfig = {
@@ -212,7 +237,7 @@ export class GeminiProvider {
       generationConfig.temperature = 0;
     }
 
-    try {
+    const executeSingleAttempt = async (attemptTimeoutMs: number, retried: boolean) => {
       const res = await fetchWithTimeout(
         url,
         {
@@ -226,14 +251,14 @@ export class GeminiProvider {
             contents: [
               {
                 role: 'user',
-                parts: [{ text: 'Respond with the exact word: CONNECTED' }],
+                parts: [{ text: 'Reply with OK.' }],
               },
             ],
             generationConfig,
           }),
           signal,
         },
-        20000
+        attemptTimeoutMs
       );
 
       const rawText = await res.text();
@@ -251,6 +276,8 @@ export class GeminiProvider {
             authenticated: true,
             correlationId,
             secretToRedact: cleanKey,
+            timeoutWindowMs: attemptTimeoutMs,
+            retried,
           })
         );
       }
@@ -267,17 +294,25 @@ export class GeminiProvider {
             authenticated: true,
             correlationId,
             secretToRedact: cleanKey,
+            timeoutWindowMs: attemptTimeoutMs,
+            retried,
           })
         );
       }
 
       const candidate = parsed?.candidates?.[0];
       const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
-      const text = parts
+      const nonThoughtText = parts
         .filter((p: any) => !p?.thought && typeof p?.text === 'string')
         .map((p: any) => p.text)
         .join('')
         .trim();
+      const anyText = parts
+        .filter((p: any) => typeof p?.text === 'string')
+        .map((p: any) => p.text)
+        .join('')
+        .trim();
+      const text = nonThoughtText || anyText;
 
       if (!text) {
         throw new ProviderExecutionError(
@@ -289,29 +324,82 @@ export class GeminiProvider {
             authenticated: true,
             correlationId,
             secretToRedact: cleanKey,
+            timeoutWindowMs: attemptTimeoutMs,
+            retried,
           })
         );
       }
 
+      const usage = parsed?.usageMetadata || {};
       return {
         text,
         model: cleanModel,
-        latencyMs: Date.now() - start,
+        latencyMs: Date.now() - overallStart,
         correlationId,
+        retried,
+        finishReason: candidate?.finishReason,
+        tokenUsage: {
+          promptTokens: usage.promptTokenCount,
+          completionTokens: usage.candidatesTokenCount,
+          totalTokens: usage.totalTokenCount,
+        },
       };
-    } catch (err: any) {
-      if (err instanceof ProviderExecutionError) throw err;
-      throw new ProviderExecutionError(
-        classifyProviderError({
-          providerType: 'gemini',
-          err,
-          model: cleanModel,
-          stage: 'generation_test',
-          authenticated: true,
-          correlationId,
-          secretToRedact: cleanKey,
-        })
-      );
+    };
+
+    try {
+      const remainingFirst = Math.max(15000, Math.min(configuredTimeoutMs, deadlineMs - Date.now()));
+      return await executeSingleAttempt(remainingFirst, false);
+    } catch (firstErr: any) {
+      if (signal?.aborted) {
+        throw firstErr;
+      }
+      const firstDiag =
+        firstErr instanceof ProviderExecutionError
+          ? firstErr.diagnostic
+          : classifyProviderError({
+              providerType: 'gemini',
+              err: firstErr,
+              model: cleanModel,
+              stage: 'generation_test',
+              authenticated: true,
+              correlationId,
+              secretToRedact: cleanKey,
+              timeoutWindowMs: configuredTimeoutMs,
+            });
+
+      const isTransientRetryable =
+        firstDiag.category === 'timeout' || firstDiag.category === 'server_error_5xx';
+      const remainingBeforeBackoff = deadlineMs - Date.now();
+
+      // Only retry once on transient timeout/5xx if at least 10s remains inside proxy ceiling
+      if (allowRetry && isTransientRetryable && remainingBeforeBackoff > 10000) {
+        const backoffMs = 600 + Math.floor(Math.random() * 400);
+        await sleepWithAbort(backoffMs, signal);
+        const remainingSecond = Math.max(8000, Math.min(configuredTimeoutMs, deadlineMs - Date.now()));
+        try {
+          return await executeSingleAttempt(remainingSecond, true);
+        } catch (secondErr: any) {
+          if (secondErr instanceof ProviderExecutionError) {
+            throw new ProviderExecutionError({ ...secondErr.diagnostic, retried: true });
+          }
+          throw new ProviderExecutionError(
+            classifyProviderError({
+              providerType: 'gemini',
+              err: secondErr,
+              model: cleanModel,
+              stage: 'generation_test',
+              authenticated: true,
+              correlationId,
+              secretToRedact: cleanKey,
+              timeoutWindowMs: remainingSecond,
+              retried: true,
+            })
+          );
+        }
+      }
+
+      if (firstErr instanceof ProviderExecutionError) throw firstErr;
+      throw new ProviderExecutionError(firstDiag);
     }
   }
 
@@ -434,7 +522,7 @@ export class GeminiProvider {
         correlationId: genRes.correlationId,
       };
     } catch (err: any) {
-      const diag =
+      const genDiag =
         err instanceof ProviderExecutionError
           ? err.diagnostic
           : classifyProviderError({
@@ -445,20 +533,30 @@ export class GeminiProvider {
               authenticated: true,
               correlationId,
               secretToRedact: apiKey,
+              timeoutWindowMs: getGenerationTimeoutMs(),
             });
+
+      const preservedStatus =
+        genDiag.connectionStatus === 'timeout' ||
+        genDiag.connectionStatus === 'quota_exhausted' ||
+        genDiag.connectionStatus === 'billing_required' ||
+        genDiag.connectionStatus === 'permission_denied' ||
+        genDiag.connectionStatus === 'endpoint_not_found'
+          ? genDiag.connectionStatus
+          : 'authenticated_generation_unavailable';
 
       return {
         ok: false,
         authenticated: true,
         generationVerified: false,
-        connectionStatus: 'authenticated_generation_unavailable',
-        message: diag.diagnosis,
+        connectionStatus: preservedStatus,
+        message: genDiag.diagnosis,
         latencyMs: Date.now() - start,
         providerType: 'gemini',
         selectedModel,
         availableModels,
-        diagnostic: diag,
-        correlationId: diag.correlationId,
+        diagnostic: { ...genDiag, connectionStatus: preservedStatus },
+        correlationId: genDiag.correlationId,
       };
     }
   }

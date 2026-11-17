@@ -55,9 +55,14 @@ export class AIProviderRouter {
     const dbCreds = db.getAiProviders();
     const routes = this.getTaskRoutesRaw(dbCreds);
     const list = dbCreds.map(c => AIProviderManager.sanitizeCredential(c, routes));
+    const envSuppressed = db.getAiEnvSuppressed();
 
-    const hasEnvGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
-    const hasEnvGrok = Boolean(process.env.XAI_API_KEY && process.env.XAI_API_KEY.trim());
+    const hasEnvGemini =
+      !envSuppressed.gemini &&
+      Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+    const hasEnvGrok =
+      !envSuppressed.grok &&
+      Boolean(process.env.XAI_API_KEY && process.env.XAI_API_KEY.trim());
 
     if (hasEnvGemini && !dbCreds.some(c => c.id === 'env-gemini-default')) {
       list.unshift(

@@ -181,11 +181,12 @@ export const SystemDiagnostics: React.FC = () => {
           break;
         }
         case 'gemini': {
-          const [diagRes, provRes] = await Promise.all([
+          const [diagRes, provRes, statusRes] = await Promise.all([
             safeFetchJson('/api/v1/admin/ai/diagnostics', { credentials: 'include' }),
             safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }),
+            safeFetchJson('/api/v1/admin/ai/connection-status', { credentials: 'include' }),
           ]);
-          setGeminiDiag({ diagnostics: diagRes, providers: provRes.providers || [] });
+          setGeminiDiag({ diagnostics: diagRes, providers: provRes.providers || [], connectionStatus: statusRes });
           break;
         }
         case 'cache': {
@@ -814,10 +815,32 @@ export const SystemDiagnostics: React.FC = () => {
       {/* TAB 5: GEMINI API */}
       {activeTab === 'gemini' && geminiDiag && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-          <h3 className="font-black text-gray-900">Configured AI Providers &amp; Verification Status</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-black text-gray-900">Configured AI Providers &amp; Verification Status</h3>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={`px-2.5 py-1 rounded font-bold border ${
+                  geminiDiag.connectionStatus?.geminiStatus === 'Connected'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-gray-100 text-gray-700 border-gray-200'
+                }`}
+              >
+                Gemini: {geminiDiag.connectionStatus?.geminiStatus || 'Not Connected'}
+              </span>
+              <span
+                className={`px-2.5 py-1 rounded font-bold border ${
+                  geminiDiag.connectionStatus?.grokStatus === 'Connected'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-gray-100 text-gray-700 border-gray-200'
+                }`}
+              >
+                Grok: {geminiDiag.connectionStatus?.grokStatus || 'Not Connected'}
+              </span>
+            </div>
+          </div>
           {(geminiDiag.providers || []).length === 0 ? (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 font-semibold">
-              No AI provider keys configured yet. Open AI Keys &amp; Routing to add and verify your Gemini API key.
+              Gemini: Not Connected · Grok: Not Connected. Open Settings → AI API Connection to paste and verify your API key.
             </div>
           ) : (
             <div className="space-y-2">
@@ -830,6 +853,11 @@ export const SystemDiagnostics: React.FC = () => {
                     <div className="text-[11px] font-mono text-gray-500">
                       Key: {p.maskedKey} • Status: {p.connectionStatus} • Models cached: {p.availableModels?.length || 0}
                     </div>
+                    {p.lastDiagnostic?.failureSource && (
+                      <div className="text-[11px] text-amber-800 mt-0.5">
+                        Source: {p.lastDiagnostic.failureSource} — {p.lastDiagnostic.message}
+                      </div>
+                    )}
                   </div>
                   <span
                     className={`px-2.5 py-1 rounded font-bold uppercase text-[10px] ${

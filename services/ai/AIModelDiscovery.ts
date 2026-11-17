@@ -9,6 +9,7 @@ import {
   classifyProviderError,
   fetchWithTimeout,
   generateCorrelationId,
+  getDiscoveryTimeoutMs,
   ProviderExecutionError,
 } from './AIConnectionValidator.ts';
 
@@ -295,7 +296,7 @@ export class AIModelDiscovery {
             },
             signal,
           },
-          15000
+          getDiscoveryTimeoutMs()
         );
 
         const rawText = await res.text();
@@ -423,7 +424,7 @@ export class AIModelDiscovery {
           },
           signal,
         },
-        15000
+        getDiscoveryTimeoutMs()
       );
 
       const rawText = await res.text();

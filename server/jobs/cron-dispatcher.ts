@@ -8,6 +8,7 @@
  */
 
 import dotenv from 'dotenv';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import { JobScheduler } from '../../services/automation/JobScheduler.ts';
 
@@ -32,10 +33,12 @@ export async function runDueCronJobs() {
 }
 
 const metaUrl = typeof import.meta !== 'undefined' ? (import.meta as any).url : undefined;
+const entryBasename = process.argv[1] ? path.basename(process.argv[1]) : '';
 const isMain = Boolean(
   metaUrl &&
   process.argv[1] &&
-  fileURLToPath(metaUrl) === process.argv[1]
+  fileURLToPath(metaUrl) === path.resolve(process.argv[1]) &&
+  entryBasename.startsWith('cron-dispatcher')
 );
 if (isMain) {
   runDueCronJobs()

@@ -11,6 +11,7 @@ import {
   isSupabaseConfigured,
   listSupabaseAiCredentials,
   recordSupabaseAiConnectionTest,
+  resetSupabaseAiCredentials,
   upsertSupabaseAiCredential,
   upsertSupabaseAiTaskRoutes,
 } from '../../src/server/supabaseAdmin.ts';
@@ -21,6 +22,7 @@ import {
   AIConnectionStatus,
   AIConnectionTestRecord,
   AIDiagnosticError,
+  AIFailureSource,
   AIModelInfo,
   AIProviderCredential,
   AIProviderType,
@@ -32,6 +34,8 @@ import {
   checkOutboundConnectivity,
   classifyProviderError,
   generateCorrelationId,
+  getDiscoveryTimeoutMs,
+  getGenerationTimeoutMs,
   ProviderExecutionError,
   redactSecrets,
 } from './AIConnectionValidator.ts';
@@ -133,7 +137,8 @@ export class AIProviderManager {
   }
 
   public static resolveRawCredential(credId: string): { cred: AIProviderCredential; rawKey: string } | null {
-    if (credId === 'env-gemini-default' && process.env.GEMINI_API_KEY) {
+    const envSuppressed = db.getAiEnvSuppressed();
+    if (credId === 'env-gemini-default' && !envSuppressed.gemini && process.env.GEMINI_API_KEY?.trim()) {
       const rawKey = process.env.GEMINI_API_KEY.trim();
       return {
         cred: {
@@ -158,7 +163,7 @@ export class AIProviderManager {
       };
     }
 
-    if (credId === 'env-grok-default' && process.env.XAI_API_KEY) {
+    if (credId === 'env-grok-default' && !envSuppressed.grok && process.env.XAI_API_KEY?.trim()) {
       const rawKey = process.env.XAI_API_KEY.trim();
       return {
         cred: {
@@ -436,7 +441,7 @@ export class AIProviderManager {
 
     const now = new Date().toISOString();
     if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
-      db.upsertAiProvider(
+      const updatedCred = db.upsertAiProvider(
         {
           ...cred,
           model: cred.model || result.selectedModel,
@@ -458,6 +463,9 @@ export class AIProviderManager {
         },
         actor
       );
+      if (isSupabaseConfigured()) {
+        await upsertSupabaseAiCredential(updatedCred).catch(() => {});
+      }
     }
 
     return result;
@@ -633,14 +641,97 @@ export class AIProviderManager {
     return summary;
   }
 
+  public static getEnvManagedVariablesStatus() {
+    const suppressed = db.getAiEnvSuppressed();
+    const geminiSet = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+    const grokSet = Boolean(process.env.XAI_API_KEY && process.env.XAI_API_KEY.trim());
+    return [
+      {
+        name: 'GEMINI_API_KEY',
+        provider: 'gemini' as const,
+        presentInEnv: geminiSet,
+        maskedValue: geminiSet ? maskSecret(process.env.GEMINI_API_KEY!.trim()) : null,
+        suppressedInRuntime: suppressed.gemini,
+        location: '.env file / Namecheap Node.js App Environment Variables / Google AI Studio Secrets',
+      },
+      {
+        name: 'XAI_API_KEY',
+        provider: 'grok' as const,
+        presentInEnv: grokSet,
+        maskedValue: grokSet ? maskSecret(process.env.XAI_API_KEY!.trim()) : null,
+        suppressedInRuntime: suppressed.grok,
+        location: '.env file / Namecheap Node.js App Environment Variables',
+      },
+    ];
+  }
+
+  public static async resetAllCredentials(actor: string = 'Super Admin') {
+    const localResult = db.resetAllAiCredentials(actor);
+    let supabaseResult: { ok: boolean; configured: boolean; removedCount: number; error?: string } = {
+      ok: true,
+      configured: false,
+      removedCount: 0,
+    };
+
+    if (isSupabaseConfigured()) {
+      supabaseResult = await resetSupabaseAiCredentials();
+    }
+
+    const envManagedVariables = this.getEnvManagedVariablesStatus();
+    const activeEnvVars = envManagedVariables.filter(v => v.presentInEnv);
+
+    return {
+      ok: true,
+      removedLocalCount: localResult.removedCount,
+      removedSupabaseCount: supabaseResult.removedCount,
+      supabaseConfigured: supabaseResult.configured,
+      supabaseSynced: !supabaseResult.configured || supabaseResult.ok,
+      supabaseError: supabaseResult.error,
+      geminiStatus: 'Not Connected' as const,
+      grokStatus: 'Not Connected' as const,
+      envManagedVariables,
+      message:
+        activeEnvVars.length > 0
+          ? `All stored Gemini & Grok credentials cleared and reset to Not Connected. Server environment keys (${activeEnvVars.map(v => v.name).join(', ')}) are suppressed from active loading until you connect fresh keys or remove them from ${activeEnvVars[0].location}.`
+          : 'All previously stored Gemini and Grok API credentials, cached model lists, and task route bindings have been removed. Both providers are now Not Connected.',
+    };
+  }
+
   public static async getDiagnostics() {
     const connectivity = await checkOutboundConnectivity();
     const cachedHealth = db.getAiHealthStatus();
     const recentTests = db.getAiConnectionTests(undefined, 25);
+    const providers = db.getAiProviders();
+    const envManagedVariables = this.getEnvManagedVariablesStatus();
+    const latestTest = recentTests[0] || null;
+    const latestSuccess = recentTests.find(t => t.ok && t.generationOk) || null;
+    const activeCred = providers.find(c => c.enabled && c.connectionStatus === 'connected') || providers.find(c => c.enabled) || providers[0] || null;
+
     return {
       connectivity,
       lastHealthCheck: cachedHealth,
       recentTests,
+      envManagedVariables,
+      serverEnvironment: {
+        nodeEnv: process.env.NODE_ENV || 'development',
+        nodeVersion: process.version,
+        discoveryTimeoutMs: getDiscoveryTimeoutMs(),
+        generationTimeoutMs: getGenerationTimeoutMs(),
+        supabaseConfigured: isSupabaseConfigured(),
+      },
+      summary: {
+        provider: activeCred?.providerType || latestTest?.providerType || null,
+        authenticationStatus: activeCred?.modelListStatus || (latestTest?.modelListOk ? 'ok' : latestTest ? 'error' : 'not_checked'),
+        modelDiscoveryStatus: activeCred?.modelListStatus || (latestTest?.modelListOk ? `ok (${latestTest.modelsDiscoveredCount} models)` : latestTest ? 'failed' : 'not_run'),
+        selectedModel: activeCred?.model || latestTest?.modelTested || null,
+        generationTestStatus: activeCred?.generationTestStatus || (latestTest?.generationOk ? 'ok' : latestTest ? 'error' : 'not_run'),
+        apiResponseTimeMs: activeCred?.lastLatencyMs ?? latestTest?.latencyMs ?? null,
+        lastError: activeCred?.lastDiagnostic?.diagnosis || latestTest?.diagnostic?.diagnosis || null,
+        errorClassification: activeCred?.lastDiagnostic?.title || latestTest?.diagnostic?.title || null,
+        failureSource: (activeCred?.lastDiagnostic?.failureSource || latestTest?.diagnostic?.failureSource || 'None') as AIFailureSource,
+        lastSuccessfulConnection: activeCred?.lastSuccessfulGenerationAt || latestSuccess?.timestamp || null,
+        correlationId: activeCred?.lastCorrelationId || latestTest?.diagnostic?.correlationId || null,
+      },
     };
   }
 
@@ -707,20 +798,23 @@ export class AIProviderManager {
   }
 
   /**
-   * One-Click Universal Auto-Detect, Validate, Persist & Activate Flow.
+   * Step 1 (Fast 10-12s): Auto-detect provider, authenticate key, fetch models & choose optimal model.
+   * Does NOT execute billable or slow inference so stage progress & Grok confirmations are instantaneous.
    */
-  public static async connectAutomatically(
+  public static async discoverAutoStep(
     input: AutoConnectInput,
     actor: string = 'Super Admin',
     signal?: AbortSignal
-  ): Promise<AIAutoConnectResponse> {
+  ): Promise<AIAutoConnectResponse & { candidateModels?: string[]; endpointUrl?: string }> {
     const now = new Date().toISOString();
     const rawKey = (input.apiKey || '').trim();
-    const correlationId = generateCorrelationId('autoconn');
+    const correlationId = generateCorrelationId('discover');
 
     if (!rawKey || rawKey.length < 10) {
       return {
         ok: false,
+        authenticated: false,
+        generationVerified: false,
         status: 'auth_failed',
         detectedProvider: input.providerOverride || null,
         billingStatus: 'unknown',
@@ -728,6 +822,8 @@ export class AIProviderManager {
         lastChecked: now,
         availableModels: [],
         errorCategory: 'INVALID_API_KEY',
+        errorClassification: 'Invalid Key',
+        failureSource: 'Browser-to-backend request',
         message: 'Please paste a valid Google Gemini or xAI Grok API key.',
         suggestedAction: 'Copy the complete API key from Google AI Studio or console.x.ai with no extra spaces.',
         correlationId,
@@ -745,8 +841,6 @@ export class AIProviderManager {
     let preDiscoveredGemini: Awaited<ReturnType<typeof AIModelDiscovery.discoverGeminiModels>> | null = null;
     let preDiscoveredGrok: Awaited<ReturnType<typeof AIModelDiscovery.discoverGrokModels>> | null = null;
 
-    // Ambiguous key format (no AIza / xai- prefix and no explicit fallback selection):
-    // Non-destructively probe model list endpoints on Gemini then xAI to verify real provider.
     if (!targetProvider) {
       let geminiDiag: AIDiagnosticError | undefined;
       let grokDiag: AIDiagnosticError | undefined;
@@ -777,14 +871,18 @@ export class AIProviderManager {
         if (geminiDiag?.category === 'network_error' && grokDiag?.category === 'network_error') {
           return {
             ok: false,
+            authenticated: false,
+            generationVerified: false,
             status: 'network_error',
             detectedProvider: null,
             detectionMethod: 'ambiguous',
             billingStatus: 'unknown',
-            billingNote: 'Could not reach provider endpoints to verify billing or tier.',
+            billingNote: 'Could not reach provider endpoints.',
             lastChecked: now,
             availableModels: [],
             errorCategory: 'SERVER_CONNECTIVITY_FAILURE',
+            errorClassification: 'Network Error',
+            failureSource: 'Namecheap hosting',
             message: 'Server failed to establish outbound HTTPS connections to Google Gemini and xAI Grok.',
             suggestedAction: geminiDiag.suggestedAction,
             correlationId,
@@ -793,6 +891,8 @@ export class AIProviderManager {
 
         return {
           ok: false,
+          authenticated: false,
+          generationVerified: false,
           status: 'needs_provider_selection',
           requiresProviderSelection: true,
           detectedProvider: null,
@@ -802,14 +902,15 @@ export class AIProviderManager {
           lastChecked: now,
           availableModels: [],
           errorCategory: 'NEEDS_PROVIDER_SELECTION',
-          message: 'Could not automatically identify or authenticate this key format. Please choose whether this key belongs to Google Gemini or xAI Grok.',
-          suggestedAction: 'Select Google Gemini or xAI Grok below and retry.',
+          errorClassification: 'Select Provider',
+          failureSource: 'Browser-to-backend request',
+          message: 'Could not automatically identify this key format. Select Google Gemini or xAI Grok below.',
+          suggestedAction: 'Choose Google Gemini or xAI Grok below and click Validate & Connect.',
           correlationId,
         };
       }
     }
 
-    // ==================== GEMINI AUTO-CONNECT PIPELINE ====================
     if (targetProvider === 'gemini') {
       let discovery = preDiscoveredGemini;
       if (!discovery) {
@@ -847,17 +948,23 @@ export class AIProviderManager {
 
           return {
             ok: false,
+            authenticated: false,
+            generationVerified: false,
             status: diag.connectionStatus,
             detectedProvider: 'gemini',
             detectionMethod,
-            billingStatus: errorCategory === 'FREE_TIER_QUOTA_EXCEEDED' ? 'quota_exceeded' : errorCategory === 'BILLING_REQUIRED' ? 'billing_required' : 'unknown',
-            billingNote:
+            billingStatus:
               errorCategory === 'FREE_TIER_QUOTA_EXCEEDED'
-                ? 'API key is valid, but free-tier rate/quota limit is currently reached.'
-                : diag.title,
+                ? 'quota_exceeded'
+                : errorCategory === 'BILLING_REQUIRED'
+                ? 'billing_required'
+                : 'unknown',
+            billingNote: diag.title,
             lastChecked: now,
             availableModels: [],
             errorCategory,
+            errorClassification: diag.title,
+            failureSource: diag.failureSource || 'Google API',
             message: diag.diagnosis,
             suggestedAction: diag.suggestedAction,
             correlationId: diag.correlationId,
@@ -865,181 +972,100 @@ export class AIProviderManager {
         }
       }
 
-      const selection = selectAutoGeminiModel(discovery.models, Boolean(input.allowPaidModels));
-      const explicitModel = input.preferredModel?.trim();
-
       if (discovery.models.length === 0) {
         return {
           ok: false,
-          status: 'authenticated_generation_unavailable',
+          authenticated: true,
+          generationVerified: false,
+          status: 'endpoint_not_found',
           detectedProvider: 'gemini',
           detectionMethod,
           billingStatus: 'unknown',
-          billingNote: 'Authenticated, but 0 accessible models were returned.',
+          billingNote: 'Authenticated, but 0 accessible models returned.',
           lastChecked: now,
+          latencyMs: discovery.latencyMs,
           availableModels: [],
           errorCategory: 'NO_ACCESSIBLE_MODELS',
+          errorClassification: 'Model Unavailable',
+          failureSource: 'Google API',
           message: 'Authenticated with Google Gemini, but no models were returned for this API key.',
           suggestedAction: 'Verify the Generative Language API is enabled in your Google Cloud project.',
-          correlationId,
+          correlationId: discovery.correlationId,
         };
       }
+
+      const selection = selectAutoGeminiModel(discovery.models, Boolean(input.allowPaidModels));
+      const explicitModel = input.preferredModel?.trim();
 
       if (!explicitModel && !selection.selectedModel) {
         if (selection.onlyPaidAvailable) {
           return {
             ok: false,
+            authenticated: true,
+            generationVerified: false,
             status: 'billing_required',
             detectedProvider: 'gemini',
             detectionMethod,
             billingStatus: 'billing_required',
-            billingNote: 'Only paid-tier Gemini models were discovered; free-tier auto-connect declined to avoid unexpected charges.',
+            billingNote: 'Only paid-tier Gemini models discovered; free-tier auto-connect skipped paid models.',
             lastChecked: now,
+            latencyMs: discovery.latencyMs,
             availableModels: discovery.models,
             errorCategory: 'BILLING_REQUIRED',
-            message: 'No free-tier eligible Gemini text model was found on this key. Paid-only models were skipped automatically.',
-            suggestedAction: 'Use a free-tier eligible AI Studio key or select a specific model under Advanced Settings if billing is enabled.',
-            correlationId,
+            errorClassification: 'Billing Required',
+            failureSource: 'Google API',
+            message: 'No free-tier eligible Gemini text model was found on this key.',
+            suggestedAction: 'Use a free-tier Google AI Studio key with Gemini Flash access.',
+            correlationId: discovery.correlationId,
           };
         }
         return {
           ok: false,
-          status: 'authenticated_generation_unavailable',
+          authenticated: true,
+          generationVerified: false,
+          status: 'endpoint_not_found',
           detectedProvider: 'gemini',
           detectionMethod,
           billingStatus: 'unknown',
           billingNote: 'No supported text-generation model available.',
           lastChecked: now,
+          latencyMs: discovery.latencyMs,
           availableModels: discovery.models,
           errorCategory: 'NO_ACCESSIBLE_MODELS',
+          errorClassification: 'Model Unavailable',
+          failureSource: 'Google API',
           message: 'No supported text-generation Gemini models were found for this API key.',
           suggestedAction: 'Verify your Google AI Studio key has access to Gemini text models.',
-          correlationId,
+          correlationId: discovery.correlationId,
         };
       }
 
-      const candidatesToTry = explicitModel
+      const candidates = explicitModel
         ? [explicitModel]
         : selection.freeTierCandidates.length > 0
-        ? selection.freeTierCandidates.slice(0, 3)
+        ? selection.freeTierCandidates.slice(0, 2)
         : selection.allCandidates.slice(0, 2);
-
-      let genRes: { text: string; model: string; latencyMs: number; correlationId: string } | null = null;
-      let lastGenDiag: AIDiagnosticError | undefined;
-
-      for (const candidateModel of candidatesToTry) {
-        try {
-          genRes = await GeminiProvider.testGeneration(rawKey, candidateModel, signal);
-          break;
-        } catch (err: any) {
-          const diag =
-            err instanceof ProviderExecutionError
-              ? err.diagnostic
-              : classifyProviderError({
-                  providerType: 'gemini',
-                  err,
-                  model: candidateModel,
-                  stage: 'generation_test',
-                  authenticated: true,
-                  correlationId,
-                  secretToRedact: rawKey,
-                });
-          lastGenDiag = diag;
-          // Try next free-tier candidate only on 404/400 unsupported model; fail immediately on auth/quota/billing/network
-          if (diag.category !== 'not_found_404' && diag.category !== 'bad_request_400') {
-            break;
-          }
-        }
-      }
-
-      if (!genRes) {
-        const errorCategory = mapDiagnosticToAutoCategory(lastGenDiag, discovery.models.length);
-        const billingStatus: AIBillingStatus =
-          errorCategory === 'FREE_TIER_QUOTA_EXCEEDED'
-            ? 'quota_exceeded'
-            : errorCategory === 'BILLING_REQUIRED'
-            ? 'billing_required'
-            : 'unknown';
-        const testEntry: AIConnectionTestRecord = {
-          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          providerType: 'gemini',
-          modelTested: candidatesToTry[0],
-          stage: 'generation_test',
-          ok: false,
-          connectionStatus: lastGenDiag?.connectionStatus || 'error',
-          modelListOk: true,
-          generationOk: false,
-          modelsDiscoveredCount: discovery.models.length,
-          latencyMs: discovery.latencyMs,
-          diagnostic: lastGenDiag,
-          actor,
-          timestamp: now,
-        };
-        db.recordAiConnectionTest(testEntry);
-        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
-
-        return {
-          ok: false,
-          status: lastGenDiag?.connectionStatus || 'authenticated_generation_unavailable',
-          detectedProvider: 'gemini',
-          detectionMethod,
-          selectedModel: candidatesToTry[0],
-          billingStatus,
-          billingNote:
-            billingStatus === 'quota_exceeded'
-              ? 'Valid key, but free-tier quota is temporarily exhausted (HTTP 429).'
-              : billingStatus === 'billing_required'
-              ? 'Billing activation is required on this Google Cloud project.'
-              : lastGenDiag?.title || 'Generation test failed',
-          lastChecked: now,
-          availableModels: discovery.models,
-          errorCategory,
-          message:
-            lastGenDiag?.diagnosis || 'Authenticated with Gemini, but live test generation failed.',
-          suggestedAction: lastGenDiag?.suggestedAction,
-          correlationId: lastGenDiag?.correlationId || correlationId,
-        };
-      }
-
-      const isFree = isFreeTierGeminiModel(genRes.model);
-      const billingStatus: AIBillingStatus = isFree ? 'free_tier' : 'unknown';
-      const billingNote = isFree
-        ? 'Free Tier Confirmed (No unexpected billing charges)'
-        : 'Verified Model Connected';
-
-      const savedCred = await this.persistAutoConnectedCredential({
-        providerType: 'gemini',
-        rawKey,
-        selectedModel: genRes.model,
-        availableModels: discovery.models,
-        billingStatus,
-        billingNote,
-        latencyMs: genRes.latencyMs,
-        correlationId: genRes.correlationId,
-        sampleOutput: genRes.text,
-        replaceCredentialId: input.replaceCredentialId,
-        now,
-        actor,
-      });
 
       return {
         ok: true,
-        status: 'connected',
+        authenticated: true,
+        generationVerified: false,
+        status: 'authenticated',
         detectedProvider: 'gemini',
         detectionMethod,
-        selectedModel: genRes.model,
-        billingStatus,
-        billingNote,
+        selectedModel: candidates[0],
+        candidateModels: candidates,
+        billingStatus: isFreeTierGeminiModel(candidates[0]) ? 'free_tier' : 'unknown',
+        billingNote: isFreeTierGeminiModel(candidates[0]) ? 'Free Tier Eligible' : 'Model Selected',
         lastChecked: now,
+        latencyMs: discovery.latencyMs,
         availableModels: discovery.models,
-        sampleOutput: redactSecrets(genRes.text.slice(0, 100), rawKey),
-        message: `Connected to Google Gemini (${genRes.model}) and activated across all editorial & SEO tools.`,
-        correlationId: genRes.correlationId,
-        provider: this.sanitizeCredential(savedCred),
+        message: `Authenticated with Google Gemini (${discovery.models.length} models found). Selected ${candidates[0]}.`,
+        correlationId: discovery.correlationId,
       };
     }
 
-    // ==================== GROK (xAI) AUTO-CONNECT PIPELINE ====================
+    // ==================== GROK (xAI) DISCOVERY STEP ====================
     const endpointUrl = (input.customEndpointUrl || 'https://api.x.ai/v1').trim();
     let grokDiscovery = preDiscoveredGrok;
     if (!grokDiscovery) {
@@ -1076,6 +1102,8 @@ export class AIProviderManager {
 
         return {
           ok: false,
+          authenticated: false,
+          generationVerified: false,
           status: diag.connectionStatus,
           detectedProvider: 'grok',
           detectionMethod,
@@ -1084,6 +1112,8 @@ export class AIProviderManager {
           lastChecked: now,
           availableModels: [],
           errorCategory,
+          errorClassification: diag.title,
+          failureSource: diag.failureSource || 'xAI API',
           message: diag.diagnosis,
           suggestedAction: diag.suggestedAction,
           correlationId: diag.correlationId,
@@ -1094,36 +1124,45 @@ export class AIProviderManager {
     if (grokDiscovery.models.length === 0) {
       return {
         ok: false,
-        status: 'authenticated_generation_unavailable',
+        authenticated: true,
+        generationVerified: false,
+        status: 'endpoint_not_found',
         detectedProvider: 'grok',
         detectionMethod,
         billingStatus: 'credits_required',
-        billingNote: 'Authenticated, but no accessible Grok models were returned.',
+        billingNote: 'Authenticated, but no accessible Grok models returned.',
         lastChecked: now,
+        latencyMs: grokDiscovery.latencyMs,
         availableModels: [],
         errorCategory: 'NO_ACCESSIBLE_MODELS',
+        errorClassification: 'Model Unavailable',
+        failureSource: 'xAI API',
         message: 'Authenticated with xAI, but no compatible text models were returned by /v1/models.',
         suggestedAction: 'Check key ACL scopes and billing credits at console.x.ai.',
-        correlationId,
+        correlationId: grokDiscovery.correlationId,
       };
     }
 
-    // Best-effort non-billable key metadata check on xAI
     const keyMeta = await AIModelDiscovery.inspectGrokApiKeyMetadata(rawKey, endpointUrl, signal);
     if (keyMeta?.keyBlocked) {
       return {
         ok: false,
+        authenticated: false,
+        generationVerified: false,
         status: 'permission_denied',
         detectedProvider: 'grok',
         detectionMethod,
         billingStatus: 'billing_required',
         billingNote: 'Key or team is blocked/disabled on xAI.',
         lastChecked: now,
+        latencyMs: grokDiscovery.latencyMs,
         availableModels: grokDiscovery.models,
         errorCategory: 'PERMISSION_DENIED',
+        errorClassification: 'Permission Denied',
+        failureSource: 'xAI API',
         message: 'xAI reports this API key or team account is currently blocked or disabled.',
         suggestedAction: 'Review team status and prepaid credits in console.x.ai.',
-        correlationId,
+        correlationId: grokDiscovery.correlationId,
       };
     }
 
@@ -1136,16 +1175,21 @@ export class AIProviderManager {
     if (!chosenGrokModel) {
       return {
         ok: false,
-        status: 'authenticated_generation_unavailable',
+        authenticated: true,
+        generationVerified: false,
+        status: 'endpoint_not_found',
         detectedProvider: 'grok',
         detectionMethod,
         billingStatus: 'credits_required',
         billingNote: 'No supported text generation model found.',
         lastChecked: now,
+        latencyMs: grokDiscovery.latencyMs,
         availableModels: grokDiscovery.models,
         errorCategory: 'NO_ACCESSIBLE_MODELS',
+        errorClassification: 'Model Unavailable',
+        failureSource: 'xAI API',
         message: 'No text-generation Grok model was found for this key.',
-        correlationId,
+        correlationId: grokDiscovery.correlationId,
       };
     }
 
@@ -1153,26 +1197,241 @@ export class AIProviderManager {
     if (!input.confirmBillableTest) {
       return {
         ok: false,
+        authenticated: true,
+        generationVerified: false,
         status: 'awaiting_confirmation',
         requiresBillableConfirmation: true,
         detectedProvider: 'grok',
         detectionMethod,
         selectedModel: chosenGrokModel,
+        endpointUrl,
         billingStatus: 'credits_required',
         billingNote: 'xAI Grok uses prepaid credits / billing (no free tier). Confirmation required before test generation.',
         lastChecked: now,
+        latencyMs: grokDiscovery.latencyMs,
         availableModels: grokDiscovery.models,
         errorCategory: 'CONFIRMATION_REQUIRED',
-        message: `xAI Grok key authenticated (${grokDiscovery.models.length} models found, selected ${chosenGrokModel}). Confirm to run a minimal (~10 token) live test and activate Grok.`,
+        errorClassification: 'Billing Confirmation Required',
+        message: `xAI Grok key authenticated (${grokDiscovery.models.length} models found, selected ${chosenGrokModel}). Confirm to run a small (~10 token) live test and activate Grok.`,
         suggestedAction: 'Click "Confirm & Connect Grok" to run the small verification test.',
+        correlationId: grokDiscovery.correlationId,
+      };
+    }
+
+    return {
+      ok: true,
+      authenticated: true,
+      generationVerified: false,
+      status: 'authenticated',
+      detectedProvider: 'grok',
+      detectionMethod,
+      selectedModel: chosenGrokModel,
+      candidateModels: [chosenGrokModel],
+      endpointUrl,
+      billingStatus: 'credits_required',
+      billingNote: 'Prepaid Credits / Billing Required by xAI',
+      lastChecked: now,
+      latencyMs: grokDiscovery.latencyMs,
+      availableModels: grokDiscovery.models,
+      message: `Authenticated with xAI Grok (${chosenGrokModel}). Ready for generation test.`,
+      correlationId: grokDiscovery.correlationId,
+    };
+  }
+
+  /**
+   * Step 2 (45s-60s bounded window): Executes lightweight generation test using verified model,
+   * logs failed attempts cleanly, retries at most once on transient timeout/5xx, and saves on pass.
+   */
+  public static async verifyGenerationAutoStep(
+    input: AutoConnectInput & {
+      providerType: 'gemini' | 'grok';
+      selectedModel: string;
+      candidateModels?: string[];
+      availableModels?: AIModelInfo[];
+      detectionMethod?: AIAutoConnectResponse['detectionMethod'];
+    },
+    actor: string = 'Super Admin',
+    signal?: AbortSignal
+  ): Promise<AIAutoConnectResponse> {
+    const now = new Date().toISOString();
+    const rawKey = (input.apiKey || '').trim();
+    const correlationId = generateCorrelationId('gentest');
+
+    if (input.providerType === 'gemini') {
+      const candidates =
+        Array.isArray(input.candidateModels) && input.candidateModels.length > 0
+          ? input.candidateModels
+          : [input.selectedModel];
+      const availableModels = input.availableModels || [];
+
+      let genRes: Awaited<ReturnType<typeof GeminiProvider.testGeneration>> | null = null;
+      let lastGenDiag: AIDiagnosticError | undefined;
+      const totalDeadlineMs = Date.now() + Math.min(58000, getGenerationTimeoutMs() + 10000);
+
+      for (const candidateModel of candidates) {
+        if (signal?.aborted) break;
+        const remainingMs = totalDeadlineMs - Date.now();
+        if (remainingMs < 10000) break;
+
+        try {
+          genRes = await GeminiProvider.testGeneration(rawKey, candidateModel, signal, {
+            timeoutMs: getGenerationTimeoutMs(),
+            retryOnTransient: true,
+            deadlineMs: totalDeadlineMs,
+          });
+          break;
+        } catch (err: any) {
+          const diag =
+            err instanceof ProviderExecutionError
+              ? err.diagnostic
+              : classifyProviderError({
+                  providerType: 'gemini',
+                  err,
+                  model: candidateModel,
+                  stage: 'generation_test',
+                  authenticated: true,
+                  correlationId,
+                  secretToRedact: rawKey,
+                  timeoutWindowMs: getGenerationTimeoutMs(),
+                });
+          lastGenDiag = diag;
+
+          // Only switch to next permitted free-tier candidate on 404/400 model issue; never auto-switch to paid or loop on timeout
+          if (diag.category !== 'not_found_404' && diag.category !== 'bad_request_400') {
+            break;
+          }
+        }
+      }
+
+      if (!genRes) {
+        const errorCategory = mapDiagnosticToAutoCategory(lastGenDiag, availableModels.length);
+        const billingStatus: AIBillingStatus =
+          errorCategory === 'FREE_TIER_QUOTA_EXCEEDED'
+            ? 'quota_exceeded'
+            : errorCategory === 'BILLING_REQUIRED'
+            ? 'billing_required'
+            : 'unknown';
+
+        const testEntry: AIConnectionTestRecord = {
+          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          providerType: 'gemini',
+          modelTested: lastGenDiag?.category === 'not_found_404' ? candidates[candidates.length - 1] : candidates[0],
+          stage: 'generation_test',
+          ok: false,
+          connectionStatus: lastGenDiag?.connectionStatus || 'authenticated_generation_unavailable',
+          modelListOk: true,
+          generationOk: false,
+          modelsDiscoveredCount: availableModels.length,
+          latencyMs: Date.now() - new Date(now).getTime(),
+          diagnostic: lastGenDiag,
+          actor,
+          timestamp: now,
+        };
+        db.recordAiConnectionTest(testEntry);
+        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+
+        const isTimeout = lastGenDiag?.category === 'timeout';
+        return {
+          ok: false,
+          authenticated: true,
+          generationVerified: false,
+          status: lastGenDiag?.connectionStatus || 'authenticated_generation_unavailable',
+          detectedProvider: 'gemini',
+          detectionMethod: input.detectionMethod || 'prefix_hint_verified',
+          selectedModel: candidates[0],
+          billingStatus,
+          billingNote:
+            billingStatus === 'quota_exceeded'
+              ? 'Key valid; free-tier quota exceeded (HTTP 429).'
+              : billingStatus === 'billing_required'
+              ? 'Billing required on this project.'
+              : isTimeout
+              ? 'Credentials verified — generation timed out'
+              : lastGenDiag?.title || 'Generation test failed',
+          lastChecked: now,
+          latencyMs: testEntry.latencyMs,
+          availableModels,
+          errorCategory,
+          errorClassification: lastGenDiag?.title || (isTimeout ? 'Generation Timeout' : 'Generation Failed'),
+          failureSource: lastGenDiag?.failureSource || 'Google API',
+          message:
+            isTimeout
+              ? 'Gemini credentials verified, but the generation test timed out. Your key may be valid.'
+              : lastGenDiag?.diagnosis || 'Gemini credentials verified, but generation test failed.',
+          suggestedAction: lastGenDiag?.suggestedAction,
+          correlationId: lastGenDiag?.correlationId || correlationId,
+          canRetryGeneration: true,
+        };
+      }
+
+      const isFree = isFreeTierGeminiModel(genRes.model);
+      const billingStatus: AIBillingStatus = isFree ? 'free_tier' : 'unknown';
+      const billingNote = isFree
+        ? 'Free Tier Confirmed (No unexpected billing charges)'
+        : 'Verified Model Connected';
+
+      const savedCred = await this.persistAutoConnectedCredential({
+        providerType: 'gemini',
+        rawKey,
+        selectedModel: genRes.model,
+        availableModels,
+        billingStatus,
+        billingNote,
+        latencyMs: genRes.latencyMs,
+        correlationId: genRes.correlationId,
+        sampleOutput: genRes.text,
+        replaceCredentialId: input.replaceCredentialId,
+        now,
+        actor,
+      });
+
+      return {
+        ok: true,
+        authenticated: true,
+        generationVerified: true,
+        status: 'connected',
+        detectedProvider: 'gemini',
+        detectionMethod: input.detectionMethod || 'prefix_hint_verified',
+        selectedModel: genRes.model,
+        billingStatus,
+        billingNote,
+        lastChecked: now,
+        latencyMs: genRes.latencyMs,
+        availableModels,
+        sampleOutput: redactSecrets(genRes.text.slice(0, 100), rawKey),
+        message: `Connected to Google Gemini (${genRes.model}) and activated across all bilingual AI tools (${genRes.latencyMs}ms).`,
+        correlationId: genRes.correlationId,
+        provider: this.sanitizeCredential(savedCred),
+      };
+    }
+
+    // ==================== GROK GENERATION TEST ====================
+    if (!input.confirmBillableTest) {
+      return {
+        ok: false,
+        authenticated: true,
+        generationVerified: false,
+        status: 'awaiting_confirmation',
+        requiresBillableConfirmation: true,
+        detectedProvider: 'grok',
+        detectionMethod: input.detectionMethod || 'prefix_hint_verified',
+        selectedModel: input.selectedModel,
+        billingStatus: 'credits_required',
+        billingNote: 'xAI Grok requires explicit confirmation before running a test generation.',
+        lastChecked: now,
+        availableModels: input.availableModels || [],
+        errorCategory: 'CONFIRMATION_REQUIRED',
+        errorClassification: 'Billing Confirmation Required',
+        message: `xAI Grok key authenticated. Confirm to run a minimal (~10 token) live test on ${input.selectedModel}.`,
+        suggestedAction: 'Click "Confirm & Connect Grok" to proceed.',
         correlationId,
       };
     }
 
-    // Confirmed Grok live generation test
+    const endpointUrl = (input.customEndpointUrl || 'https://api.x.ai/v1').trim();
     const grokValidation = await GrokProvider.testConnection(
       rawKey,
-      chosenGrokModel,
+      input.selectedModel,
       endpointUrl,
       signal,
       true,
@@ -1182,7 +1441,7 @@ export class AIProviderManager {
     const testEntry: AIConnectionTestRecord = {
       id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       providerType: 'grok',
-      modelTested: grokValidation.selectedModel || chosenGrokModel,
+      modelTested: grokValidation.selectedModel || input.selectedModel,
       stage: 'generation_test',
       ok: grokValidation.ok,
       connectionStatus: grokValidation.connectionStatus,
@@ -1205,21 +1464,27 @@ export class AIProviderManager {
       );
       return {
         ok: false,
+        authenticated: grokValidation.authenticated,
+        generationVerified: false,
         status: grokValidation.connectionStatus,
         detectedProvider: 'grok',
-        detectionMethod,
-        selectedModel: chosenGrokModel,
+        detectionMethod: input.detectionMethod || 'prefix_hint_verified',
+        selectedModel: input.selectedModel,
         billingStatus: errorCategory === 'BILLING_REQUIRED' ? 'billing_required' : 'credits_required',
         billingNote:
           errorCategory === 'BILLING_REQUIRED'
             ? 'xAI requires prepaid credits or billing enabled before generation.'
             : grokValidation.diagnostic?.title || 'Grok live test failed',
         lastChecked: now,
+        latencyMs: grokValidation.latencyMs,
         availableModels: grokValidation.availableModels,
         errorCategory,
+        errorClassification: grokValidation.diagnostic?.title || 'Grok Test Failed',
+        failureSource: grokValidation.diagnostic?.failureSource || 'xAI API',
         message: grokValidation.message,
         suggestedAction: grokValidation.diagnostic?.suggestedAction,
         correlationId: grokValidation.correlationId,
+        canRetryGeneration: true,
       };
     }
 
@@ -1228,7 +1493,7 @@ export class AIProviderManager {
     const savedGrok = await this.persistAutoConnectedCredential({
       providerType: 'grok',
       rawKey,
-      selectedModel: grokValidation.selectedModel || chosenGrokModel,
+      selectedModel: grokValidation.selectedModel || input.selectedModel,
       endpointUrl,
       availableModels: grokValidation.availableModels,
       billingStatus,
@@ -1243,21 +1508,52 @@ export class AIProviderManager {
 
     return {
       ok: true,
+      authenticated: true,
+      generationVerified: true,
       status: 'connected',
       detectedProvider: 'grok',
-      detectionMethod,
+      detectionMethod: input.detectionMethod || 'prefix_hint_verified',
       selectedModel: savedGrok.model,
       billingStatus,
       billingNote,
       lastChecked: now,
+      latencyMs: grokValidation.latencyMs,
       availableModels: grokValidation.availableModels,
       sampleOutput: grokValidation.sampleOutput
         ? redactSecrets(grokValidation.sampleOutput.slice(0, 100), rawKey)
         : undefined,
-      message: `Connected to xAI Grok (${savedGrok.model}) and activated across all editorial & SEO tools.`,
+      message: `Connected to xAI Grok (${savedGrok.model}) and activated across all editorial & SEO tools (${grokValidation.latencyMs}ms).`,
       correlationId: grokValidation.correlationId,
       provider: this.sanitizeCredential(savedGrok),
     };
+  }
+
+  /**
+   * One-Click Universal Auto-Detect, Validate, Persist & Activate Flow (runs discovery + generation cleanly).
+   */
+  public static async connectAutomatically(
+    input: AutoConnectInput,
+    actor: string = 'Super Admin',
+    signal?: AbortSignal
+  ): Promise<AIAutoConnectResponse> {
+    const discoveryStep = await this.discoverAutoStep(input, actor, signal);
+    if (!discoveryStep.ok || !discoveryStep.detectedProvider || !discoveryStep.selectedModel) {
+      return discoveryStep;
+    }
+
+    return this.verifyGenerationAutoStep(
+      {
+        ...input,
+        providerType: discoveryStep.detectedProvider as 'gemini' | 'grok',
+        selectedModel: discoveryStep.selectedModel,
+        candidateModels: discoveryStep.candidateModels,
+        availableModels: discoveryStep.availableModels,
+        detectionMethod: discoveryStep.detectionMethod,
+        customEndpointUrl: discoveryStep.endpointUrl || input.customEndpointUrl,
+      },
+      actor,
+      signal
+    );
   }
 
   private static async persistAutoConnectedCredential(params: {

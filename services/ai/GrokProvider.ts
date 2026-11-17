@@ -10,7 +10,10 @@ import {
   classifyProviderError,
   fetchWithTimeout,
   generateCorrelationId,
+  getGenerationTimeoutMs,
+  getInferenceTimeoutMs,
   ProviderExecutionError,
+  sleepWithAbort,
 } from './AIConnectionValidator.ts';
 import { AIModelDiscovery } from './AIModelDiscovery.ts';
 
@@ -167,7 +170,7 @@ export class GrokProvider {
           body: JSON.stringify(body),
           signal: opts.signal,
         },
-        opts.timeoutMs || 35000
+        opts.timeoutMs || getInferenceTimeoutMs()
       );
 
       const rawText = await response.text();
@@ -350,18 +353,35 @@ export class GrokProvider {
     }
 
     // Stage 2: Minimal live generation test via POST /v1/responses
+    const genTimeoutMs = getGenerationTimeoutMs();
     try {
-      const res = await this.execute({
-        apiKey,
-        model: selectedModel,
-        endpointUrl,
-        providerType,
-        prompt: 'Respond with the exact word: CONNECTED',
-        temperature: 0,
-        maxTokens: 32,
-        signal,
-        timeoutMs: 20000,
-      });
+      const executeGrokTest = () =>
+        this.execute({
+          apiKey,
+          model: selectedModel,
+          endpointUrl,
+          providerType,
+          prompt: 'Reply with OK.',
+          temperature: 0,
+          maxTokens: 16,
+          signal,
+          timeoutMs: genTimeoutMs,
+        });
+
+      let res: AIExecutionResponse;
+      try {
+        res = await executeGrokTest();
+      } catch (firstErr: any) {
+        const firstDiag = firstErr instanceof ProviderExecutionError ? firstErr.diagnostic : undefined;
+        const canRetry =
+          !signal?.aborted &&
+          firstDiag &&
+          (firstDiag.category === 'timeout' || firstDiag.category === 'server_error_5xx') &&
+          Date.now() - start < 15000;
+        if (!canRetry) throw firstErr;
+        await sleepWithAbort(750, signal);
+        res = await executeGrokTest();
+      }
 
       return {
         ok: true,
@@ -388,20 +408,30 @@ export class GrokProvider {
               authenticated: true,
               correlationId,
               secretToRedact: apiKey,
+              timeoutWindowMs: genTimeoutMs,
             });
 
-      // Ensure authenticated flag elevates status to authenticated_generation_unavailable when model list passed
       const diag =
         availableModels.length > 0 && baseDiag.connectionStatus !== 'auth_failed'
           ? {
               ...baseDiag,
-              connectionStatus: 'authenticated_generation_unavailable' as const,
-              title: baseDiag.title.startsWith('Authenticated')
-                ? baseDiag.title
-                : `Authenticated — Generation Unavailable (${baseDiag.title})`,
-              diagnosis: baseDiag.diagnosis.startsWith('Authenticated')
-                ? baseDiag.diagnosis
-                : `Authenticated — Generation Unavailable: ${baseDiag.diagnosis}`,
+              connectionStatus:
+                baseDiag.category === 'timeout'
+                  ? ('timeout' as const)
+                  : baseDiag.connectionStatus === 'billing_required' ||
+                    baseDiag.connectionStatus === 'quota_exhausted' ||
+                    baseDiag.connectionStatus === 'permission_denied' ||
+                    baseDiag.connectionStatus === 'endpoint_not_found'
+                  ? baseDiag.connectionStatus
+                  : ('authenticated_generation_unavailable' as const),
+              title:
+                baseDiag.category === 'timeout'
+                  ? 'Generation Timeout (Credentials Verified)'
+                  : baseDiag.title,
+              diagnosis:
+                baseDiag.category === 'timeout'
+                  ? 'xAI Grok credentials verified, but the generation test timed out. Your key may be valid.'
+                  : baseDiag.diagnosis,
             }
           : baseDiag;
 

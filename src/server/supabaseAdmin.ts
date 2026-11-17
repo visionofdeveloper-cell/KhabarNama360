@@ -530,3 +530,65 @@ export async function recordSupabaseAiConnectionTest(
   }
 }
 
+export async function resetSupabaseAiCredentials(): Promise<{
+  ok: boolean;
+  configured: boolean;
+  removedCount: number;
+  error?: string;
+}> {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return { ok: false, configured: false, removedCount: 0, error: 'Supabase not configured.' };
+  }
+  try {
+    const { data: existingRows, error: listErr } = await client
+      .from('ai_provider_credentials')
+      .select('id, provider_type')
+      .in('provider_type', ['gemini', 'grok']);
+
+    if (listErr) {
+      return { ok: false, configured: true, removedCount: 0, error: listErr.message };
+    }
+
+    const removedCount = Array.isArray(existingRows) ? existingRows.length : 0;
+
+    // Clear task routes referencing credentials first (foreign key safety)
+    await client
+      .from('ai_task_routes')
+      .update({
+        primary_credential_id: null,
+        primary_model: '',
+        fallback_credential_id: null,
+        fallback_model: '',
+        updated_at: new Date().toISOString(),
+      })
+      .not('task', 'is', null);
+
+    // Delete stored Gemini and Grok credentials
+    const { error: delErr } = await client
+      .from('ai_provider_credentials')
+      .delete()
+      .in('provider_type', ['gemini', 'grok']);
+
+    if (delErr) {
+      recordServerError({
+        source: 'supabase',
+        code: delErr.code || 'SUPABASE_AI_RESET_ERR',
+        message: `Supabase AI reset failed: ${delErr.message}`,
+      });
+      return { ok: false, configured: true, removedCount: 0, error: delErr.message };
+    }
+
+    // Clear stale validation test caches while preserving ai_usage_logs history
+    await client.from('ai_connection_tests').delete().in('provider_type', ['gemini', 'grok']);
+
+    return { ok: true, configured: true, removedCount };
+  } catch (err: any) {
+    return {
+      ok: false,
+      configured: true,
+      removedCount: 0,
+      error: err?.message || 'Supabase AI reset error',
+    };
+  }
+}

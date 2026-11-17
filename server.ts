@@ -130,6 +130,20 @@ function requireAnyPermission(perms: AdminPermission[]) {
   };
 }
 
+function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  const session: AdminSession | undefined = (req as any).adminSession;
+  if (!session) {
+    return res.status(401).json({ success: false, error: 'Authentication required.' });
+  }
+  if (session.role !== 'Super Admin') {
+    return res.status(403).json({
+      success: false,
+      error: `Super Admin privileges required for AI credential management (current role: "${session.role}").`,
+    });
+  }
+  return next();
+}
+
 // Helper for Roman Urdu normalization
 function normalizeSearchQuery(rawQuery: string): { original: string; normalized: string; keywords: string[] } {
   const original = rawQuery.trim().toLowerCase();
@@ -2186,26 +2200,116 @@ app.get('/api/admin/reports/:reportId', requirePermission('reports:view'), (req,
 // ================= MULTI-PROVIDER AI VAULT, ROUTER & EDITORIAL STUDIO =================
 
 // --- Simplified One-Click AI API Connection Endpoints ---
-app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
+app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), (req, res) => {
+  const session: AdminSession | undefined = (req as any).adminSession;
   const all = AIProviderRouter.getAllCredentialsSanitized();
   const connected = all.find((c: any) => c.enabled && c.connectionStatus === 'connected');
   const active = connected || all.find((c: any) => c.enabled) || all[0] || null;
-  const supabaseConfigured = Boolean(
-    (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) &&
-    (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
-  );
+  const geminiCred = all.find((c: any) => c.providerType === 'gemini' && c.enabled);
+  const grokCred = all.find((c: any) => c.providerType === 'grok' && c.enabled);
+  const supabaseConfigured = isSupabaseConfigured();
+  const recentTests = db.getAiConnectionTests(undefined, 10);
+  const latestTest = recentTests[0] || null;
+
   res.json({
     success: true,
     connected: Boolean(connected),
     activeProvider: active,
+    geminiStatus:
+      geminiCred?.connectionStatus === 'connected'
+        ? 'Connected'
+        : geminiCred?.connectionStatus || 'Not Connected',
+    grokStatus:
+      grokCred?.connectionStatus === 'connected'
+        ? 'Connected'
+        : grokCred?.connectionStatus || 'Not Connected',
+    currentUserRole: session?.role || 'Unknown',
+    isSuperAdmin: session?.role === 'Super Admin',
     totalCredentials: all.length,
     connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
     storageBackend: supabaseConfigured ? 'supabase+local_encrypted' : 'local_encrypted',
     supabaseConfigured,
+    envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
+    serverEnvironment: {
+      nodeEnv: process.env.NODE_ENV || 'development',
+      nodeVersion: process.version,
+      generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000),
+      discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
+    },
+    latestTest,
   });
 });
 
-app.post('/api/v1/admin/ai/connect-auto', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/discover-auto', requireSuperAdmin, async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const body = req.body || {};
+    const result = await AIProviderManager.discoverAutoStep(
+      {
+        apiKey: String(body.apiKey || ''),
+        providerOverride:
+          body.providerOverride === 'gemini' || body.providerOverride === 'grok'
+            ? body.providerOverride
+            : undefined,
+        preferredModel: body.preferredModel ? String(body.preferredModel) : undefined,
+        customEndpointUrl: body.customEndpointUrl ? String(body.customEndpointUrl) : undefined,
+        confirmBillableTest: Boolean(body.confirmBillableTest),
+        allowPaidModels: Boolean(body.allowPaidModels),
+        replaceCredentialId: body.replaceCredentialId ? String(body.replaceCredentialId) : undefined,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'AI credential verification step failed.',
+    });
+  }
+});
+
+app.post('/api/v1/admin/ai/verify-generation-auto', requireSuperAdmin, async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const body = req.body || {};
+    const providerType = body.providerType === 'grok' ? 'grok' : 'gemini';
+    const selectedModel = String(body.selectedModel || '').trim();
+    if (!selectedModel) {
+      return res.status(400).json({ success: false, error: 'selectedModel is required for generation verification.' });
+    }
+    const result = await AIProviderManager.verifyGenerationAutoStep(
+      {
+        apiKey: String(body.apiKey || ''),
+        providerType,
+        selectedModel,
+        candidateModels: Array.isArray(body.candidateModels) ? body.candidateModels.map(String) : [selectedModel],
+        availableModels: Array.isArray(body.availableModels) ? body.availableModels : [],
+        detectionMethod: body.detectionMethod,
+        customEndpointUrl: body.customEndpointUrl ? String(body.customEndpointUrl) : undefined,
+        confirmBillableTest: Boolean(body.confirmBillableTest),
+        allowPaidModels: Boolean(body.allowPaidModels),
+        replaceCredentialId: body.replaceCredentialId ? String(body.replaceCredentialId) : undefined,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'AI generation test failed.',
+    });
+  }
+});
+
+app.post('/api/v1/admin/ai/connect-auto', requireSuperAdmin, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => {
     if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
@@ -2237,7 +2341,26 @@ app.post('/api/v1/admin/ai/connect-auto', requirePermission('ai:keys'), async (r
   }
 });
 
-app.post('/api/v1/admin/ai/disconnect', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/reset-all', requireSuperAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirmReset !== 'RESET_ALL_AI_KEYS') {
+      return res.status(400).json({
+        success: false,
+        error: 'Explicit Super Admin confirmation is required to reset all AI API credentials.',
+      });
+    }
+    const report = await AIProviderManager.resetAllCredentials(getActor(req, 'Super Admin'));
+    return res.json({ success: true, ...report });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to reset AI API credentials.',
+    });
+  }
+});
+
+app.post('/api/v1/admin/ai/disconnect', requireSuperAdmin, async (req, res) => {
   try {
     const body = req.body || {};
     const out = await AIProviderManager.disconnectCredential(
@@ -2251,7 +2374,7 @@ app.post('/api/v1/admin/ai/disconnect', requirePermission('ai:keys'), async (req
 });
 
 // --- Standardized v1 Provider Management, Validation & Diagnostics API ---
-app.post('/api/v1/admin/ai/providers/validate', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/providers/validate', requireSuperAdmin, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => {
     if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
@@ -2281,7 +2404,7 @@ app.get('/api/v1/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']
   res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
 });
 
-app.post('/api/v1/admin/ai/providers', requirePermission('ai:keys'), (req, res) => {
+app.post('/api/v1/admin/ai/providers', requireSuperAdmin, (req, res) => {
   try {
     const saved = AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
     return res.json({ success: true, provider: saved });
@@ -2290,7 +2413,7 @@ app.post('/api/v1/admin/ai/providers', requirePermission('ai:keys'), (req, res) 
   }
 });
 
-app.patch('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, res) => {
+app.patch('/api/v1/admin/ai/providers/:id', requireSuperAdmin, (req, res) => {
   try {
     const updated = AIProviderManager.updateCredentialPartial(
       req.params.id,
@@ -2304,12 +2427,12 @@ app.patch('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, 
   }
 });
 
-app.delete('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), async (req, res) => {
+app.delete('/api/v1/admin/ai/providers/:id', requireSuperAdmin, async (req, res) => {
   const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
   res.json({ success: out.ok });
 });
 
-app.post('/api/v1/admin/ai/providers/:id/test', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/providers/:id/test', requireSuperAdmin, async (req, res) => {
   try {
     const result = await AIProviderManager.testSavedCredential(req.params.id, getActor(req, 'Super Admin'));
     return res.json({ success: result.ok, result });
@@ -2383,7 +2506,7 @@ app.get('/api/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), 
   res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
 });
 
-app.post('/api/admin/ai/providers', requirePermission('ai:keys'), (req, res) => {
+app.post('/api/admin/ai/providers', requireSuperAdmin, (req, res) => {
   try {
     const saved = AIProviderRouter.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
     return res.json({ success: true, provider: saved });
@@ -2392,7 +2515,7 @@ app.post('/api/admin/ai/providers', requirePermission('ai:keys'), (req, res) => 
   }
 });
 
-app.post('/api/admin/ai/providers/:id/test', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/admin/ai/providers/:id/test', requireSuperAdmin, async (req, res) => {
   try {
     const result = await AIProviderRouter.testCredential(req.params.id, getActor(req, 'Super Admin'));
     return res.json({ success: true, result });
@@ -2401,9 +2524,9 @@ app.post('/api/admin/ai/providers/:id/test', requirePermission('ai:keys'), async
   }
 });
 
-app.delete('/api/admin/ai/providers/:id', requirePermission('ai:keys'), (req, res) => {
-  const success = db.deleteAiProvider(req.params.id, getActor(req, 'Super Admin'));
-  res.json({ success });
+app.delete('/api/admin/ai/providers/:id', requireSuperAdmin, async (req, res) => {
+  const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
+  res.json({ success: out.ok });
 });
 
 app.get('/api/admin/ai/routing', requirePermission('ai:keys'), (_req, res) => {
@@ -2776,7 +2899,7 @@ Return JSON with overallScore, readabilityLevel, objectivityRating, grammarRatin
 });
 
 // Canonical v1 AI Gemini & Editorial Aliases
-app.post('/api/v1/admin/ai/gemini/validate', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/gemini/validate', requireSuperAdmin, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => {
     if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
@@ -2800,7 +2923,7 @@ app.post('/api/v1/admin/ai/gemini/validate', requirePermission('ai:keys'), async
   }
 });
 
-app.post('/api/v1/admin/ai/gemini/test', requirePermission('ai:keys'), async (req, res) => {
+app.post('/api/v1/admin/ai/gemini/test', requireSuperAdmin, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => {
     if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
@@ -3323,9 +3446,12 @@ async function setupVite() {
     console.error('Error starting automation scheduler:', schedErr);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`360Khabarnama running at http://0.0.0.0:${PORT}`);
   });
+  httpServer.requestTimeout = 90000;
+  httpServer.headersTimeout = 65000;
+  httpServer.keepAliveTimeout = 65000;
 }
 
 if (!process.env.VERCEL && !process.env.VERCEL_ENV) {

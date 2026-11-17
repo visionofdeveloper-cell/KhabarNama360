@@ -408,6 +408,7 @@ export type AIProviderType = 'gemini' | 'grok' | 'custom' | 'custom_data';
 
 export type AIConnectionStatus =
   | 'connected'
+  | 'authenticated'
   | 'authenticated_generation_unavailable'
   | 'auth_failed'
   | 'permission_denied'
@@ -421,6 +422,15 @@ export type AIConnectionStatus =
   | 'error'
   | 'untested'
   | 'disabled';
+
+export type AIFailureSource =
+  | 'Google API'
+  | 'xAI API'
+  | 'Namecheap hosting'
+  | 'Supabase Edge Functions'
+  | 'Browser-to-backend request'
+  | 'Internal timeout configuration'
+  | 'None';
 
 export interface AIModelInfo {
   id: string;
@@ -452,6 +462,9 @@ export interface AIDiagnosticError {
   diagnosis: string;
   suggestedAction: string;
   providerMessage?: string;
+  failureSource?: AIFailureSource;
+  timeoutWindowMs?: number;
+  retried?: boolean;
 }
 
 export interface AIConnectionTestRecord {
@@ -495,6 +508,8 @@ export type AIBillingStatus =
 export interface AIAutoConnectResponse {
   ok: boolean;
   status: AIConnectionStatus | 'awaiting_confirmation' | 'needs_provider_selection' | 'disconnected';
+  authenticated?: boolean;
+  generationVerified?: boolean;
   requiresProviderSelection?: boolean;
   requiresBillableConfirmation?: boolean;
   detectedProvider?: AIProviderType | null;
@@ -503,13 +518,17 @@ export interface AIAutoConnectResponse {
   billingStatus: AIBillingStatus;
   billingNote: string;
   lastChecked: string;
+  latencyMs?: number;
   availableModels: AIModelInfo[];
   sampleOutput?: string;
   errorCategory?: AIAutoConnectErrorCategory;
+  errorClassification?: string;
+  failureSource?: AIFailureSource;
   message: string;
   suggestedAction?: string;
   correlationId: string;
   provider?: AIProviderCredential;
+  canRetryGeneration?: boolean;
 }
 
 export interface AIValidationResult {
