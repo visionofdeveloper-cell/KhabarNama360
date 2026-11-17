@@ -2185,6 +2185,71 @@ app.get('/api/admin/reports/:reportId', requirePermission('reports:view'), (req,
 
 // ================= MULTI-PROVIDER AI VAULT, ROUTER & EDITORIAL STUDIO =================
 
+// --- Simplified One-Click AI API Connection Endpoints ---
+app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
+  const all = AIProviderRouter.getAllCredentialsSanitized();
+  const connected = all.find((c: any) => c.enabled && c.connectionStatus === 'connected');
+  const active = connected || all.find((c: any) => c.enabled) || all[0] || null;
+  const supabaseConfigured = Boolean(
+    (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) &&
+    (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+  );
+  res.json({
+    success: true,
+    connected: Boolean(connected),
+    activeProvider: active,
+    totalCredentials: all.length,
+    connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
+    storageBackend: supabaseConfigured ? 'supabase+local_encrypted' : 'local_encrypted',
+    supabaseConfigured,
+  });
+});
+
+app.post('/api/v1/admin/ai/connect-auto', requirePermission('ai:keys'), async (req, res) => {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
+  });
+  try {
+    const body = req.body || {};
+    const result = await AIProviderManager.connectAutomatically(
+      {
+        apiKey: String(body.apiKey || ''),
+        providerOverride:
+          body.providerOverride === 'gemini' || body.providerOverride === 'grok'
+            ? body.providerOverride
+            : undefined,
+        preferredModel: body.preferredModel ? String(body.preferredModel) : undefined,
+        customEndpointUrl: body.customEndpointUrl ? String(body.customEndpointUrl) : undefined,
+        confirmBillableTest: Boolean(body.confirmBillableTest),
+        allowPaidModels: Boolean(body.allowPaidModels),
+        replaceCredentialId: body.replaceCredentialId ? String(body.replaceCredentialId) : undefined,
+      },
+      getActor(req, 'Super Admin'),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Automatic AI connection failed.',
+    });
+  }
+});
+
+app.post('/api/v1/admin/ai/disconnect', requirePermission('ai:keys'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const out = await AIProviderManager.disconnectCredential(
+      body.credentialId ? String(body.credentialId) : undefined,
+      getActor(req, 'Super Admin')
+    );
+    return res.json({ success: out.ok, ...out });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to disconnect AI provider.' });
+  }
+});
+
 // --- Standardized v1 Provider Management, Validation & Diagnostics API ---
 app.post('/api/v1/admin/ai/providers/validate', requirePermission('ai:keys'), async (req, res) => {
   const controller = new AbortController();
@@ -2239,9 +2304,9 @@ app.patch('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, 
   }
 });
 
-app.delete('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), (req, res) => {
-  const success = db.deleteAiProvider(req.params.id, getActor(req, 'Super Admin'));
-  res.json({ success });
+app.delete('/api/v1/admin/ai/providers/:id', requirePermission('ai:keys'), async (req, res) => {
+  const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
+  res.json({ success: out.ok });
 });
 
 app.post('/api/v1/admin/ai/providers/:id/test', requirePermission('ai:keys'), async (req, res) => {
@@ -3247,6 +3312,10 @@ async function setupVite() {
       return res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(withSeo);
     });
   }
+
+  try {
+    await AIProviderManager.hydrateFromSupabaseIfConfigured().catch(() => {});
+  } catch {}
 
   try {
     scheduler.start();

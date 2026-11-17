@@ -4558,42 +4558,99 @@ async function checkOutboundConnectivity() {
 }
 
 // services/ai/AIModelDiscovery.ts
+function isDeprecatedGeminiModel(id) {
+  const lower = id.toLowerCase();
+  return lower.includes("gemini-1.5") || lower.includes("gemini-1.0") || lower.includes("gemini-2.0") || lower === "gemini-pro" || lower.startsWith("gemini-pro-");
+}
+function isPaidOnlyGeminiModel(id) {
+  const lower = id.toLowerCase();
+  return lower.includes("carbon") || lower.includes("argon") || lower.includes("2.5-pro") || lower.includes("3-pro") || lower.includes("3.1-pro") || lower.includes("deep-research") || lower.includes("imagen") || lower.includes("veo") || lower.includes("lyria") || lower.includes("nano-banana") || lower.includes("-image") || lower.includes("pro-preview");
+}
+function isFreeTierGeminiModel(id) {
+  const lower = id.toLowerCase();
+  if (isDeprecatedGeminiModel(lower) || isPaidOnlyGeminiModel(lower)) return false;
+  return lower === "gemini-4-hydrogen" || lower.includes("hydrogen") || lower.includes("flash-lite") || lower.includes("2.5-flash") || lower.includes("3-flash") || lower.includes("3.1-flash") || lower.includes("3.5-flash") || lower === "gemini-flash-latest" || lower.includes("flash");
+}
 function scoreGeminiModel(id) {
   const lower = id.toLowerCase();
-  if (lower.includes("embedding") || lower.includes("aqa") || lower.includes("imagen") || lower.includes("veo") || lower.includes("tts") || lower.includes("live") || lower.includes("transcribe") || lower.includes("lyria") || lower.includes("-image") || lower.includes("nano-banana") || lower.includes("computer-use") || lower.includes("robotics") || lower.includes("deep-research") || lower.includes("antigravity") || lower.includes("gemini-1.5") || lower.includes("gemini-1.0") || lower.includes("gemini-2.0") || lower === "gemini-pro" || lower.startsWith("gemini-pro-")) {
+  if (lower.includes("embedding") || lower.includes("aqa") || lower.includes("imagen") || lower.includes("veo") || lower.includes("tts") || lower.includes("live") || lower.includes("transcribe") || lower.includes("lyria") || lower.includes("-image") || lower.includes("nano-banana") || lower.includes("computer-use") || lower.includes("robotics") || lower.includes("deep-research") || lower.includes("antigravity") || isDeprecatedGeminiModel(lower)) {
     return -100;
   }
   let score = 10;
-  if (lower === "gemini-4-hydrogen") score += 96;
-  else if (lower === "gemini-3.1-flash-lite") score += 92;
-  else if (lower === "gemini-4-argon") score += 84;
-  else if (lower === "gemini-4-carbon") score += 80;
-  else if (lower === "gemini-3.5-flash-lite") score += 78;
-  else if (lower === "gemini-flash-lite-latest") score += 75;
-  else if (lower === "gemini-flash-latest") score += 72;
-  else if (lower === "gemini-2.5-flash") score += 68;
-  else if (lower.includes("gemini-4")) score += 65;
-  else if (lower.includes("gemini-3") && lower.includes("flash")) score += 62;
-  else if (lower.includes("gemini-2.5-flash")) score += 55;
-  else if (lower.includes("gemini-2.5-pro")) score += 48;
-  else if (lower.includes("flash")) score += 45;
-  else if (lower.includes("argon") || lower.includes("carbon") || lower.includes("pro")) score += 40;
-  if (lower.includes("preview") || lower.includes("exp")) score -= 10;
+  if (lower === "gemini-4-hydrogen") score += 120;
+  else if (lower === "gemini-3.1-flash-lite") score += 115;
+  else if (lower === "gemini-3.5-flash-lite") score += 110;
+  else if (lower === "gemini-flash-lite-latest") score += 105;
+  else if (lower === "gemini-2.5-flash-lite") score += 102;
+  else if (lower === "gemini-2.5-flash") score += 98;
+  else if (lower === "gemini-flash-latest") score += 95;
+  else if (lower.includes("gemini-3") && lower.includes("flash")) score += 90;
+  else if (lower.includes("flash")) score += 82;
+  else if (lower === "gemini-4-argon") score += 42;
+  else if (lower === "gemini-4-carbon") score += 38;
+  else if (lower.includes("gemini-4")) score += 36;
+  else if (lower.includes("gemini-2.5-pro")) score += 30;
+  else if (lower.includes("argon") || lower.includes("carbon") || lower.includes("pro")) score += 25;
+  if (lower.includes("preview") || lower.includes("exp")) score -= 8;
   return score;
+}
+function selectAutoGeminiModel(models, allowPaidModels = false) {
+  const textModels = models.filter((m) => m.supportsTextGeneration && !isDeprecatedGeminiModel(m.id)).sort((a, b) => scoreGeminiModel(b.id) - scoreGeminiModel(a.id));
+  const fallbackGen = models.filter(
+    (m) => m.supportedMethods?.includes("generateContent") && !isDeprecatedGeminiModel(m.id) && !m.id.toLowerCase().includes("embedding") && !m.id.toLowerCase().includes("imagen") && !m.id.toLowerCase().includes("veo")
+  ).sort((a, b) => scoreGeminiModel(b.id) - scoreGeminiModel(a.id));
+  const orderedPool = textModels.length > 0 ? textModels : fallbackGen;
+  const freeTierCandidates = orderedPool.filter((m) => isFreeTierGeminiModel(m.id)).map((m) => m.id);
+  const allCandidates = orderedPool.map((m) => m.id);
+  if (freeTierCandidates.length > 0) {
+    return {
+      selectedModel: freeTierCandidates[0],
+      freeTierCandidates,
+      allCandidates,
+      onlyPaidAvailable: false
+    };
+  }
+  const nonPaidUnknown = orderedPool.filter((m) => !isPaidOnlyGeminiModel(m.id)).map((m) => m.id);
+  if (nonPaidUnknown.length > 0) {
+    return {
+      selectedModel: nonPaidUnknown[0],
+      freeTierCandidates: [],
+      allCandidates: nonPaidUnknown,
+      onlyPaidAvailable: false
+    };
+  }
+  if (allowPaidModels && allCandidates.length > 0) {
+    return {
+      selectedModel: allCandidates[0],
+      freeTierCandidates: [],
+      allCandidates,
+      onlyPaidAvailable: true
+    };
+  }
+  return {
+    selectedModel: null,
+    freeTierCandidates: [],
+    allCandidates,
+    onlyPaidAvailable: allCandidates.length > 0
+  };
 }
 function scoreGrokModel(id) {
   const lower = id.toLowerCase();
-  if (lower.includes("image") || lower.includes("vision-only") || lower.includes("embed")) {
+  if (lower.includes("image") || lower.includes("vision-only") || lower.includes("embed") || lower.includes("imagine")) {
     return -100;
   }
   let score = 10;
-  if (lower.includes("grok-3-mini")) score += 85;
-  else if (lower.includes("grok-4") && lower.includes("fast")) score += 82;
-  else if (lower.includes("grok-4")) score += 78;
-  else if (lower.includes("grok-3-fast")) score += 75;
-  else if (lower.includes("grok-3")) score += 70;
+  if (lower.includes("grok-3-mini")) score += 90;
+  else if (lower.includes("grok-4") && lower.includes("fast")) score += 86;
+  else if (lower.includes("grok-3-fast")) score += 82;
+  else if (lower.includes("grok-3")) score += 75;
+  else if (lower.includes("grok-4")) score += 70;
   else if (lower.includes("grok")) score += 50;
   return score;
+}
+function selectAutoGrokModel(models) {
+  const sorted = [...models].filter((m) => m.supportsTextGeneration).sort((a, b) => scoreGrokModel(b.id) - scoreGrokModel(a.id));
+  return sorted[0]?.id || models[0]?.id || null;
 }
 function extractRateLimitHeaders(headers) {
   const remReq = headers.get("x-ratelimit-remaining-requests");
@@ -4607,6 +4664,40 @@ function extractRateLimitHeaders(headers) {
   };
 }
 var AIModelDiscovery = class {
+  /**
+   * Best-effort non-billable inspection of xAI API key metadata (/v1/api-key).
+   * Returns null silently if the endpoint is unsupported or restricted.
+   */
+  static async inspectGrokApiKeyMetadata(apiKey, baseUrl = "https://api.x.ai/v1", signal) {
+    const cleanKey = apiKey.trim();
+    if (!cleanKey) return null;
+    const normalizedBase = baseUrl.trim().replace(/\/+$/, "").replace(/\/(chat\/completions|responses|models)$/i, "") || "https://api.x.ai/v1";
+    try {
+      const res = await fetchWithTimeout(
+        `${normalizedBase}/api-key`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${cleanKey}`,
+            Accept: "application/json"
+          },
+          signal
+        },
+        8e3
+      );
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data) return null;
+      return {
+        keyBlocked: Boolean(data.api_key_blocked || data.team_blocked || data.disabled),
+        acls: Array.isArray(data.acls) ? data.acls : void 0,
+        teamId: data.team_id ? String(data.team_id) : void 0,
+        name: data.name ? String(data.name) : void 0
+      };
+    } catch {
+      return null;
+    }
+  }
   static async discoverGeminiModels(apiKey, signal) {
     const correlationId = generateCorrelationId("gem-models");
     const start = Date.now();
@@ -4692,6 +4783,7 @@ var AIModelDiscovery = class {
         pageCount++;
       } while (pageToken && pageCount < 3);
       const textModels = models.filter((m) => m.supportsTextGeneration).sort((a, b) => scoreGeminiModel(b.id) - scoreGeminiModel(a.id));
+      const autoPick = selectAutoGeminiModel(models, false);
       return {
         ok: true,
         providerType: "gemini",
@@ -4699,7 +4791,7 @@ var AIModelDiscovery = class {
           ...textModels,
           ...models.filter((m) => !m.supportsTextGeneration)
         ],
-        recommendedModel: textModels[0]?.id || models.find((m) => m.supportedMethods?.includes("generateContent"))?.id || null,
+        recommendedModel: autoPick.selectedModel,
         latencyMs: Date.now() - start,
         correlationId
       };
@@ -5612,7 +5704,474 @@ var AIUsageTracker = class {
   }
 };
 
+// src/server/supabaseAdmin.ts
+import { createClient } from "@supabase/supabase-js";
+
+// src/server/errorTracker.ts
+var MAX_LOGS = 200;
+var errorRingBuffer = [];
+function redactSensitiveText(input) {
+  return String(input || "").replace(/AIza[0-9A-Za-z\-_]{20,}/g, "[REDACTED_GEMINI_KEY]").replace(/xai-[0-9A-Za-z\-_]{16,}/g, "[REDACTED_XAI_KEY]").replace(/Bearer\s+[0-9A-Za-z\-_.]{16,}/gi, "Bearer [REDACTED]").replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]").replace(/(password|secret|token|key)=([^&\s]+)/gi, "$1=[REDACTED]");
+}
+function recordServerError(entry) {
+  const clean = {
+    ...entry,
+    id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    message: redactSensitiveText(entry.message).slice(0, 600)
+  };
+  errorRingBuffer.unshift(clean);
+  if (errorRingBuffer.length > MAX_LOGS) {
+    errorRingBuffer.length = MAX_LOGS;
+  }
+  return clean;
+}
+function getServerErrorLogs(limit = 50) {
+  return errorRingBuffer.slice(0, Math.max(1, Math.min(limit, MAX_LOGS)));
+}
+
+// src/server/supabaseAdmin.ts
+function resolveSupabaseEnvConfig() {
+  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const sbSecret = (process.env.SUPABASE_SECRET_KEY || "").trim();
+  const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  const secretKey = sbSecret || legacyService;
+  const secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
+  const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
+  const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  const publishableKey = sbPub || legacyAnon;
+  const publishableKeyMode = sbPub ? "sb_publishable" : legacyAnon ? "legacy_anon" : "missing";
+  let projectHost = null;
+  if (url) {
+    try {
+      projectHost = new URL(url).hostname;
+    } catch {
+      projectHost = "invalid-url";
+    }
+  }
+  return {
+    url,
+    publishableKey,
+    secretKey,
+    secretKeyMode,
+    publishableKeyMode,
+    configured: Boolean(url && secretKey && projectHost && projectHost !== "invalid-url"),
+    projectHost
+  };
+}
+function isSupabaseConfigured() {
+  return resolveSupabaseEnvConfig().configured;
+}
+var cachedAdminClient = null;
+var cachedAdminSignature = "";
+function getSupabaseAdminClient() {
+  const cfg = resolveSupabaseEnvConfig();
+  if (!cfg.configured) return null;
+  const sig = `${cfg.url}:${cfg.secretKey.slice(0, 8)}`;
+  if (!cachedAdminClient || cachedAdminSignature !== sig) {
+    cachedAdminClient = createClient(cfg.url, cfg.secretKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    cachedAdminSignature = sig;
+  }
+  return cachedAdminClient;
+}
+function getSupabaseAnonClient() {
+  const cfg = resolveSupabaseEnvConfig();
+  if (!cfg.url || !cfg.publishableKey) return null;
+  return createClient(cfg.url, cfg.publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+function mapRowToArticle(row) {
+  const seoObj = typeof row.seo_json === "object" && row.seo_json ? row.seo_json : {};
+  const tagsArr = Array.isArray(row.tags) ? row.tags : [];
+  const versionsArr = Array.isArray(row.versions_json) ? row.versions_json : void 0;
+  return {
+    id: String(row.id),
+    slug: String(row.slug),
+    titleEn: String(row.title_en || ""),
+    titleUr: String(row.title_ur || ""),
+    summaryEn: String(row.summary_en || ""),
+    summaryUr: String(row.summary_ur || ""),
+    contentEn: String(row.content_en || ""),
+    contentUr: String(row.content_ur || ""),
+    category: String(row.category || "pakistan"),
+    tags: tagsArr.map((t) => String(t)),
+    status: row.status || "draft",
+    isBreaking: Boolean(row.is_breaking),
+    isFeatured: Boolean(row.is_featured),
+    isTrending: Boolean(row.is_trending),
+    heroImage: String(row.hero_image || "") || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80",
+    imageCaptionEn: String(row.image_caption_en || ""),
+    imageCaptionUr: String(row.image_caption_ur || ""),
+    readingTimeMin: Number(row.reading_time_min || 3) || 3,
+    author: {
+      id: String(row.author_id || "admin-desk"),
+      nameEn: String(row.author_name_en || "360Khabarnama Editorial"),
+      nameUr: String(row.author_name_ur || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1"),
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      role: row.author_role || "Editor"
+    },
+    publishedAt: row.published_at ? String(row.published_at) : "",
+    scheduledAt: row.scheduled_at ? String(row.scheduled_at) : void 0,
+    version: Number(row.version || 1) || 1,
+    versions: versionsArr,
+    workflowNotes: row.workflow_notes ? String(row.workflow_notes) : void 0,
+    failureReason: row.failure_reason ? String(row.failure_reason) : void 0,
+    views: Number(row.views || 0) || 0,
+    seo: seoObj,
+    createdBy: row.created_by ? String(row.created_by) : void 0,
+    updatedBy: row.updated_by ? String(row.updated_by) : void 0,
+    updatedAt: row.updated_at ? String(row.updated_at) : (/* @__PURE__ */ new Date()).toISOString(),
+    deletedAt: row.deleted_at ? String(row.deleted_at) : void 0
+  };
+}
+function buildArticleRow(article, actor) {
+  return {
+    id: article.id,
+    slug: article.slug,
+    title_en: article.titleEn || "",
+    title_ur: article.titleUr || "",
+    summary_en: article.summaryEn || "",
+    summary_ur: article.summaryUr || "",
+    content_en: article.contentEn || "",
+    content_ur: article.contentUr || "",
+    category: (article.category || "pakistan").toLowerCase(),
+    tags: Array.isArray(article.tags) ? article.tags : [],
+    status: article.status || "draft",
+    is_breaking: Boolean(article.isBreaking),
+    is_featured: Boolean(article.isFeatured),
+    is_trending: Boolean(article.isTrending),
+    hero_image: article.heroImage || "",
+    image_caption_en: article.imageCaptionEn || "",
+    image_caption_ur: article.imageCaptionUr || "",
+    reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),
+    author_id: article.author?.id || article.createdBy || "admin-desk",
+    author_name_en: article.author?.nameEn || "360Khabarnama Editorial",
+    author_name_ur: article.author?.nameUr || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1",
+    author_role: article.author?.role || "Editor",
+    seo_json: article.seo || {},
+    versions_json: Array.isArray(article.versions) ? article.versions : [],
+    workflow_notes: article.workflowNotes || "",
+    failure_reason: article.failureReason || "",
+    version: Math.max(1, Math.round(Number(article.version || 1))),
+    views: Math.max(0, Math.round(Number(article.views || 0))),
+    published_at: article.publishedAt ? article.publishedAt : null,
+    scheduled_at: article.scheduledAt || article.scheduledFor || null,
+    deleted_at: article.deletedAt || null,
+    created_by: article.createdBy || actor,
+    updated_by: actor,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function listSupabaseArticles(filters) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return { ok: false, articles: [], error: "Supabase secret key/URL not configured." };
+  }
+  try {
+    let query = client.from("articles").select("*").order("published_at", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }).limit(Math.min(Math.max(Number(filters.limit || 250), 1), 500));
+    if (!filters.includeDeleted) {
+      query = query.is("deleted_at", null);
+    }
+    if (filters.status && filters.status !== "all") {
+      query = query.eq("status", filters.status);
+    }
+    if (filters.category && filters.category !== "all") {
+      query = query.eq("category", filters.category.toLowerCase());
+    }
+    const { data, error } = await query;
+    if (error) {
+      return { ok: false, articles: [], error: `${error.code || "SUPABASE_QUERY"}: ${error.message}` };
+    }
+    let articles = (data || []).map(mapRowToArticle);
+    if (filters.tag) {
+      const tLower = filters.tag.toLowerCase();
+      articles = articles.filter((a) => a.tags.some((t) => t.toLowerCase() === tLower));
+    }
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      articles = articles.filter(
+        (a) => a.titleEn.toLowerCase().includes(q) || a.titleUr.includes(q) || a.summaryEn.toLowerCase().includes(q) || a.summaryUr.includes(q) || a.slug.toLowerCase().includes(q)
+      );
+    }
+    return { ok: true, articles };
+  } catch (err) {
+    return { ok: false, articles: [], error: err?.message || "Supabase article query error" };
+  }
+}
+async function getSupabaseArticle(idOrSlug) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return { ok: false, article: null, error: "Supabase not configured." };
+  }
+  const clean = decodeURIComponent(idOrSlug || "").trim();
+  if (!clean) return { ok: true, article: null };
+  try {
+    const byId = await client.from("articles").select("*").eq("id", clean).maybeSingle();
+    if (byId.error) {
+      return { ok: false, article: null, error: `${byId.error.code || "SUPABASE_GET"}: ${byId.error.message}` };
+    }
+    if (byId.data) {
+      return { ok: true, article: mapRowToArticle(byId.data) };
+    }
+    const bySlug = await client.from("articles").select("*").eq("slug", clean.toLowerCase()).maybeSingle();
+    if (bySlug.error) {
+      return { ok: false, article: null, error: `${bySlug.error.code || "SUPABASE_GET"}: ${bySlug.error.message}` };
+    }
+    return { ok: true, article: bySlug.data ? mapRowToArticle(bySlug.data) : null };
+  } catch (err) {
+    return { ok: false, article: null, error: err?.message || "Supabase get article error" };
+  }
+}
+async function upsertSupabaseArticle(article, actor) {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      ok: false,
+      code: "SUPABASE_NOT_CONFIGURED",
+      error: "SUPABASE_URL and SUPABASE_SECRET_KEY are required for Supabase PostgreSQL persistence."
+    };
+  }
+  try {
+    const row = buildArticleRow(article, actor);
+    const { data, error } = await client.from("articles").upsert(row, { onConflict: "id" }).select("*").single();
+    if (error || !data) {
+      const msg = error?.message || "Supabase upsert returned no record.";
+      recordServerError({
+        source: "supabase",
+        code: error?.code || "SUPABASE_WRITE_FAILED",
+        message: `Supabase upsert failed for ${article.id}: ${msg}`
+      });
+      return {
+        ok: false,
+        code: error?.code || "SUPABASE_WRITE_FAILED",
+        error: msg
+      };
+    }
+    const verify = await client.from("articles").select("*").eq("id", data.id).single();
+    if (verify.error || !verify.data) {
+      return {
+        ok: false,
+        code: "SUPABASE_READ_AFTER_WRITE_FAILED",
+        error: verify.error?.message || "Upsert succeeded but read-after-write lookup failed."
+      };
+    }
+    return { ok: true, article: mapRowToArticle(verify.data) };
+  } catch (err) {
+    return {
+      ok: false,
+      code: "SUPABASE_EXCEPTION",
+      error: err?.message || "Unexpected error saving article to Supabase."
+    };
+  }
+}
+async function deleteSupabaseArticle(id, hardDelete = false) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    if (hardDelete) {
+      const { error: error2 } = await client.from("articles").delete().eq("id", id);
+      if (error2) return { ok: false, error: error2.message };
+      return { ok: true };
+    }
+    const { error } = await client.from("articles").update({ deleted_at: (/* @__PURE__ */ new Date()).toISOString(), status: "archived", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase delete failed" };
+  }
+}
+function mapRowToAiCredential(row) {
+  const diag = row.last_diagnostic_json && typeof row.last_diagnostic_json === "object" ? row.last_diagnostic_json : null;
+  const billingMeta = diag?._billingMeta;
+  return {
+    id: String(row.id),
+    providerType: row.provider_type || "gemini",
+    label: String(row.label || "AI Provider"),
+    projectId: String(row.project_id || "default-project"),
+    endpointUrl: row.endpoint_url ? String(row.endpoint_url) : void 0,
+    model: String(row.model || ""),
+    encryptedSecret: String(row.encrypted_secret || ""),
+    maskedKey: String(row.masked_key || ""),
+    enabled: Boolean(row.enabled),
+    priority: Number(row.priority ?? 10),
+    dailyTokenLimit: 5e5,
+    dailyTokensUsed: 0,
+    monthlyBudgetUsd: 25,
+    monthlySpendUsd: 0,
+    availableModels: Array.isArray(row.available_models_json) ? row.available_models_json : [],
+    connectionStatus: row.connection_status || "untested",
+    billingStatus: billingMeta?.billingStatus,
+    billingNote: billingMeta?.billingNote,
+    modelListStatus: Array.isArray(row.available_models_json) && row.available_models_json.length > 0 ? "ok" : "untested",
+    generationTestStatus: row.last_test_status === "connected" ? "ok" : row.last_test_status === "error" ? "error" : "untested",
+    lastTestedAt: row.last_tested_at ? String(row.last_tested_at) : null,
+    lastTestStatus: row.last_test_status || "untested",
+    lastTestMessage: row.last_test_message ? String(row.last_test_message) : void 0,
+    lastDiagnostic: diag,
+    createdAt: row.created_at ? String(row.created_at) : (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: row.updated_at ? String(row.updated_at) : (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function listSupabaseAiCredentials() {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, credentials: [], error: "Supabase not configured." };
+  try {
+    const { data, error } = await client.from("ai_provider_credentials").select("*").order("priority", { ascending: true });
+    if (error) return { ok: false, credentials: [], error: error.message };
+    return { ok: true, credentials: (data || []).map(mapRowToAiCredential) };
+  } catch (err) {
+    return { ok: false, credentials: [], error: err?.message || "Failed listing Supabase AI credentials" };
+  }
+}
+async function upsertSupabaseAiCredential(cred) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    const diagPayload = cred.lastDiagnostic || cred.billingStatus ? {
+      ...cred.lastDiagnostic || {},
+      _billingMeta: {
+        billingStatus: cred.billingStatus || "unknown",
+        billingNote: cred.billingNote || ""
+      }
+    } : null;
+    const { error } = await client.from("ai_provider_credentials").upsert(
+      {
+        id: cred.id,
+        provider_type: cred.providerType,
+        label: cred.label,
+        project_id: cred.projectId,
+        endpoint_url: cred.endpointUrl || null,
+        model: cred.model,
+        encrypted_secret: cred.encryptedSecret,
+        masked_key: cred.maskedKey,
+        enabled: Boolean(cred.enabled),
+        priority: cred.priority,
+        connection_status: cred.connectionStatus || "untested",
+        available_models_json: Array.isArray(cred.availableModels) ? cred.availableModels : [],
+        last_tested_at: cred.lastTestedAt || null,
+        last_test_status: cred.lastTestStatus || "untested",
+        last_test_message: cred.lastTestMessage || "",
+        last_diagnostic_json: diagPayload,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      { onConflict: "id" }
+    );
+    if (error) {
+      recordServerError({
+        source: "supabase",
+        code: error.code || "SUPABASE_AI_UPSERT_ERR",
+        message: `Supabase AI credential upsert failed (${cred.id}): ${error.message}`
+      });
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase AI credential sync error" };
+  }
+}
+async function deleteSupabaseAiCredential(id) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    const { error } = await client.from("ai_provider_credentials").delete().eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase AI credential delete error" };
+  }
+}
+async function upsertSupabaseAiTaskRoutes(routes) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    if (!routes.length) return { ok: true };
+    const rows = routes.map((r) => ({
+      task: r.task,
+      label: r.label,
+      primary_credential_id: r.primaryCredentialId || null,
+      primary_model: r.primaryModel || "",
+      fallback_credential_id: r.fallbackCredentialId || null,
+      fallback_model: r.fallbackModel || "",
+      temperature: r.temperature,
+      max_tokens: r.maxTokens,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }));
+    const { error } = await client.from("ai_task_routes").upsert(rows, { onConflict: "task" });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase task routes sync error" };
+  }
+}
+async function recordSupabaseAiConnectionTest(entry) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: "Supabase not configured." };
+  try {
+    const { error } = await client.from("ai_connection_tests").insert({
+      id: entry.id,
+      credential_id: entry.credentialId || null,
+      provider_type: entry.providerType,
+      model_tested: entry.modelTested || null,
+      stage: entry.stage,
+      ok: Boolean(entry.ok),
+      connection_status: entry.connectionStatus,
+      latency_ms: entry.latencyMs,
+      diagnostic_json: entry.diagnostic || null,
+      actor: entry.actor || "Super Admin",
+      tested_at: entry.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Supabase connection test log error" };
+  }
+}
+
 // services/ai/AIProviderManager.ts
+var AI_TASK_CATALOG = [
+  { task: "headline_generation", label: "Headline Suggestions", defaultModel: "gemini-4-hydrogen" },
+  { task: "translation", label: "English <-> Urdu Translation", defaultModel: "gemini-4-hydrogen" },
+  { task: "seo_metadata", label: "SEO Tags, Slugs & Meta Generation", defaultModel: "gemini-4-hydrogen" },
+  { task: "article_drafting", label: "Full Article Drafting", defaultModel: "gemini-4-hydrogen" },
+  { task: "summarization", label: "Article & Feed Summarization", defaultModel: "gemini-4-hydrogen" },
+  { task: "content_rewriting", label: "Rewrite & Tone Adjustment", defaultModel: "gemini-4-hydrogen" },
+  { task: "breaking_alerts", label: "Breaking News & Market Alert Summaries", defaultModel: "gemini-4-hydrogen" },
+  { task: "public_qa", label: "Ask Khabarnama Public Q&A", defaultModel: "gemini-4-hydrogen" },
+  { task: "category_tagging", label: "Category Classification & Tagging", defaultModel: "gemini-4-hydrogen" },
+  { task: "fact_check_prep", label: "Editorial Quality & Fact-Check Prep", defaultModel: "gemini-4-hydrogen" },
+  { task: "newsletter_social", label: "Newsletter & Social Media Copy", defaultModel: "gemini-4-hydrogen" }
+];
+function mapDiagnosticToAutoCategory(diag, modelsCount = 0) {
+  if (!diag) {
+    return modelsCount === 0 ? "NO_ACCESSIBLE_MODELS" : "PROVIDER_UNAVAILABLE";
+  }
+  switch (diag.category) {
+    case "auth_failed_401":
+      return "INVALID_API_KEY";
+    case "quota_429":
+      return "FREE_TIER_QUOTA_EXCEEDED";
+    case "billing_required":
+      return "BILLING_REQUIRED";
+    case "permission_denied_403":
+      return "PERMISSION_DENIED";
+    case "timeout":
+      return "API_TIMEOUT";
+    case "network_error":
+      return "SERVER_CONNECTIVITY_FAILURE";
+    case "not_found_404":
+      return modelsCount === 0 ? "NO_ACCESSIBLE_MODELS" : "UNSUPPORTED_MODEL";
+    case "bad_request_400":
+      return "UNSUPPORTED_MODEL";
+    case "server_error_5xx":
+    case "malformed_response":
+      return "PROVIDER_UNAVAILABLE";
+    default:
+      return "PROVIDER_UNAVAILABLE";
+  }
+}
 var AIProviderManager = class {
   static sanitizeCredential(cred, routes) {
     const assignedTasks = routes ? routes.filter((r) => r.primaryCredentialId === cred.id || r.fallbackCredentialId === cred.id).map((r) => r.label) : [];
@@ -5820,6 +6379,10 @@ var AIProviderManager = class {
       updatedAt: now
     };
     const saved = db.upsertAiProvider(record, actor);
+    if (isSupabaseConfigured()) {
+      upsertSupabaseAiCredential(saved).catch(() => {
+      });
+    }
     return this.sanitizeCredential(saved);
   }
   static updateCredentialPartial(id, patch, actor) {
@@ -6045,6 +6608,639 @@ var AIProviderManager = class {
       recentTests
     };
   }
+  /**
+   * Key format hint ONLY — never trusted without server-side API verification.
+   */
+  static detectProviderHint(apiKey) {
+    const trimmed = (apiKey || "").trim();
+    if (/^AIza[0-9A-Za-z_-]{15,}$/.test(trimmed)) return "gemini";
+    if (/^xai-[0-9A-Za-z_-]{15,}$/.test(trimmed)) return "grok";
+    return "unknown";
+  }
+  static async syncRoutesForCredential(credentialId, model, actor) {
+    const existingRoutes = db.getAiTaskRoutes();
+    const updatedRoutes = AI_TASK_CATALOG.map((spec) => {
+      const prev = existingRoutes[spec.task];
+      const next = {
+        task: spec.task,
+        label: spec.label,
+        primaryCredentialId: credentialId,
+        primaryModel: model,
+        fallbackCredentialId: prev?.fallbackCredentialId && prev.fallbackCredentialId !== credentialId ? prev.fallbackCredentialId : "",
+        fallbackModel: prev?.fallbackCredentialId && prev.fallbackCredentialId !== credentialId ? prev.fallbackModel || "" : "",
+        temperature: prev?.temperature ?? (spec.task === "fact_check_prep" || spec.task === "translation" ? 0.2 : 0.5),
+        maxTokens: prev?.maxTokens ?? (spec.task === "article_drafting" ? 4096 : 3072)
+      };
+      db.setAiTaskRoute(spec.task, next, actor);
+      return next;
+    });
+    if (isSupabaseConfigured()) {
+      await upsertSupabaseAiTaskRoutes(updatedRoutes).catch(() => {
+      });
+    }
+    return updatedRoutes;
+  }
+  static async hydrateFromSupabaseIfConfigured(actor = "System") {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const res = await listSupabaseAiCredentials();
+      if (!res.ok || !res.credentials.length) return;
+      const local = db.getAiProviders();
+      for (const remoteCred of res.credentials) {
+        const exists = local.find((c) => c.id === remoteCred.id);
+        if (!exists && remoteCred.encryptedSecret) {
+          db.upsertAiProvider(remoteCred, actor);
+        }
+      }
+    } catch {
+    }
+  }
+  /**
+   * One-Click Universal Auto-Detect, Validate, Persist & Activate Flow.
+   */
+  static async connectAutomatically(input, actor = "Super Admin", signal) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const rawKey = (input.apiKey || "").trim();
+    const correlationId = generateCorrelationId("autoconn");
+    if (!rawKey || rawKey.length < 10) {
+      return {
+        ok: false,
+        status: "auth_failed",
+        detectedProvider: input.providerOverride || null,
+        billingStatus: "unknown",
+        billingNote: "Not checked \u2014 API key input is empty or too short.",
+        lastChecked: now,
+        availableModels: [],
+        errorCategory: "INVALID_API_KEY",
+        message: "Please paste a valid Google Gemini or xAI Grok API key.",
+        suggestedAction: "Copy the complete API key from Google AI Studio or console.x.ai with no extra spaces.",
+        correlationId
+      };
+    }
+    const hint = this.detectProviderHint(rawKey);
+    let targetProvider = input.providerOverride || (hint !== "unknown" ? hint : null);
+    let detectionMethod = input.providerOverride ? "manual_override" : hint !== "unknown" ? "prefix_hint_verified" : "ambiguous";
+    let preDiscoveredGemini = null;
+    let preDiscoveredGrok = null;
+    if (!targetProvider) {
+      let geminiDiag;
+      let grokDiag;
+      try {
+        preDiscoveredGemini = await AIModelDiscovery.discoverGeminiModels(rawKey, signal);
+        targetProvider = "gemini";
+        detectionMethod = "probe_verified";
+      } catch (err) {
+        geminiDiag = err instanceof ProviderExecutionError ? err.diagnostic : void 0;
+      }
+      if (!targetProvider) {
+        try {
+          preDiscoveredGrok = await AIModelDiscovery.discoverGrokModels(
+            rawKey,
+            input.customEndpointUrl || "https://api.x.ai/v1",
+            signal
+          );
+          targetProvider = "grok";
+          detectionMethod = "probe_verified";
+        } catch (err) {
+          grokDiag = err instanceof ProviderExecutionError ? err.diagnostic : void 0;
+        }
+      }
+      if (!targetProvider) {
+        if (geminiDiag?.category === "network_error" && grokDiag?.category === "network_error") {
+          return {
+            ok: false,
+            status: "network_error",
+            detectedProvider: null,
+            detectionMethod: "ambiguous",
+            billingStatus: "unknown",
+            billingNote: "Could not reach provider endpoints to verify billing or tier.",
+            lastChecked: now,
+            availableModels: [],
+            errorCategory: "SERVER_CONNECTIVITY_FAILURE",
+            message: "Server failed to establish outbound HTTPS connections to Google Gemini and xAI Grok.",
+            suggestedAction: geminiDiag.suggestedAction,
+            correlationId
+          };
+        }
+        return {
+          ok: false,
+          status: "needs_provider_selection",
+          requiresProviderSelection: true,
+          detectedProvider: null,
+          detectionMethod: "ambiguous",
+          billingStatus: "unknown",
+          billingNote: "Select a provider so the server can run provider-specific verification.",
+          lastChecked: now,
+          availableModels: [],
+          errorCategory: "NEEDS_PROVIDER_SELECTION",
+          message: "Could not automatically identify or authenticate this key format. Please choose whether this key belongs to Google Gemini or xAI Grok.",
+          suggestedAction: "Select Google Gemini or xAI Grok below and retry.",
+          correlationId
+        };
+      }
+    }
+    if (targetProvider === "gemini") {
+      let discovery = preDiscoveredGemini;
+      if (!discovery) {
+        try {
+          discovery = await AIModelDiscovery.discoverGeminiModels(rawKey, signal);
+        } catch (err) {
+          const diag = err instanceof ProviderExecutionError ? err.diagnostic : classifyProviderError({
+            providerType: "gemini",
+            err,
+            stage: "model_list",
+            correlationId,
+            secretToRedact: rawKey
+          });
+          const errorCategory = mapDiagnosticToAutoCategory(diag, 0);
+          const testEntry2 = {
+            id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            providerType: "gemini",
+            stage: "model_list",
+            ok: false,
+            connectionStatus: diag.connectionStatus,
+            modelListOk: false,
+            generationOk: false,
+            modelsDiscoveredCount: 0,
+            latencyMs: 0,
+            diagnostic: diag,
+            actor,
+            timestamp: now
+          };
+          db.recordAiConnectionTest(testEntry2);
+          if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry2).catch(() => {
+          });
+          return {
+            ok: false,
+            status: diag.connectionStatus,
+            detectedProvider: "gemini",
+            detectionMethod,
+            billingStatus: errorCategory === "FREE_TIER_QUOTA_EXCEEDED" ? "quota_exceeded" : errorCategory === "BILLING_REQUIRED" ? "billing_required" : "unknown",
+            billingNote: errorCategory === "FREE_TIER_QUOTA_EXCEEDED" ? "API key is valid, but free-tier rate/quota limit is currently reached." : diag.title,
+            lastChecked: now,
+            availableModels: [],
+            errorCategory,
+            message: diag.diagnosis,
+            suggestedAction: diag.suggestedAction,
+            correlationId: diag.correlationId
+          };
+        }
+      }
+      const selection = selectAutoGeminiModel(discovery.models, Boolean(input.allowPaidModels));
+      const explicitModel = input.preferredModel?.trim();
+      if (discovery.models.length === 0) {
+        return {
+          ok: false,
+          status: "authenticated_generation_unavailable",
+          detectedProvider: "gemini",
+          detectionMethod,
+          billingStatus: "unknown",
+          billingNote: "Authenticated, but 0 accessible models were returned.",
+          lastChecked: now,
+          availableModels: [],
+          errorCategory: "NO_ACCESSIBLE_MODELS",
+          message: "Authenticated with Google Gemini, but no models were returned for this API key.",
+          suggestedAction: "Verify the Generative Language API is enabled in your Google Cloud project.",
+          correlationId
+        };
+      }
+      if (!explicitModel && !selection.selectedModel) {
+        if (selection.onlyPaidAvailable) {
+          return {
+            ok: false,
+            status: "billing_required",
+            detectedProvider: "gemini",
+            detectionMethod,
+            billingStatus: "billing_required",
+            billingNote: "Only paid-tier Gemini models were discovered; free-tier auto-connect declined to avoid unexpected charges.",
+            lastChecked: now,
+            availableModels: discovery.models,
+            errorCategory: "BILLING_REQUIRED",
+            message: "No free-tier eligible Gemini text model was found on this key. Paid-only models were skipped automatically.",
+            suggestedAction: "Use a free-tier eligible AI Studio key or select a specific model under Advanced Settings if billing is enabled.",
+            correlationId
+          };
+        }
+        return {
+          ok: false,
+          status: "authenticated_generation_unavailable",
+          detectedProvider: "gemini",
+          detectionMethod,
+          billingStatus: "unknown",
+          billingNote: "No supported text-generation model available.",
+          lastChecked: now,
+          availableModels: discovery.models,
+          errorCategory: "NO_ACCESSIBLE_MODELS",
+          message: "No supported text-generation Gemini models were found for this API key.",
+          suggestedAction: "Verify your Google AI Studio key has access to Gemini text models.",
+          correlationId
+        };
+      }
+      const candidatesToTry = explicitModel ? [explicitModel] : selection.freeTierCandidates.length > 0 ? selection.freeTierCandidates.slice(0, 3) : selection.allCandidates.slice(0, 2);
+      let genRes = null;
+      let lastGenDiag;
+      for (const candidateModel of candidatesToTry) {
+        try {
+          genRes = await GeminiProvider.testGeneration(rawKey, candidateModel, signal);
+          break;
+        } catch (err) {
+          const diag = err instanceof ProviderExecutionError ? err.diagnostic : classifyProviderError({
+            providerType: "gemini",
+            err,
+            model: candidateModel,
+            stage: "generation_test",
+            authenticated: true,
+            correlationId,
+            secretToRedact: rawKey
+          });
+          lastGenDiag = diag;
+          if (diag.category !== "not_found_404" && diag.category !== "bad_request_400") {
+            break;
+          }
+        }
+      }
+      if (!genRes) {
+        const errorCategory = mapDiagnosticToAutoCategory(lastGenDiag, discovery.models.length);
+        const billingStatus3 = errorCategory === "FREE_TIER_QUOTA_EXCEEDED" ? "quota_exceeded" : errorCategory === "BILLING_REQUIRED" ? "billing_required" : "unknown";
+        const testEntry2 = {
+          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          providerType: "gemini",
+          modelTested: candidatesToTry[0],
+          stage: "generation_test",
+          ok: false,
+          connectionStatus: lastGenDiag?.connectionStatus || "error",
+          modelListOk: true,
+          generationOk: false,
+          modelsDiscoveredCount: discovery.models.length,
+          latencyMs: discovery.latencyMs,
+          diagnostic: lastGenDiag,
+          actor,
+          timestamp: now
+        };
+        db.recordAiConnectionTest(testEntry2);
+        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry2).catch(() => {
+        });
+        return {
+          ok: false,
+          status: lastGenDiag?.connectionStatus || "authenticated_generation_unavailable",
+          detectedProvider: "gemini",
+          detectionMethod,
+          selectedModel: candidatesToTry[0],
+          billingStatus: billingStatus3,
+          billingNote: billingStatus3 === "quota_exceeded" ? "Valid key, but free-tier quota is temporarily exhausted (HTTP 429)." : billingStatus3 === "billing_required" ? "Billing activation is required on this Google Cloud project." : lastGenDiag?.title || "Generation test failed",
+          lastChecked: now,
+          availableModels: discovery.models,
+          errorCategory,
+          message: lastGenDiag?.diagnosis || "Authenticated with Gemini, but live test generation failed.",
+          suggestedAction: lastGenDiag?.suggestedAction,
+          correlationId: lastGenDiag?.correlationId || correlationId
+        };
+      }
+      const isFree = isFreeTierGeminiModel(genRes.model);
+      const billingStatus2 = isFree ? "free_tier" : "unknown";
+      const billingNote2 = isFree ? "Free Tier Confirmed (No unexpected billing charges)" : "Verified Model Connected";
+      const savedCred = await this.persistAutoConnectedCredential({
+        providerType: "gemini",
+        rawKey,
+        selectedModel: genRes.model,
+        availableModels: discovery.models,
+        billingStatus: billingStatus2,
+        billingNote: billingNote2,
+        latencyMs: genRes.latencyMs,
+        correlationId: genRes.correlationId,
+        sampleOutput: genRes.text,
+        replaceCredentialId: input.replaceCredentialId,
+        now,
+        actor
+      });
+      return {
+        ok: true,
+        status: "connected",
+        detectedProvider: "gemini",
+        detectionMethod,
+        selectedModel: genRes.model,
+        billingStatus: billingStatus2,
+        billingNote: billingNote2,
+        lastChecked: now,
+        availableModels: discovery.models,
+        sampleOutput: redactSecrets(genRes.text.slice(0, 100), rawKey),
+        message: `Connected to Google Gemini (${genRes.model}) and activated across all editorial & SEO tools.`,
+        correlationId: genRes.correlationId,
+        provider: this.sanitizeCredential(savedCred)
+      };
+    }
+    const endpointUrl = (input.customEndpointUrl || "https://api.x.ai/v1").trim();
+    let grokDiscovery = preDiscoveredGrok;
+    if (!grokDiscovery) {
+      try {
+        grokDiscovery = await AIModelDiscovery.discoverGrokModels(rawKey, endpointUrl, signal);
+      } catch (err) {
+        const diag = err instanceof ProviderExecutionError ? err.diagnostic : classifyProviderError({
+          providerType: "grok",
+          err,
+          stage: "model_list",
+          correlationId,
+          secretToRedact: rawKey
+        });
+        const errorCategory = mapDiagnosticToAutoCategory(diag, 0);
+        const testEntry2 = {
+          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          providerType: "grok",
+          stage: "model_list",
+          ok: false,
+          connectionStatus: diag.connectionStatus,
+          modelListOk: false,
+          generationOk: false,
+          modelsDiscoveredCount: 0,
+          latencyMs: 0,
+          diagnostic: diag,
+          actor,
+          timestamp: now
+        };
+        db.recordAiConnectionTest(testEntry2);
+        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry2).catch(() => {
+        });
+        return {
+          ok: false,
+          status: diag.connectionStatus,
+          detectedProvider: "grok",
+          detectionMethod,
+          billingStatus: errorCategory === "BILLING_REQUIRED" ? "billing_required" : "credits_required",
+          billingNote: diag.title,
+          lastChecked: now,
+          availableModels: [],
+          errorCategory,
+          message: diag.diagnosis,
+          suggestedAction: diag.suggestedAction,
+          correlationId: diag.correlationId
+        };
+      }
+    }
+    if (grokDiscovery.models.length === 0) {
+      return {
+        ok: false,
+        status: "authenticated_generation_unavailable",
+        detectedProvider: "grok",
+        detectionMethod,
+        billingStatus: "credits_required",
+        billingNote: "Authenticated, but no accessible Grok models were returned.",
+        lastChecked: now,
+        availableModels: [],
+        errorCategory: "NO_ACCESSIBLE_MODELS",
+        message: "Authenticated with xAI, but no compatible text models were returned by /v1/models.",
+        suggestedAction: "Check key ACL scopes and billing credits at console.x.ai.",
+        correlationId
+      };
+    }
+    const keyMeta = await AIModelDiscovery.inspectGrokApiKeyMetadata(rawKey, endpointUrl, signal);
+    if (keyMeta?.keyBlocked) {
+      return {
+        ok: false,
+        status: "permission_denied",
+        detectedProvider: "grok",
+        detectionMethod,
+        billingStatus: "billing_required",
+        billingNote: "Key or team is blocked/disabled on xAI.",
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: "PERMISSION_DENIED",
+        message: "xAI reports this API key or team account is currently blocked or disabled.",
+        suggestedAction: "Review team status and prepaid credits in console.x.ai.",
+        correlationId
+      };
+    }
+    const chosenGrokModel = input.preferredModel?.trim() || selectAutoGrokModel(grokDiscovery.models) || grokDiscovery.recommendedModel || "";
+    if (!chosenGrokModel) {
+      return {
+        ok: false,
+        status: "authenticated_generation_unavailable",
+        detectedProvider: "grok",
+        detectionMethod,
+        billingStatus: "credits_required",
+        billingNote: "No supported text generation model found.",
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: "NO_ACCESSIBLE_MODELS",
+        message: "No text-generation Grok model was found for this key.",
+        correlationId
+      };
+    }
+    if (!input.confirmBillableTest) {
+      return {
+        ok: false,
+        status: "awaiting_confirmation",
+        requiresBillableConfirmation: true,
+        detectedProvider: "grok",
+        detectionMethod,
+        selectedModel: chosenGrokModel,
+        billingStatus: "credits_required",
+        billingNote: "xAI Grok uses prepaid credits / billing (no free tier). Confirmation required before test generation.",
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: "CONFIRMATION_REQUIRED",
+        message: `xAI Grok key authenticated (${grokDiscovery.models.length} models found, selected ${chosenGrokModel}). Confirm to run a minimal (~10 token) live test and activate Grok.`,
+        suggestedAction: 'Click "Confirm & Connect Grok" to run the small verification test.',
+        correlationId
+      };
+    }
+    const grokValidation = await GrokProvider.testConnection(
+      rawKey,
+      chosenGrokModel,
+      endpointUrl,
+      signal,
+      true,
+      "grok"
+    );
+    const testEntry = {
+      id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      providerType: "grok",
+      modelTested: grokValidation.selectedModel || chosenGrokModel,
+      stage: "generation_test",
+      ok: grokValidation.ok,
+      connectionStatus: grokValidation.connectionStatus,
+      modelListOk: grokValidation.authenticated,
+      generationOk: grokValidation.generationVerified,
+      modelsDiscoveredCount: grokValidation.availableModels.length,
+      latencyMs: grokValidation.latencyMs,
+      sampleOutput: grokValidation.sampleOutput ? redactSecrets(grokValidation.sampleOutput, rawKey) : void 0,
+      diagnostic: grokValidation.diagnostic,
+      actor,
+      timestamp: now
+    };
+    db.recordAiConnectionTest(testEntry);
+    if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {
+    });
+    if (!grokValidation.ok) {
+      const errorCategory = mapDiagnosticToAutoCategory(
+        grokValidation.diagnostic,
+        grokValidation.availableModels.length
+      );
+      return {
+        ok: false,
+        status: grokValidation.connectionStatus,
+        detectedProvider: "grok",
+        detectionMethod,
+        selectedModel: chosenGrokModel,
+        billingStatus: errorCategory === "BILLING_REQUIRED" ? "billing_required" : "credits_required",
+        billingNote: errorCategory === "BILLING_REQUIRED" ? "xAI requires prepaid credits or billing enabled before generation." : grokValidation.diagnostic?.title || "Grok live test failed",
+        lastChecked: now,
+        availableModels: grokValidation.availableModels,
+        errorCategory,
+        message: grokValidation.message,
+        suggestedAction: grokValidation.diagnostic?.suggestedAction,
+        correlationId: grokValidation.correlationId
+      };
+    }
+    const billingStatus = "credits_required";
+    const billingNote = "Credits / Billing Active on xAI";
+    const savedGrok = await this.persistAutoConnectedCredential({
+      providerType: "grok",
+      rawKey,
+      selectedModel: grokValidation.selectedModel || chosenGrokModel,
+      endpointUrl,
+      availableModels: grokValidation.availableModels,
+      billingStatus,
+      billingNote,
+      latencyMs: grokValidation.latencyMs,
+      correlationId: grokValidation.correlationId,
+      sampleOutput: grokValidation.sampleOutput,
+      replaceCredentialId: input.replaceCredentialId,
+      now,
+      actor
+    });
+    return {
+      ok: true,
+      status: "connected",
+      detectedProvider: "grok",
+      detectionMethod,
+      selectedModel: savedGrok.model,
+      billingStatus,
+      billingNote,
+      lastChecked: now,
+      availableModels: grokValidation.availableModels,
+      sampleOutput: grokValidation.sampleOutput ? redactSecrets(grokValidation.sampleOutput.slice(0, 100), rawKey) : void 0,
+      message: `Connected to xAI Grok (${savedGrok.model}) and activated across all editorial & SEO tools.`,
+      correlationId: grokValidation.correlationId,
+      provider: this.sanitizeCredential(savedGrok)
+    };
+  }
+  static async persistAutoConnectedCredential(params) {
+    const existingList = db.getAiProviders();
+    const masked = maskSecret(params.rawKey);
+    let targetExisting = params.replaceCredentialId ? existingList.find((c) => c.id === params.replaceCredentialId) : existingList.find(
+      (c) => c.providerType === params.providerType && c.maskedKey === masked
+    );
+    const recordId = targetExisting?.id || `aik-${params.providerType}-primary-${Date.now().toString(36)}`;
+    const cred = {
+      id: recordId,
+      providerType: params.providerType,
+      label: targetExisting?.label || (params.providerType === "gemini" ? "Google Gemini (Auto-Connected)" : "xAI Grok (Auto-Connected)"),
+      projectId: targetExisting?.projectId || `${params.providerType}-auto-${recordId.slice(-4)}`,
+      endpointUrl: params.endpointUrl || targetExisting?.endpointUrl || (params.providerType === "grok" ? "https://api.x.ai/v1" : void 0),
+      model: params.selectedModel,
+      encryptedSecret: encryptSecret(params.rawKey),
+      maskedKey: masked,
+      enabled: true,
+      priority: 1,
+      dailyTokenLimit: targetExisting?.dailyTokenLimit || 5e5,
+      dailyTokensUsed: targetExisting?.dailyTokensUsed || 0,
+      monthlyBudgetUsd: targetExisting?.monthlyBudgetUsd || (params.providerType === "gemini" ? 0 : 25),
+      monthlySpendUsd: targetExisting?.monthlySpendUsd || 0,
+      availableModels: params.availableModels,
+      connectionStatus: "connected",
+      billingStatus: params.billingStatus,
+      billingNote: params.billingNote,
+      modelListStatus: "ok",
+      generationTestStatus: "ok",
+      lastTestedAt: params.now,
+      lastSuccessfulVerificationAt: params.now,
+      lastSuccessfulGenerationAt: params.now,
+      lastFailureAt: targetExisting?.lastFailureAt || null,
+      lastTestStatus: "connected",
+      lastTestMessage: `Connected via ${params.selectedModel} (${params.billingNote})`,
+      lastDiagnostic: null,
+      lastLatencyMs: params.latencyMs,
+      lastCorrelationId: params.correlationId,
+      createdAt: targetExisting?.createdAt || params.now,
+      updatedAt: params.now
+    };
+    for (const prev of existingList) {
+      if (prev.id !== cred.id && (prev.priority || 10) <= 1) {
+        const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
+        db.upsertAiProvider(demoted, params.actor);
+        if (isSupabaseConfigured()) upsertSupabaseAiCredential(demoted).catch(() => {
+        });
+      }
+    }
+    const saved = db.upsertAiProvider(cred, params.actor);
+    if (isSupabaseConfigured()) {
+      await upsertSupabaseAiCredential(saved).catch(() => {
+      });
+    }
+    const testEntry = {
+      id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      credentialId: saved.id,
+      providerType: params.providerType,
+      modelTested: params.selectedModel,
+      stage: "generation_test",
+      ok: true,
+      connectionStatus: "connected",
+      modelListOk: true,
+      generationOk: true,
+      modelsDiscoveredCount: params.availableModels.length,
+      latencyMs: params.latencyMs,
+      sampleOutput: params.sampleOutput ? redactSecrets(params.sampleOutput, params.rawKey) : void 0,
+      actor: params.actor,
+      timestamp: params.now
+    };
+    db.recordAiConnectionTest(testEntry);
+    if (isSupabaseConfigured()) {
+      recordSupabaseAiConnectionTest(testEntry).catch(() => {
+      });
+    }
+    await this.syncRoutesForCredential(saved.id, params.selectedModel, params.actor);
+    return saved;
+  }
+  static async disconnectCredential(credentialId, actor = "Super Admin") {
+    const creds = db.getAiProviders();
+    const target = credentialId ? creds.find((c) => c.id === credentialId) : creds.find((c) => c.enabled && c.connectionStatus === "connected") || creds.find((c) => c.enabled) || creds[0];
+    if (!target) {
+      return { ok: true, message: "No active stored AI API key to disconnect." };
+    }
+    db.deleteAiProvider(target.id, actor);
+    if (isSupabaseConfigured()) {
+      await deleteSupabaseAiCredential(target.id).catch(() => {
+      });
+    }
+    const remaining = db.getAiProviders().filter((c) => c.enabled && c.connectionStatus === "connected");
+    const nextFallback = remaining[0];
+    const routes = db.getAiTaskRoutes();
+    const updatedRoutes = [];
+    for (const spec of AI_TASK_CATALOG) {
+      const r = routes[spec.task];
+      if (!r) continue;
+      if (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id) {
+        const nextRoute = {
+          ...r,
+          primaryCredentialId: r.primaryCredentialId === target.id ? nextFallback?.id || "" : r.primaryCredentialId,
+          primaryModel: r.primaryCredentialId === target.id ? nextFallback?.model || spec.defaultModel : r.primaryModel,
+          fallbackCredentialId: r.fallbackCredentialId === target.id ? "" : r.fallbackCredentialId,
+          fallbackModel: r.fallbackCredentialId === target.id ? "" : r.fallbackModel
+        };
+        db.setAiTaskRoute(spec.task, nextRoute, actor);
+        updatedRoutes.push(nextRoute);
+      }
+    }
+    if (updatedRoutes.length > 0 && isSupabaseConfigured()) {
+      await upsertSupabaseAiTaskRoutes(updatedRoutes).catch(() => {
+      });
+    }
+    return {
+      ok: true,
+      disconnectedId: target.id,
+      message: `Disconnected ${target.providerType === "gemini" ? "Google Gemini" : "xAI Grok"} key (${target.maskedKey}).`
+    };
+  }
 };
 
 // services/ai/AIProviderRouter.ts
@@ -6057,19 +7253,6 @@ var AIUnavailableError = class extends Error {
     this.diagnostic = diagnostic;
   }
 };
-var AI_TASK_CATALOG = [
-  { task: "headline_generation", label: "Headline Suggestions", defaultModel: "gemini-4-hydrogen" },
-  { task: "translation", label: "English <-> Urdu Translation", defaultModel: "gemini-4-hydrogen" },
-  { task: "seo_metadata", label: "SEO Tags, Slugs & Meta Generation", defaultModel: "gemini-4-hydrogen" },
-  { task: "article_drafting", label: "Full Article Drafting", defaultModel: "gemini-4-hydrogen" },
-  { task: "summarization", label: "Article & Feed Summarization", defaultModel: "gemini-4-hydrogen" },
-  { task: "content_rewriting", label: "Rewrite & Tone Adjustment", defaultModel: "gemini-4-hydrogen" },
-  { task: "breaking_alerts", label: "Breaking News & Market Alert Summaries", defaultModel: "gemini-4-hydrogen" },
-  { task: "public_qa", label: "Ask Khabarnama Public Q&A", defaultModel: "gemini-4-hydrogen" },
-  { task: "category_tagging", label: "Category Classification & Tagging", defaultModel: "gemini-4-hydrogen" },
-  { task: "fact_check_prep", label: "Editorial Quality & Fact-Check Prep", defaultModel: "gemini-4-hydrogen" },
-  { task: "newsletter_social", label: "Newsletter & Social Media Copy", defaultModel: "gemini-4-hydrogen" }
-];
 var AIProviderRouter = class {
   static getAllCredentialsSanitized() {
     const dbCreds = db.getAiProviders();
@@ -7051,29 +8234,6 @@ var adminAuth = {
   }
 };
 
-// src/server/errorTracker.ts
-var MAX_LOGS = 200;
-var errorRingBuffer = [];
-function redactSensitiveText(input) {
-  return String(input || "").replace(/AIza[0-9A-Za-z\-_]{20,}/g, "[REDACTED_GEMINI_KEY]").replace(/xai-[0-9A-Za-z\-_]{16,}/g, "[REDACTED_XAI_KEY]").replace(/Bearer\s+[0-9A-Za-z\-_.]{16,}/gi, "Bearer [REDACTED]").replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]").replace(/(password|secret|token|key)=([^&\s]+)/gi, "$1=[REDACTED]");
-}
-function recordServerError(entry) {
-  const clean = {
-    ...entry,
-    id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    message: redactSensitiveText(entry.message).slice(0, 600)
-  };
-  errorRingBuffer.unshift(clean);
-  if (errorRingBuffer.length > MAX_LOGS) {
-    errorRingBuffer.length = MAX_LOGS;
-  }
-  return clean;
-}
-function getServerErrorLogs(limit = 50) {
-  return errorRingBuffer.slice(0, Math.max(1, Math.min(limit, MAX_LOGS)));
-}
-
 // src/server/firestore.ts
 var FIRESTORE_ROOT = `https://firestore.googleapis.com/v1/projects/${firebaseProjectConfig.projectId}/databases/${firebaseProjectConfig.firestoreDatabaseId}`;
 var DOCS_BASE = `${FIRESTORE_ROOT}/documents`;
@@ -7684,261 +8844,6 @@ async function checkFirestoreHealth(bearerToken) {
       errorCode: err?.code || "FIRESTORE_UNREACHABLE",
       errorMessage: err?.message || "Unable to reach Cloud Firestore."
     };
-  }
-}
-
-// src/server/supabaseAdmin.ts
-import { createClient } from "@supabase/supabase-js";
-function resolveSupabaseEnvConfig() {
-  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
-  const sbSecret = (process.env.SUPABASE_SECRET_KEY || "").trim();
-  const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-  const secretKey = sbSecret || legacyService;
-  const secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
-  const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
-  const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
-  const publishableKey = sbPub || legacyAnon;
-  const publishableKeyMode = sbPub ? "sb_publishable" : legacyAnon ? "legacy_anon" : "missing";
-  let projectHost = null;
-  if (url) {
-    try {
-      projectHost = new URL(url).hostname;
-    } catch {
-      projectHost = "invalid-url";
-    }
-  }
-  return {
-    url,
-    publishableKey,
-    secretKey,
-    secretKeyMode,
-    publishableKeyMode,
-    configured: Boolean(url && secretKey && projectHost && projectHost !== "invalid-url"),
-    projectHost
-  };
-}
-function isSupabaseConfigured() {
-  return resolveSupabaseEnvConfig().configured;
-}
-var cachedAdminClient = null;
-var cachedAdminSignature = "";
-function getSupabaseAdminClient() {
-  const cfg = resolveSupabaseEnvConfig();
-  if (!cfg.configured) return null;
-  const sig = `${cfg.url}:${cfg.secretKey.slice(0, 8)}`;
-  if (!cachedAdminClient || cachedAdminSignature !== sig) {
-    cachedAdminClient = createClient(cfg.url, cfg.secretKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    cachedAdminSignature = sig;
-  }
-  return cachedAdminClient;
-}
-function getSupabaseAnonClient() {
-  const cfg = resolveSupabaseEnvConfig();
-  if (!cfg.url || !cfg.publishableKey) return null;
-  return createClient(cfg.url, cfg.publishableKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
-function mapRowToArticle(row) {
-  const seoObj = typeof row.seo_json === "object" && row.seo_json ? row.seo_json : {};
-  const tagsArr = Array.isArray(row.tags) ? row.tags : [];
-  const versionsArr = Array.isArray(row.versions_json) ? row.versions_json : void 0;
-  return {
-    id: String(row.id),
-    slug: String(row.slug),
-    titleEn: String(row.title_en || ""),
-    titleUr: String(row.title_ur || ""),
-    summaryEn: String(row.summary_en || ""),
-    summaryUr: String(row.summary_ur || ""),
-    contentEn: String(row.content_en || ""),
-    contentUr: String(row.content_ur || ""),
-    category: String(row.category || "pakistan"),
-    tags: tagsArr.map((t) => String(t)),
-    status: row.status || "draft",
-    isBreaking: Boolean(row.is_breaking),
-    isFeatured: Boolean(row.is_featured),
-    isTrending: Boolean(row.is_trending),
-    heroImage: String(row.hero_image || "") || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80",
-    imageCaptionEn: String(row.image_caption_en || ""),
-    imageCaptionUr: String(row.image_caption_ur || ""),
-    readingTimeMin: Number(row.reading_time_min || 3) || 3,
-    author: {
-      id: String(row.author_id || "admin-desk"),
-      nameEn: String(row.author_name_en || "360Khabarnama Editorial"),
-      nameUr: String(row.author_name_ur || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1"),
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-      role: row.author_role || "Editor"
-    },
-    publishedAt: row.published_at ? String(row.published_at) : "",
-    scheduledAt: row.scheduled_at ? String(row.scheduled_at) : void 0,
-    version: Number(row.version || 1) || 1,
-    versions: versionsArr,
-    workflowNotes: row.workflow_notes ? String(row.workflow_notes) : void 0,
-    failureReason: row.failure_reason ? String(row.failure_reason) : void 0,
-    views: Number(row.views || 0) || 0,
-    seo: seoObj,
-    createdBy: row.created_by ? String(row.created_by) : void 0,
-    updatedBy: row.updated_by ? String(row.updated_by) : void 0,
-    updatedAt: row.updated_at ? String(row.updated_at) : (/* @__PURE__ */ new Date()).toISOString(),
-    deletedAt: row.deleted_at ? String(row.deleted_at) : void 0
-  };
-}
-function buildArticleRow(article, actor) {
-  return {
-    id: article.id,
-    slug: article.slug,
-    title_en: article.titleEn || "",
-    title_ur: article.titleUr || "",
-    summary_en: article.summaryEn || "",
-    summary_ur: article.summaryUr || "",
-    content_en: article.contentEn || "",
-    content_ur: article.contentUr || "",
-    category: (article.category || "pakistan").toLowerCase(),
-    tags: Array.isArray(article.tags) ? article.tags : [],
-    status: article.status || "draft",
-    is_breaking: Boolean(article.isBreaking),
-    is_featured: Boolean(article.isFeatured),
-    is_trending: Boolean(article.isTrending),
-    hero_image: article.heroImage || "",
-    image_caption_en: article.imageCaptionEn || "",
-    image_caption_ur: article.imageCaptionUr || "",
-    reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),
-    author_id: article.author?.id || article.createdBy || "admin-desk",
-    author_name_en: article.author?.nameEn || "360Khabarnama Editorial",
-    author_name_ur: article.author?.nameUr || "\u0627\u062F\u0627\u0631\u06C1 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1",
-    author_role: article.author?.role || "Editor",
-    seo_json: article.seo || {},
-    versions_json: Array.isArray(article.versions) ? article.versions : [],
-    workflow_notes: article.workflowNotes || "",
-    failure_reason: article.failureReason || "",
-    version: Math.max(1, Math.round(Number(article.version || 1))),
-    views: Math.max(0, Math.round(Number(article.views || 0))),
-    published_at: article.publishedAt ? article.publishedAt : null,
-    scheduled_at: article.scheduledAt || article.scheduledFor || null,
-    deleted_at: article.deletedAt || null,
-    created_by: article.createdBy || actor,
-    updated_by: actor,
-    updated_at: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-async function listSupabaseArticles(filters) {
-  const client = getSupabaseAdminClient();
-  if (!client) {
-    return { ok: false, articles: [], error: "Supabase secret key/URL not configured." };
-  }
-  try {
-    let query = client.from("articles").select("*").order("published_at", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }).limit(Math.min(Math.max(Number(filters.limit || 250), 1), 500));
-    if (!filters.includeDeleted) {
-      query = query.is("deleted_at", null);
-    }
-    if (filters.status && filters.status !== "all") {
-      query = query.eq("status", filters.status);
-    }
-    if (filters.category && filters.category !== "all") {
-      query = query.eq("category", filters.category.toLowerCase());
-    }
-    const { data, error } = await query;
-    if (error) {
-      return { ok: false, articles: [], error: `${error.code || "SUPABASE_QUERY"}: ${error.message}` };
-    }
-    let articles = (data || []).map(mapRowToArticle);
-    if (filters.tag) {
-      const tLower = filters.tag.toLowerCase();
-      articles = articles.filter((a) => a.tags.some((t) => t.toLowerCase() === tLower));
-    }
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      articles = articles.filter(
-        (a) => a.titleEn.toLowerCase().includes(q) || a.titleUr.includes(q) || a.summaryEn.toLowerCase().includes(q) || a.summaryUr.includes(q) || a.slug.toLowerCase().includes(q)
-      );
-    }
-    return { ok: true, articles };
-  } catch (err) {
-    return { ok: false, articles: [], error: err?.message || "Supabase article query error" };
-  }
-}
-async function getSupabaseArticle(idOrSlug) {
-  const client = getSupabaseAdminClient();
-  if (!client) {
-    return { ok: false, article: null, error: "Supabase not configured." };
-  }
-  const clean = decodeURIComponent(idOrSlug || "").trim();
-  if (!clean) return { ok: true, article: null };
-  try {
-    const byId = await client.from("articles").select("*").eq("id", clean).maybeSingle();
-    if (byId.error) {
-      return { ok: false, article: null, error: `${byId.error.code || "SUPABASE_GET"}: ${byId.error.message}` };
-    }
-    if (byId.data) {
-      return { ok: true, article: mapRowToArticle(byId.data) };
-    }
-    const bySlug = await client.from("articles").select("*").eq("slug", clean.toLowerCase()).maybeSingle();
-    if (bySlug.error) {
-      return { ok: false, article: null, error: `${bySlug.error.code || "SUPABASE_GET"}: ${bySlug.error.message}` };
-    }
-    return { ok: true, article: bySlug.data ? mapRowToArticle(bySlug.data) : null };
-  } catch (err) {
-    return { ok: false, article: null, error: err?.message || "Supabase get article error" };
-  }
-}
-async function upsertSupabaseArticle(article, actor) {
-  const client = getSupabaseAdminClient();
-  if (!client) {
-    return {
-      ok: false,
-      code: "SUPABASE_NOT_CONFIGURED",
-      error: "SUPABASE_URL and SUPABASE_SECRET_KEY are required for Supabase PostgreSQL persistence."
-    };
-  }
-  try {
-    const row = buildArticleRow(article, actor);
-    const { data, error } = await client.from("articles").upsert(row, { onConflict: "id" }).select("*").single();
-    if (error || !data) {
-      const msg = error?.message || "Supabase upsert returned no record.";
-      recordServerError({
-        source: "supabase",
-        code: error?.code || "SUPABASE_WRITE_FAILED",
-        message: `Supabase upsert failed for ${article.id}: ${msg}`
-      });
-      return {
-        ok: false,
-        code: error?.code || "SUPABASE_WRITE_FAILED",
-        error: msg
-      };
-    }
-    const verify = await client.from("articles").select("*").eq("id", data.id).single();
-    if (verify.error || !verify.data) {
-      return {
-        ok: false,
-        code: "SUPABASE_READ_AFTER_WRITE_FAILED",
-        error: verify.error?.message || "Upsert succeeded but read-after-write lookup failed."
-      };
-    }
-    return { ok: true, article: mapRowToArticle(verify.data) };
-  } catch (err) {
-    return {
-      ok: false,
-      code: "SUPABASE_EXCEPTION",
-      error: err?.message || "Unexpected error saving article to Supabase."
-    };
-  }
-}
-async function deleteSupabaseArticle(id, hardDelete = false) {
-  const client = getSupabaseAdminClient();
-  if (!client) return { ok: false, error: "Supabase not configured." };
-  try {
-    if (hardDelete) {
-      const { error: error2 } = await client.from("articles").delete().eq("id", id);
-      if (error2) return { ok: false, error: error2.message };
-      return { ok: true };
-    }
-    const { error } = await client.from("articles").update({ deleted_at: (/* @__PURE__ */ new Date()).toISOString(), status: "archived", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err?.message || "Supabase delete failed" };
   }
 }
 
@@ -12991,6 +13896,63 @@ app.get("/api/admin/reports/:reportId", requirePermission("reports:view"), (req,
       });
   }
 });
+app.get("/api/v1/admin/ai/connection-status", requireAnyPermission(["ai:use", "ai:keys"]), (_req, res) => {
+  const all = AIProviderRouter.getAllCredentialsSanitized();
+  const connected = all.find((c) => c.enabled && c.connectionStatus === "connected");
+  const active = connected || all.find((c) => c.enabled) || all[0] || null;
+  const supabaseConfigured = Boolean(
+    (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+  );
+  res.json({
+    success: true,
+    connected: Boolean(connected),
+    activeProvider: active,
+    totalCredentials: all.length,
+    connectedCount: all.filter((c) => c.enabled && c.connectionStatus === "connected").length,
+    storageBackend: supabaseConfigured ? "supabase+local_encrypted" : "local_encrypted",
+    supabaseConfigured
+  });
+});
+app.post("/api/v1/admin/ai/connect-auto", requirePermission("ai:keys"), async (req, res) => {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort(new Error("Client disconnected"));
+  });
+  try {
+    const body = req.body || {};
+    const result = await AIProviderManager.connectAutomatically(
+      {
+        apiKey: String(body.apiKey || ""),
+        providerOverride: body.providerOverride === "gemini" || body.providerOverride === "grok" ? body.providerOverride : void 0,
+        preferredModel: body.preferredModel ? String(body.preferredModel) : void 0,
+        customEndpointUrl: body.customEndpointUrl ? String(body.customEndpointUrl) : void 0,
+        confirmBillableTest: Boolean(body.confirmBillableTest),
+        allowPaidModels: Boolean(body.allowPaidModels),
+        replaceCredentialId: body.replaceCredentialId ? String(body.replaceCredentialId) : void 0
+      },
+      getActor(req, "Super Admin"),
+      controller.signal
+    );
+    return res.json({ success: result.ok, result });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Automatic AI connection failed."
+    });
+  }
+});
+app.post("/api/v1/admin/ai/disconnect", requirePermission("ai:keys"), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const out = await AIProviderManager.disconnectCredential(
+      body.credentialId ? String(body.credentialId) : void 0,
+      getActor(req, "Super Admin")
+    );
+    return res.json({ success: out.ok, ...out });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Failed to disconnect AI provider." });
+  }
+});
 app.post("/api/v1/admin/ai/providers/validate", requirePermission("ai:keys"), async (req, res) => {
   const controller = new AbortController();
   res.on("close", () => {
@@ -13040,9 +14002,9 @@ app.patch("/api/v1/admin/ai/providers/:id", requirePermission("ai:keys"), (req, 
     return res.status(status).json({ success: false, error: err?.message || "Failed updating AI credential." });
   }
 });
-app.delete("/api/v1/admin/ai/providers/:id", requirePermission("ai:keys"), (req, res) => {
-  const success = db.deleteAiProvider(req.params.id, getActor(req, "Super Admin"));
-  res.json({ success });
+app.delete("/api/v1/admin/ai/providers/:id", requirePermission("ai:keys"), async (req, res) => {
+  const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, "Super Admin"));
+  res.json({ success: out.ok });
 });
 app.post("/api/v1/admin/ai/providers/:id/test", requirePermission("ai:keys"), async (req, res) => {
   try {
@@ -13934,6 +14896,11 @@ async function setupVite() {
     });
   }
   try {
+    await AIProviderManager.hydrateFromSupabaseIfConfigured().catch(() => {
+    });
+  } catch {
+  }
+  try {
     scheduler.start();
   } catch (schedErr) {
     console.error("Error starting automation scheduler:", schedErr);
@@ -14001,6 +14968,20 @@ export {
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Structured Server Error Tracker (Redacts All Credentials)
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Trusted Server-Side Supabase PostgreSQL Admin Client & Article Repository
+ *
+ * Supports SUPABASE_URL, SUPABASE_SECRET_KEY (and legacy SUPABASE_SERVICE_ROLE_KEY),
+ * and SUPABASE_PUBLISHABLE_KEY (with legacy SUPABASE_ANON_KEY).
+ * Never exposes secret credentials to client bundles.
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
  * 360Khabarnama — Centralized AI Provider Lifecycle, Validation, Discovery & Health Manager
  */
 /**
@@ -14036,11 +15017,6 @@ export {
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 360Khabarnama — Structured Server Error Tracker (Redacts All Credentials)
- */
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
  * 360Khabarnama — Server-Side Cloud Firestore Persistence & Diagnostics Client
  *
  * Targets existing Cloud Firestore database:
@@ -14051,15 +15027,6 @@ export {
  *   1. Service Account OAuth2 JWT token (when FIREBASE_SERVICE_ACCOUNT_JSON / BASE64 / GOOGLE_APPLICATION_CREDENTIALS is set)
  *   2. Verified Admin Firebase ID Token (forwarded from authenticated admin request)
  *   3. Public Web API Key (for public queries on status == 'published' & /test/connection)
- */
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- * 360Khabarnama — Trusted Server-Side Supabase PostgreSQL Admin Client & Article Repository
- *
- * Supports SUPABASE_URL, SUPABASE_SECRET_KEY (and legacy SUPABASE_SERVICE_ROLE_KEY),
- * and SUPABASE_PUBLISHABLE_KEY (with legacy SUPABASE_ANON_KEY).
- * Never exposes secret credentials to client bundles.
  */
 /**
  * @license

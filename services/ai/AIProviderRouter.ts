@@ -22,12 +22,14 @@ import {
 import { GeminiProvider, AIExecutionResponse } from './GeminiProvider.ts';
 import { GrokProvider } from './GrokProvider.ts';
 import { AIUsageTracker } from './AIUsageTracker.ts';
-import { AIProviderManager } from './AIProviderManager.ts';
+import { AIProviderManager, AI_TASK_CATALOG } from './AIProviderManager.ts';
 import {
   classifyProviderError,
   ProviderExecutionError,
 } from './AIConnectionValidator.ts';
 import { maskSecret } from '../../src/server/crypto.ts';
+
+export { AI_TASK_CATALOG };
 
 export class AIUnavailableError extends Error {
   public readonly statusCode: number;
@@ -47,20 +49,6 @@ export class AIUnavailableError extends Error {
     this.diagnostic = diagnostic;
   }
 }
-
-export const AI_TASK_CATALOG: { task: AITaskType; label: string; defaultModel: string }[] = [
-  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-4-hydrogen' },
-  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-4-hydrogen' },
-];
 
 export class AIProviderRouter {
   public static getAllCredentialsSanitized() {

@@ -7,11 +7,25 @@
 import { db } from '../../src/server/db.ts';
 import { encryptSecret, decryptSecret, maskSecret } from '../../src/server/crypto.ts';
 import {
+  deleteSupabaseAiCredential,
+  isSupabaseConfigured,
+  listSupabaseAiCredentials,
+  recordSupabaseAiConnectionTest,
+  upsertSupabaseAiCredential,
+  upsertSupabaseAiTaskRoutes,
+} from '../../src/server/supabaseAdmin.ts';
+import {
+  AIAutoConnectErrorCategory,
+  AIAutoConnectResponse,
+  AIBillingStatus,
   AIConnectionStatus,
   AIConnectionTestRecord,
+  AIDiagnosticError,
   AIModelInfo,
   AIProviderCredential,
   AIProviderType,
+  AITaskRouting,
+  AITaskType,
   AIValidationResult,
 } from '../../src/types/index.ts';
 import {
@@ -21,9 +35,28 @@ import {
   ProviderExecutionError,
   redactSecrets,
 } from './AIConnectionValidator.ts';
-import { AIModelDiscovery } from './AIModelDiscovery.ts';
+import {
+  AIModelDiscovery,
+  isFreeTierGeminiModel,
+  selectAutoGeminiModel,
+  selectAutoGrokModel,
+} from './AIModelDiscovery.ts';
 import { GeminiProvider } from './GeminiProvider.ts';
 import { GrokProvider } from './GrokProvider.ts';
+
+export const AI_TASK_CATALOG: { task: AITaskType; label: string; defaultModel: string }[] = [
+  { task: 'headline_generation', label: 'Headline Suggestions', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'translation', label: 'English <-> Urdu Translation', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'seo_metadata', label: 'SEO Tags, Slugs & Meta Generation', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'article_drafting', label: 'Full Article Drafting', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'summarization', label: 'Article & Feed Summarization', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'content_rewriting', label: 'Rewrite & Tone Adjustment', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'breaking_alerts', label: 'Breaking News & Market Alert Summaries', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'public_qa', label: 'Ask Khabarnama Public Q&A', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'category_tagging', label: 'Category Classification & Tagging', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'fact_check_prep', label: 'Editorial Quality & Fact-Check Prep', defaultModel: 'gemini-4-hydrogen' },
+  { task: 'newsletter_social', label: 'Newsletter & Social Media Copy', defaultModel: 'gemini-4-hydrogen' },
+];
 
 export interface ValidateProviderInput {
   providerType: AIProviderType;
@@ -32,6 +65,48 @@ export interface ValidateProviderInput {
   endpointUrl?: string;
   model?: string;
   runGenerationTest?: boolean;
+}
+
+export interface AutoConnectInput {
+  apiKey: string;
+  providerOverride?: 'gemini' | 'grok';
+  preferredModel?: string;
+  customEndpointUrl?: string;
+  confirmBillableTest?: boolean;
+  allowPaidModels?: boolean;
+  replaceCredentialId?: string;
+}
+
+function mapDiagnosticToAutoCategory(
+  diag?: AIDiagnosticError,
+  modelsCount: number = 0
+): AIAutoConnectErrorCategory {
+  if (!diag) {
+    return modelsCount === 0 ? 'NO_ACCESSIBLE_MODELS' : 'PROVIDER_UNAVAILABLE';
+  }
+  switch (diag.category) {
+    case 'auth_failed_401':
+      return 'INVALID_API_KEY';
+    case 'quota_429':
+      return 'FREE_TIER_QUOTA_EXCEEDED';
+    case 'billing_required':
+      return 'BILLING_REQUIRED';
+    case 'permission_denied_403':
+      return 'PERMISSION_DENIED';
+    case 'timeout':
+      return 'API_TIMEOUT';
+    case 'network_error':
+      return 'SERVER_CONNECTIVITY_FAILURE';
+    case 'not_found_404':
+      return modelsCount === 0 ? 'NO_ACCESSIBLE_MODELS' : 'UNSUPPORTED_MODEL';
+    case 'bad_request_400':
+      return 'UNSUPPORTED_MODEL';
+    case 'server_error_5xx':
+    case 'malformed_response':
+      return 'PROVIDER_UNAVAILABLE';
+    default:
+      return 'PROVIDER_UNAVAILABLE';
+  }
 }
 
 export class AIProviderManager {
@@ -294,6 +369,9 @@ export class AIProviderManager {
     };
 
     const saved = db.upsertAiProvider(record, actor);
+    if (isSupabaseConfigured()) {
+      upsertSupabaseAiCredential(saved).catch(() => {});
+    }
     return this.sanitizeCredential(saved);
   }
 
@@ -563,6 +641,780 @@ export class AIProviderManager {
       connectivity,
       lastHealthCheck: cachedHealth,
       recentTests,
+    };
+  }
+
+  /**
+   * Key format hint ONLY — never trusted without server-side API verification.
+   */
+  public static detectProviderHint(apiKey: string): 'gemini' | 'grok' | 'unknown' {
+    const trimmed = (apiKey || '').trim();
+    if (/^AIza[0-9A-Za-z_-]{15,}$/.test(trimmed)) return 'gemini';
+    if (/^xai-[0-9A-Za-z_-]{15,}$/.test(trimmed)) return 'grok';
+    return 'unknown';
+  }
+
+  public static async syncRoutesForCredential(
+    credentialId: string,
+    model: string,
+    actor: string
+  ): Promise<AITaskRouting[]> {
+    const existingRoutes = db.getAiTaskRoutes();
+    const updatedRoutes: AITaskRouting[] = AI_TASK_CATALOG.map(spec => {
+      const prev = existingRoutes[spec.task];
+      const next: AITaskRouting = {
+        task: spec.task,
+        label: spec.label,
+        primaryCredentialId: credentialId,
+        primaryModel: model,
+        fallbackCredentialId:
+          prev?.fallbackCredentialId && prev.fallbackCredentialId !== credentialId
+            ? prev.fallbackCredentialId
+            : '',
+        fallbackModel:
+          prev?.fallbackCredentialId && prev.fallbackCredentialId !== credentialId
+            ? prev.fallbackModel || ''
+            : '',
+        temperature:
+          prev?.temperature ?? (spec.task === 'fact_check_prep' || spec.task === 'translation' ? 0.2 : 0.5),
+        maxTokens: prev?.maxTokens ?? (spec.task === 'article_drafting' ? 4096 : 3072),
+      };
+      db.setAiTaskRoute(spec.task, next, actor);
+      return next;
+    });
+
+    if (isSupabaseConfigured()) {
+      await upsertSupabaseAiTaskRoutes(updatedRoutes).catch(() => {});
+    }
+    return updatedRoutes;
+  }
+
+  public static async hydrateFromSupabaseIfConfigured(actor: string = 'System'): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const res = await listSupabaseAiCredentials();
+      if (!res.ok || !res.credentials.length) return;
+      const local = db.getAiProviders();
+      for (const remoteCred of res.credentials) {
+        const exists = local.find(c => c.id === remoteCred.id);
+        if (!exists && remoteCred.encryptedSecret) {
+          db.upsertAiProvider(remoteCred, actor);
+        }
+      }
+    } catch {
+      // Non-blocking startup sync
+    }
+  }
+
+  /**
+   * One-Click Universal Auto-Detect, Validate, Persist & Activate Flow.
+   */
+  public static async connectAutomatically(
+    input: AutoConnectInput,
+    actor: string = 'Super Admin',
+    signal?: AbortSignal
+  ): Promise<AIAutoConnectResponse> {
+    const now = new Date().toISOString();
+    const rawKey = (input.apiKey || '').trim();
+    const correlationId = generateCorrelationId('autoconn');
+
+    if (!rawKey || rawKey.length < 10) {
+      return {
+        ok: false,
+        status: 'auth_failed',
+        detectedProvider: input.providerOverride || null,
+        billingStatus: 'unknown',
+        billingNote: 'Not checked — API key input is empty or too short.',
+        lastChecked: now,
+        availableModels: [],
+        errorCategory: 'INVALID_API_KEY',
+        message: 'Please paste a valid Google Gemini or xAI Grok API key.',
+        suggestedAction: 'Copy the complete API key from Google AI Studio or console.x.ai with no extra spaces.',
+        correlationId,
+      };
+    }
+
+    const hint = this.detectProviderHint(rawKey);
+    let targetProvider: 'gemini' | 'grok' | null = input.providerOverride || (hint !== 'unknown' ? hint : null);
+    let detectionMethod: AIAutoConnectResponse['detectionMethod'] = input.providerOverride
+      ? 'manual_override'
+      : hint !== 'unknown'
+      ? 'prefix_hint_verified'
+      : 'ambiguous';
+
+    let preDiscoveredGemini: Awaited<ReturnType<typeof AIModelDiscovery.discoverGeminiModels>> | null = null;
+    let preDiscoveredGrok: Awaited<ReturnType<typeof AIModelDiscovery.discoverGrokModels>> | null = null;
+
+    // Ambiguous key format (no AIza / xai- prefix and no explicit fallback selection):
+    // Non-destructively probe model list endpoints on Gemini then xAI to verify real provider.
+    if (!targetProvider) {
+      let geminiDiag: AIDiagnosticError | undefined;
+      let grokDiag: AIDiagnosticError | undefined;
+
+      try {
+        preDiscoveredGemini = await AIModelDiscovery.discoverGeminiModels(rawKey, signal);
+        targetProvider = 'gemini';
+        detectionMethod = 'probe_verified';
+      } catch (err: any) {
+        geminiDiag = err instanceof ProviderExecutionError ? err.diagnostic : undefined;
+      }
+
+      if (!targetProvider) {
+        try {
+          preDiscoveredGrok = await AIModelDiscovery.discoverGrokModels(
+            rawKey,
+            input.customEndpointUrl || 'https://api.x.ai/v1',
+            signal
+          );
+          targetProvider = 'grok';
+          detectionMethod = 'probe_verified';
+        } catch (err: any) {
+          grokDiag = err instanceof ProviderExecutionError ? err.diagnostic : undefined;
+        }
+      }
+
+      if (!targetProvider) {
+        if (geminiDiag?.category === 'network_error' && grokDiag?.category === 'network_error') {
+          return {
+            ok: false,
+            status: 'network_error',
+            detectedProvider: null,
+            detectionMethod: 'ambiguous',
+            billingStatus: 'unknown',
+            billingNote: 'Could not reach provider endpoints to verify billing or tier.',
+            lastChecked: now,
+            availableModels: [],
+            errorCategory: 'SERVER_CONNECTIVITY_FAILURE',
+            message: 'Server failed to establish outbound HTTPS connections to Google Gemini and xAI Grok.',
+            suggestedAction: geminiDiag.suggestedAction,
+            correlationId,
+          };
+        }
+
+        return {
+          ok: false,
+          status: 'needs_provider_selection',
+          requiresProviderSelection: true,
+          detectedProvider: null,
+          detectionMethod: 'ambiguous',
+          billingStatus: 'unknown',
+          billingNote: 'Select a provider so the server can run provider-specific verification.',
+          lastChecked: now,
+          availableModels: [],
+          errorCategory: 'NEEDS_PROVIDER_SELECTION',
+          message: 'Could not automatically identify or authenticate this key format. Please choose whether this key belongs to Google Gemini or xAI Grok.',
+          suggestedAction: 'Select Google Gemini or xAI Grok below and retry.',
+          correlationId,
+        };
+      }
+    }
+
+    // ==================== GEMINI AUTO-CONNECT PIPELINE ====================
+    if (targetProvider === 'gemini') {
+      let discovery = preDiscoveredGemini;
+      if (!discovery) {
+        try {
+          discovery = await AIModelDiscovery.discoverGeminiModels(rawKey, signal);
+        } catch (err: any) {
+          const diag =
+            err instanceof ProviderExecutionError
+              ? err.diagnostic
+              : classifyProviderError({
+                  providerType: 'gemini',
+                  err,
+                  stage: 'model_list',
+                  correlationId,
+                  secretToRedact: rawKey,
+                });
+
+          const errorCategory = mapDiagnosticToAutoCategory(diag, 0);
+          const testEntry: AIConnectionTestRecord = {
+            id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            providerType: 'gemini',
+            stage: 'model_list',
+            ok: false,
+            connectionStatus: diag.connectionStatus,
+            modelListOk: false,
+            generationOk: false,
+            modelsDiscoveredCount: 0,
+            latencyMs: 0,
+            diagnostic: diag,
+            actor,
+            timestamp: now,
+          };
+          db.recordAiConnectionTest(testEntry);
+          if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+
+          return {
+            ok: false,
+            status: diag.connectionStatus,
+            detectedProvider: 'gemini',
+            detectionMethod,
+            billingStatus: errorCategory === 'FREE_TIER_QUOTA_EXCEEDED' ? 'quota_exceeded' : errorCategory === 'BILLING_REQUIRED' ? 'billing_required' : 'unknown',
+            billingNote:
+              errorCategory === 'FREE_TIER_QUOTA_EXCEEDED'
+                ? 'API key is valid, but free-tier rate/quota limit is currently reached.'
+                : diag.title,
+            lastChecked: now,
+            availableModels: [],
+            errorCategory,
+            message: diag.diagnosis,
+            suggestedAction: diag.suggestedAction,
+            correlationId: diag.correlationId,
+          };
+        }
+      }
+
+      const selection = selectAutoGeminiModel(discovery.models, Boolean(input.allowPaidModels));
+      const explicitModel = input.preferredModel?.trim();
+
+      if (discovery.models.length === 0) {
+        return {
+          ok: false,
+          status: 'authenticated_generation_unavailable',
+          detectedProvider: 'gemini',
+          detectionMethod,
+          billingStatus: 'unknown',
+          billingNote: 'Authenticated, but 0 accessible models were returned.',
+          lastChecked: now,
+          availableModels: [],
+          errorCategory: 'NO_ACCESSIBLE_MODELS',
+          message: 'Authenticated with Google Gemini, but no models were returned for this API key.',
+          suggestedAction: 'Verify the Generative Language API is enabled in your Google Cloud project.',
+          correlationId,
+        };
+      }
+
+      if (!explicitModel && !selection.selectedModel) {
+        if (selection.onlyPaidAvailable) {
+          return {
+            ok: false,
+            status: 'billing_required',
+            detectedProvider: 'gemini',
+            detectionMethod,
+            billingStatus: 'billing_required',
+            billingNote: 'Only paid-tier Gemini models were discovered; free-tier auto-connect declined to avoid unexpected charges.',
+            lastChecked: now,
+            availableModels: discovery.models,
+            errorCategory: 'BILLING_REQUIRED',
+            message: 'No free-tier eligible Gemini text model was found on this key. Paid-only models were skipped automatically.',
+            suggestedAction: 'Use a free-tier eligible AI Studio key or select a specific model under Advanced Settings if billing is enabled.',
+            correlationId,
+          };
+        }
+        return {
+          ok: false,
+          status: 'authenticated_generation_unavailable',
+          detectedProvider: 'gemini',
+          detectionMethod,
+          billingStatus: 'unknown',
+          billingNote: 'No supported text-generation model available.',
+          lastChecked: now,
+          availableModels: discovery.models,
+          errorCategory: 'NO_ACCESSIBLE_MODELS',
+          message: 'No supported text-generation Gemini models were found for this API key.',
+          suggestedAction: 'Verify your Google AI Studio key has access to Gemini text models.',
+          correlationId,
+        };
+      }
+
+      const candidatesToTry = explicitModel
+        ? [explicitModel]
+        : selection.freeTierCandidates.length > 0
+        ? selection.freeTierCandidates.slice(0, 3)
+        : selection.allCandidates.slice(0, 2);
+
+      let genRes: { text: string; model: string; latencyMs: number; correlationId: string } | null = null;
+      let lastGenDiag: AIDiagnosticError | undefined;
+
+      for (const candidateModel of candidatesToTry) {
+        try {
+          genRes = await GeminiProvider.testGeneration(rawKey, candidateModel, signal);
+          break;
+        } catch (err: any) {
+          const diag =
+            err instanceof ProviderExecutionError
+              ? err.diagnostic
+              : classifyProviderError({
+                  providerType: 'gemini',
+                  err,
+                  model: candidateModel,
+                  stage: 'generation_test',
+                  authenticated: true,
+                  correlationId,
+                  secretToRedact: rawKey,
+                });
+          lastGenDiag = diag;
+          // Try next free-tier candidate only on 404/400 unsupported model; fail immediately on auth/quota/billing/network
+          if (diag.category !== 'not_found_404' && diag.category !== 'bad_request_400') {
+            break;
+          }
+        }
+      }
+
+      if (!genRes) {
+        const errorCategory = mapDiagnosticToAutoCategory(lastGenDiag, discovery.models.length);
+        const billingStatus: AIBillingStatus =
+          errorCategory === 'FREE_TIER_QUOTA_EXCEEDED'
+            ? 'quota_exceeded'
+            : errorCategory === 'BILLING_REQUIRED'
+            ? 'billing_required'
+            : 'unknown';
+        const testEntry: AIConnectionTestRecord = {
+          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          providerType: 'gemini',
+          modelTested: candidatesToTry[0],
+          stage: 'generation_test',
+          ok: false,
+          connectionStatus: lastGenDiag?.connectionStatus || 'error',
+          modelListOk: true,
+          generationOk: false,
+          modelsDiscoveredCount: discovery.models.length,
+          latencyMs: discovery.latencyMs,
+          diagnostic: lastGenDiag,
+          actor,
+          timestamp: now,
+        };
+        db.recordAiConnectionTest(testEntry);
+        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+
+        return {
+          ok: false,
+          status: lastGenDiag?.connectionStatus || 'authenticated_generation_unavailable',
+          detectedProvider: 'gemini',
+          detectionMethod,
+          selectedModel: candidatesToTry[0],
+          billingStatus,
+          billingNote:
+            billingStatus === 'quota_exceeded'
+              ? 'Valid key, but free-tier quota is temporarily exhausted (HTTP 429).'
+              : billingStatus === 'billing_required'
+              ? 'Billing activation is required on this Google Cloud project.'
+              : lastGenDiag?.title || 'Generation test failed',
+          lastChecked: now,
+          availableModels: discovery.models,
+          errorCategory,
+          message:
+            lastGenDiag?.diagnosis || 'Authenticated with Gemini, but live test generation failed.',
+          suggestedAction: lastGenDiag?.suggestedAction,
+          correlationId: lastGenDiag?.correlationId || correlationId,
+        };
+      }
+
+      const isFree = isFreeTierGeminiModel(genRes.model);
+      const billingStatus: AIBillingStatus = isFree ? 'free_tier' : 'unknown';
+      const billingNote = isFree
+        ? 'Free Tier Confirmed (No unexpected billing charges)'
+        : 'Verified Model Connected';
+
+      const savedCred = await this.persistAutoConnectedCredential({
+        providerType: 'gemini',
+        rawKey,
+        selectedModel: genRes.model,
+        availableModels: discovery.models,
+        billingStatus,
+        billingNote,
+        latencyMs: genRes.latencyMs,
+        correlationId: genRes.correlationId,
+        sampleOutput: genRes.text,
+        replaceCredentialId: input.replaceCredentialId,
+        now,
+        actor,
+      });
+
+      return {
+        ok: true,
+        status: 'connected',
+        detectedProvider: 'gemini',
+        detectionMethod,
+        selectedModel: genRes.model,
+        billingStatus,
+        billingNote,
+        lastChecked: now,
+        availableModels: discovery.models,
+        sampleOutput: redactSecrets(genRes.text.slice(0, 100), rawKey),
+        message: `Connected to Google Gemini (${genRes.model}) and activated across all editorial & SEO tools.`,
+        correlationId: genRes.correlationId,
+        provider: this.sanitizeCredential(savedCred),
+      };
+    }
+
+    // ==================== GROK (xAI) AUTO-CONNECT PIPELINE ====================
+    const endpointUrl = (input.customEndpointUrl || 'https://api.x.ai/v1').trim();
+    let grokDiscovery = preDiscoveredGrok;
+    if (!grokDiscovery) {
+      try {
+        grokDiscovery = await AIModelDiscovery.discoverGrokModels(rawKey, endpointUrl, signal);
+      } catch (err: any) {
+        const diag =
+          err instanceof ProviderExecutionError
+            ? err.diagnostic
+            : classifyProviderError({
+                providerType: 'grok',
+                err,
+                stage: 'model_list',
+                correlationId,
+                secretToRedact: rawKey,
+              });
+        const errorCategory = mapDiagnosticToAutoCategory(diag, 0);
+        const testEntry: AIConnectionTestRecord = {
+          id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          providerType: 'grok',
+          stage: 'model_list',
+          ok: false,
+          connectionStatus: diag.connectionStatus,
+          modelListOk: false,
+          generationOk: false,
+          modelsDiscoveredCount: 0,
+          latencyMs: 0,
+          diagnostic: diag,
+          actor,
+          timestamp: now,
+        };
+        db.recordAiConnectionTest(testEntry);
+        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+
+        return {
+          ok: false,
+          status: diag.connectionStatus,
+          detectedProvider: 'grok',
+          detectionMethod,
+          billingStatus: errorCategory === 'BILLING_REQUIRED' ? 'billing_required' : 'credits_required',
+          billingNote: diag.title,
+          lastChecked: now,
+          availableModels: [],
+          errorCategory,
+          message: diag.diagnosis,
+          suggestedAction: diag.suggestedAction,
+          correlationId: diag.correlationId,
+        };
+      }
+    }
+
+    if (grokDiscovery.models.length === 0) {
+      return {
+        ok: false,
+        status: 'authenticated_generation_unavailable',
+        detectedProvider: 'grok',
+        detectionMethod,
+        billingStatus: 'credits_required',
+        billingNote: 'Authenticated, but no accessible Grok models were returned.',
+        lastChecked: now,
+        availableModels: [],
+        errorCategory: 'NO_ACCESSIBLE_MODELS',
+        message: 'Authenticated with xAI, but no compatible text models were returned by /v1/models.',
+        suggestedAction: 'Check key ACL scopes and billing credits at console.x.ai.',
+        correlationId,
+      };
+    }
+
+    // Best-effort non-billable key metadata check on xAI
+    const keyMeta = await AIModelDiscovery.inspectGrokApiKeyMetadata(rawKey, endpointUrl, signal);
+    if (keyMeta?.keyBlocked) {
+      return {
+        ok: false,
+        status: 'permission_denied',
+        detectedProvider: 'grok',
+        detectionMethod,
+        billingStatus: 'billing_required',
+        billingNote: 'Key or team is blocked/disabled on xAI.',
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: 'PERMISSION_DENIED',
+        message: 'xAI reports this API key or team account is currently blocked or disabled.',
+        suggestedAction: 'Review team status and prepaid credits in console.x.ai.',
+        correlationId,
+      };
+    }
+
+    const chosenGrokModel =
+      input.preferredModel?.trim() ||
+      selectAutoGrokModel(grokDiscovery.models) ||
+      grokDiscovery.recommendedModel ||
+      '';
+
+    if (!chosenGrokModel) {
+      return {
+        ok: false,
+        status: 'authenticated_generation_unavailable',
+        detectedProvider: 'grok',
+        detectionMethod,
+        billingStatus: 'credits_required',
+        billingNote: 'No supported text generation model found.',
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: 'NO_ACCESSIBLE_MODELS',
+        message: 'No text-generation Grok model was found for this key.',
+        correlationId,
+      };
+    }
+
+    // Never assume Grok has a free tier — require explicit admin confirmation before running test inference
+    if (!input.confirmBillableTest) {
+      return {
+        ok: false,
+        status: 'awaiting_confirmation',
+        requiresBillableConfirmation: true,
+        detectedProvider: 'grok',
+        detectionMethod,
+        selectedModel: chosenGrokModel,
+        billingStatus: 'credits_required',
+        billingNote: 'xAI Grok uses prepaid credits / billing (no free tier). Confirmation required before test generation.',
+        lastChecked: now,
+        availableModels: grokDiscovery.models,
+        errorCategory: 'CONFIRMATION_REQUIRED',
+        message: `xAI Grok key authenticated (${grokDiscovery.models.length} models found, selected ${chosenGrokModel}). Confirm to run a minimal (~10 token) live test and activate Grok.`,
+        suggestedAction: 'Click "Confirm & Connect Grok" to run the small verification test.',
+        correlationId,
+      };
+    }
+
+    // Confirmed Grok live generation test
+    const grokValidation = await GrokProvider.testConnection(
+      rawKey,
+      chosenGrokModel,
+      endpointUrl,
+      signal,
+      true,
+      'grok'
+    );
+
+    const testEntry: AIConnectionTestRecord = {
+      id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      providerType: 'grok',
+      modelTested: grokValidation.selectedModel || chosenGrokModel,
+      stage: 'generation_test',
+      ok: grokValidation.ok,
+      connectionStatus: grokValidation.connectionStatus,
+      modelListOk: grokValidation.authenticated,
+      generationOk: grokValidation.generationVerified,
+      modelsDiscoveredCount: grokValidation.availableModels.length,
+      latencyMs: grokValidation.latencyMs,
+      sampleOutput: grokValidation.sampleOutput ? redactSecrets(grokValidation.sampleOutput, rawKey) : undefined,
+      diagnostic: grokValidation.diagnostic,
+      actor,
+      timestamp: now,
+    };
+    db.recordAiConnectionTest(testEntry);
+    if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+
+    if (!grokValidation.ok) {
+      const errorCategory = mapDiagnosticToAutoCategory(
+        grokValidation.diagnostic,
+        grokValidation.availableModels.length
+      );
+      return {
+        ok: false,
+        status: grokValidation.connectionStatus,
+        detectedProvider: 'grok',
+        detectionMethod,
+        selectedModel: chosenGrokModel,
+        billingStatus: errorCategory === 'BILLING_REQUIRED' ? 'billing_required' : 'credits_required',
+        billingNote:
+          errorCategory === 'BILLING_REQUIRED'
+            ? 'xAI requires prepaid credits or billing enabled before generation.'
+            : grokValidation.diagnostic?.title || 'Grok live test failed',
+        lastChecked: now,
+        availableModels: grokValidation.availableModels,
+        errorCategory,
+        message: grokValidation.message,
+        suggestedAction: grokValidation.diagnostic?.suggestedAction,
+        correlationId: grokValidation.correlationId,
+      };
+    }
+
+    const billingStatus: AIBillingStatus = 'credits_required';
+    const billingNote = 'Credits / Billing Active on xAI';
+    const savedGrok = await this.persistAutoConnectedCredential({
+      providerType: 'grok',
+      rawKey,
+      selectedModel: grokValidation.selectedModel || chosenGrokModel,
+      endpointUrl,
+      availableModels: grokValidation.availableModels,
+      billingStatus,
+      billingNote,
+      latencyMs: grokValidation.latencyMs,
+      correlationId: grokValidation.correlationId,
+      sampleOutput: grokValidation.sampleOutput,
+      replaceCredentialId: input.replaceCredentialId,
+      now,
+      actor,
+    });
+
+    return {
+      ok: true,
+      status: 'connected',
+      detectedProvider: 'grok',
+      detectionMethod,
+      selectedModel: savedGrok.model,
+      billingStatus,
+      billingNote,
+      lastChecked: now,
+      availableModels: grokValidation.availableModels,
+      sampleOutput: grokValidation.sampleOutput
+        ? redactSecrets(grokValidation.sampleOutput.slice(0, 100), rawKey)
+        : undefined,
+      message: `Connected to xAI Grok (${savedGrok.model}) and activated across all editorial & SEO tools.`,
+      correlationId: grokValidation.correlationId,
+      provider: this.sanitizeCredential(savedGrok),
+    };
+  }
+
+  private static async persistAutoConnectedCredential(params: {
+    providerType: 'gemini' | 'grok';
+    rawKey: string;
+    selectedModel: string;
+    endpointUrl?: string;
+    availableModels: AIModelInfo[];
+    billingStatus: AIBillingStatus;
+    billingNote: string;
+    latencyMs: number;
+    correlationId: string;
+    sampleOutput?: string;
+    replaceCredentialId?: string;
+    now: string;
+    actor: string;
+  }): Promise<AIProviderCredential> {
+    const existingList = db.getAiProviders();
+    const masked = maskSecret(params.rawKey);
+
+    let targetExisting = params.replaceCredentialId
+      ? existingList.find(c => c.id === params.replaceCredentialId)
+      : existingList.find(
+          c => c.providerType === params.providerType && c.maskedKey === masked
+        );
+
+    const recordId =
+      targetExisting?.id ||
+      `aik-${params.providerType}-primary-${Date.now().toString(36)}`;
+
+    const cred: AIProviderCredential = {
+      id: recordId,
+      providerType: params.providerType,
+      label:
+        targetExisting?.label ||
+        (params.providerType === 'gemini' ? 'Google Gemini (Auto-Connected)' : 'xAI Grok (Auto-Connected)'),
+      projectId:
+        targetExisting?.projectId ||
+        `${params.providerType}-auto-${recordId.slice(-4)}`,
+      endpointUrl:
+        params.endpointUrl ||
+        targetExisting?.endpointUrl ||
+        (params.providerType === 'grok' ? 'https://api.x.ai/v1' : undefined),
+      model: params.selectedModel,
+      encryptedSecret: encryptSecret(params.rawKey),
+      maskedKey: masked,
+      enabled: true,
+      priority: 1,
+      dailyTokenLimit: targetExisting?.dailyTokenLimit || 500000,
+      dailyTokensUsed: targetExisting?.dailyTokensUsed || 0,
+      monthlyBudgetUsd: targetExisting?.monthlyBudgetUsd || (params.providerType === 'gemini' ? 0 : 25),
+      monthlySpendUsd: targetExisting?.monthlySpendUsd || 0,
+      availableModels: params.availableModels,
+      connectionStatus: 'connected',
+      billingStatus: params.billingStatus,
+      billingNote: params.billingNote,
+      modelListStatus: 'ok',
+      generationTestStatus: 'ok',
+      lastTestedAt: params.now,
+      lastSuccessfulVerificationAt: params.now,
+      lastSuccessfulGenerationAt: params.now,
+      lastFailureAt: targetExisting?.lastFailureAt || null,
+      lastTestStatus: 'connected',
+      lastTestMessage: `Connected via ${params.selectedModel} (${params.billingNote})`,
+      lastDiagnostic: null,
+      lastLatencyMs: params.latencyMs,
+      lastCorrelationId: params.correlationId,
+      createdAt: targetExisting?.createdAt || params.now,
+      updatedAt: params.now,
+    };
+
+    // Demote any older non-replaced credentials' priority so the newly connected key leads routing cleanly
+    // without deleting existing keys unless replaced/disconnected.
+    for (const prev of existingList) {
+      if (prev.id !== cred.id && (prev.priority || 10) <= 1) {
+        const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
+        db.upsertAiProvider(demoted, params.actor);
+        if (isSupabaseConfigured()) upsertSupabaseAiCredential(demoted).catch(() => {});
+      }
+    }
+
+    const saved = db.upsertAiProvider(cred, params.actor);
+    if (isSupabaseConfigured()) {
+      await upsertSupabaseAiCredential(saved).catch(() => {});
+    }
+
+    const testEntry: AIConnectionTestRecord = {
+      id: `aitest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      credentialId: saved.id,
+      providerType: params.providerType,
+      modelTested: params.selectedModel,
+      stage: 'generation_test',
+      ok: true,
+      connectionStatus: 'connected',
+      modelListOk: true,
+      generationOk: true,
+      modelsDiscoveredCount: params.availableModels.length,
+      latencyMs: params.latencyMs,
+      sampleOutput: params.sampleOutput ? redactSecrets(params.sampleOutput, params.rawKey) : undefined,
+      actor: params.actor,
+      timestamp: params.now,
+    };
+    db.recordAiConnectionTest(testEntry);
+    if (isSupabaseConfigured()) {
+      recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+    }
+
+    await this.syncRoutesForCredential(saved.id, params.selectedModel, params.actor);
+    return saved;
+  }
+
+  public static async disconnectCredential(
+    credentialId?: string,
+    actor: string = 'Super Admin'
+  ): Promise<{ ok: boolean; disconnectedId?: string; message: string }> {
+    const creds = db.getAiProviders();
+    const target = credentialId
+      ? creds.find(c => c.id === credentialId)
+      : creds.find(c => c.enabled && c.connectionStatus === 'connected') || creds.find(c => c.enabled) || creds[0];
+
+    if (!target) {
+      return { ok: true, message: 'No active stored AI API key to disconnect.' };
+    }
+
+    db.deleteAiProvider(target.id, actor);
+    if (isSupabaseConfigured()) {
+      await deleteSupabaseAiCredential(target.id).catch(() => {});
+    }
+
+    // Clear route references pointing to the disconnected credential (or switch to next connected one if any)
+    const remaining = db.getAiProviders().filter(c => c.enabled && c.connectionStatus === 'connected');
+    const nextFallback = remaining[0];
+    const routes = db.getAiTaskRoutes();
+    const updatedRoutes: AITaskRouting[] = [];
+    for (const spec of AI_TASK_CATALOG) {
+      const r = routes[spec.task];
+      if (!r) continue;
+      if (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id) {
+        const nextRoute: AITaskRouting = {
+          ...r,
+          primaryCredentialId: r.primaryCredentialId === target.id ? (nextFallback?.id || '') : r.primaryCredentialId,
+          primaryModel: r.primaryCredentialId === target.id ? (nextFallback?.model || spec.defaultModel) : r.primaryModel,
+          fallbackCredentialId: r.fallbackCredentialId === target.id ? '' : r.fallbackCredentialId,
+          fallbackModel: r.fallbackCredentialId === target.id ? '' : r.fallbackModel,
+        };
+        db.setAiTaskRoute(spec.task, nextRoute, actor);
+        updatedRoutes.push(nextRoute);
+      }
+    }
+    if (updatedRoutes.length > 0 && isSupabaseConfigured()) {
+      await upsertSupabaseAiTaskRoutes(updatedRoutes).catch(() => {});
+    }
+
+    return {
+      ok: true,
+      disconnectedId: target.id,
+      message: `Disconnected ${target.providerType === 'gemini' ? 'Google Gemini' : 'xAI Grok'} key (${target.maskedKey}).`,
     };
   }
 }

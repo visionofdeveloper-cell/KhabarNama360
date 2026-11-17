@@ -38,6 +38,7 @@ import {
   AIValidationResult,
 } from '../../types/index.ts';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
+import { AIConnectionPanel } from './AIConnectionPanel.tsx';
 
 interface APIKeyManagerProps {
   onNotify?: (msg: string) => void;
@@ -463,6 +464,15 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
 
   return (
     <div className="space-y-5">
+      <AIConnectionPanel
+        embeddedInAdvancedVault={true}
+        onNotify={onNotify}
+        onProvidersChanged={() => {
+          loadAll();
+          onProvidersChanged?.();
+        }}
+        advancedContent={
+          <div className="space-y-5 pt-2">
       {/* Header Card */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1086,6 +1096,9 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
           </div>
         </div>
       )}
+          </div>
+        }
+      />
 
       {/* ADD / VALIDATE & CONNECT CREDENTIAL MODAL */}
       {modalOpen && (

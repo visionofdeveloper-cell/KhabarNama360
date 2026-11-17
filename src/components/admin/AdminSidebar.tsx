@@ -69,7 +69,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
 
   { id: 'automation', label: 'Live Data & Cron', section: 'AI & Automation', permission: 'automation:manage', icon: Zap },
   { id: 'ai-studio', label: 'AI Content Studio', section: 'AI & Automation', permission: 'ai:use', icon: Sparkles },
-  { id: 'ai-keys', label: 'AI Keys & Routing', section: 'AI & Automation', permission: 'ai:keys', icon: KeyRound },
+  { id: 'ai-keys', label: 'AI API Connection', section: 'AI & Automation', permission: 'ai:keys', icon: KeyRound },
 
   { id: 'users', label: 'Staff & RBAC Roles', section: 'System', permission: 'users:manage', icon: Users },
   { id: 'settings', label: 'Global Settings', section: 'System', permission: 'settings:manage', icon: Sliders },

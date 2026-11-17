@@ -8,9 +8,11 @@ import React, { useEffect, useState } from 'react';
 import { Sliders, Save, Download, CheckCircle2, KeyRound, X } from 'lucide-react';
 import { SiteSettings } from '../../types/index.ts';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
+import { AIConnectionPanel } from './AIConnectionPanel.tsx';
 
 type SettingsTab =
   | 'general'
+  | 'ai-connection'
   | 'branding'
   | 'navigation'
   | 'footer'
@@ -61,11 +63,12 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
 
   const TABS: { id: SettingsTab; label: string }[] = [
     { id: 'general', label: 'General' },
+    { id: 'ai-connection', label: 'AI API Connection' },
     { id: 'branding', label: 'Branding' },
     { id: 'navigation', label: 'Header & Navigation' },
     { id: 'footer', label: 'Footer' },
     { id: 'seo-defaults', label: 'SEO Defaults' },
-    { id: 'integrations', label: 'Integrations & AI Keys' },
+    { id: 'integrations', label: 'Integrations & Analytics' },
     { id: 'automation', label: 'Automation' },
     { id: 'security', label: 'Security' },
     { id: 'maintenance', label: 'Site Maintenance' },
@@ -127,6 +130,13 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
         ))}
       </div>
 
+      {tab === 'ai-connection' ? (
+        <AIConnectionPanel
+          onNotify={msg => setBanner(msg)}
+          onProvidersChanged={onSaved}
+          onOpenAdvancedVault={onJumpToModule ? () => onJumpToModule('ai-keys') : undefined}
+        />
+      ) : (
       <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
         {tab === 'general' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -330,23 +340,23 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
               </div>
             </div>
 
-            {onJumpToModule && (
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="font-bold text-gray-900">Encrypted AI API Keys & Search Console Credentials</div>
-                  <div className="text-gray-500">Manage Gemini/Grok keys, task routing, and Google Search Console OAuth/Service Accounts in their dedicated vaults.</div>
+                  <div className="font-bold text-gray-900">AI API Connection &amp; Search Console Credentials</div>
+                  <div className="text-gray-500">Connect a Google Gemini or xAI Grok API key in one click or configure Search Console.</div>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => onJumpToModule('ai-keys')} className="px-3.5 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5">
+                  <button type="button" onClick={() => setTab('ai-connection')} className="px-3.5 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5" />
-                    <span>Open AI Keys & Routing</span>
+                    <span>Connect AI API</span>
                   </button>
-                  <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-gray-900 text-white font-bold rounded-lg">
-                    Search Console Setup
-                  </button>
+                  {onJumpToModule && (
+                    <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-gray-900 text-white font-bold rounded-lg">
+                      Search Console Setup
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
           </div>
         )}
 
@@ -427,6 +437,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
           </div>
         )}
       </div>
+      )}
     </form>
   );
 };

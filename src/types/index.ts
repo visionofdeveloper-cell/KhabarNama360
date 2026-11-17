@@ -472,6 +472,46 @@ export interface AIConnectionTestRecord {
   timestamp: string;
 }
 
+export type AIAutoConnectErrorCategory =
+  | 'INVALID_API_KEY'
+  | 'NO_ACCESSIBLE_MODELS'
+  | 'FREE_TIER_QUOTA_EXCEEDED'
+  | 'BILLING_REQUIRED'
+  | 'PERMISSION_DENIED'
+  | 'API_TIMEOUT'
+  | 'UNSUPPORTED_MODEL'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'SERVER_CONNECTIVITY_FAILURE'
+  | 'NEEDS_PROVIDER_SELECTION'
+  | 'CONFIRMATION_REQUIRED';
+
+export type AIBillingStatus =
+  | 'free_tier'
+  | 'credits_required'
+  | 'billing_required'
+  | 'quota_exceeded'
+  | 'unknown';
+
+export interface AIAutoConnectResponse {
+  ok: boolean;
+  status: AIConnectionStatus | 'awaiting_confirmation' | 'needs_provider_selection' | 'disconnected';
+  requiresProviderSelection?: boolean;
+  requiresBillableConfirmation?: boolean;
+  detectedProvider?: AIProviderType | null;
+  detectionMethod?: 'prefix_hint_verified' | 'probe_verified' | 'manual_override' | 'ambiguous';
+  selectedModel?: string;
+  billingStatus: AIBillingStatus;
+  billingNote: string;
+  lastChecked: string;
+  availableModels: AIModelInfo[];
+  sampleOutput?: string;
+  errorCategory?: AIAutoConnectErrorCategory;
+  message: string;
+  suggestedAction?: string;
+  correlationId: string;
+  provider?: AIProviderCredential;
+}
+
 export interface AIValidationResult {
   ok: boolean;
   authenticated: boolean;
@@ -522,6 +562,8 @@ export interface AIProviderCredential {
   monthlySpendUsd: number;
   availableModels?: AIModelInfo[];
   connectionStatus?: AIConnectionStatus;
+  billingStatus?: AIBillingStatus;
+  billingNote?: string;
   modelListStatus?: 'ok' | 'error' | 'untested';
   generationTestStatus?: 'ok' | 'error' | 'untested';
   lastTestedAt?: string | null;
