@@ -38,6 +38,7 @@ interface AIConnectionPanelProps {
   onOpenAdvancedVault?: () => void;
   embeddedInAdvancedVault?: boolean;
   advancedContent?: React.ReactNode;
+  refreshKey?: number;
 }
 
 type LiveProgressStage =
@@ -151,6 +152,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
   onProvidersChanged,
   embeddedInAdvancedVault = false,
   advancedContent,
+  refreshKey = 0,
 }) => {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -190,6 +192,15 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
 
   // Reset All AI Keys explicit Super Admin confirmation UI (no window.confirm)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetPreview, setResetPreview] = useState<{
+    geminiCount: number;
+    grokCount: number;
+    totalStoredCount: number;
+    activeEnvCount: number;
+    dependentRoutesCount: number;
+    preserved?: string[];
+  } | null>(null);
+  const [loadingResetPreview, setLoadingResetPreview] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetNotice, setResetNotice] = useState<{
     message: string;
@@ -234,7 +245,27 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
 
   useEffect(() => {
     loadStatusAndDiagnostics(false);
-  }, []);
+  }, [refreshKey]);
+
+  const handleToggleResetConfirm = async () => {
+    const nextOpen = !resetConfirmOpen;
+    setResetConfirmOpen(nextOpen);
+    if (nextOpen) {
+      setLoadingResetPreview(true);
+      try {
+        const res = await safeFetchJson('/api/v1/admin/ai/reset-preview', {
+          credentials: 'include',
+        });
+        if (res?.success && res.preview) {
+          setResetPreview(res.preview);
+        }
+      } catch {
+        // Ignore preview fetch error; fallback notice still explains reset scope
+      } finally {
+        setLoadingResetPreview(false);
+      }
+    }
+  };
 
   const runGenerationStep = async (params: {
     apiKey: string;
@@ -635,7 +666,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
               <button
                 type="button"
                 disabled={resetting || connecting}
-                onClick={() => setResetConfirmOpen(prev => !prev)}
+                onClick={handleToggleResetConfirm}
                 className="px-3 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 text-[11px] font-bold rounded-lg inline-flex items-center gap-1.5"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -663,8 +694,32 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
               <span>Confirm Super Admin Action: Reset All AI Keys</span>
             </div>
             <p className="text-rose-900">
-              This will permanently remove all previously saved <strong>Gemini</strong> and <strong>Grok</strong> API credentials from encrypted storage and Supabase, clear cached model lists and task bindings, suppress old environment fallback keys, and reset both providers to <strong>Not Connected</strong>. Articles, categories, users, SEO metadata, and redacted audit/usage history remain untouched.
+              This will permanently remove all saved <strong>Gemini</strong> and <strong>Grok</strong> API credentials from encrypted storage and Supabase, clear cached model lists and task bindings, suppress old environment fallback keys, and reset both providers to <strong>Not Connected</strong>.
             </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="p-2 bg-white border border-rose-200 rounded-lg">
+                <div className="text-[10px] text-rose-700 font-bold uppercase">Gemini Keys</div>
+                <div className="font-mono font-black text-rose-950">
+                  {loadingResetPreview ? '...' : resetPreview?.geminiCount ?? 0} to remove
+                </div>
+              </div>
+              <div className="p-2 bg-white border border-rose-200 rounded-lg">
+                <div className="text-[10px] text-rose-700 font-bold uppercase">Grok Keys</div>
+                <div className="font-mono font-black text-rose-950">
+                  {loadingResetPreview ? '...' : resetPreview?.grokCount ?? 0} to remove
+                </div>
+              </div>
+              <div className="p-2 bg-white border border-rose-200 rounded-lg">
+                <div className="text-[10px] text-rose-700 font-bold uppercase">Task Routes</div>
+                <div className="font-mono font-black text-rose-950">
+                  {loadingResetPreview ? '...' : resetPreview?.dependentRoutesCount ?? 0} to clear
+                </div>
+              </div>
+              <div className="p-2 bg-white border border-emerald-200 rounded-lg">
+                <div className="text-[10px] text-emerald-700 font-bold uppercase">Preserved</div>
+                <div className="font-semibold text-emerald-900">Articles, Users, SEO, Logs</div>
+              </div>
+            </div>
             {envVars.some(v => v.presentInEnv) && (
               <div className="p-2.5 bg-white border border-rose-200 rounded-lg text-[11px] text-rose-900 space-y-1">
                 <div className="font-bold">Environment-Managed Variables Detected on Server:</div>

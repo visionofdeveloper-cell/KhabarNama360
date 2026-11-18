@@ -380,10 +380,16 @@ export async function deleteSupabaseArticle(
 // -----------------------------------------------------------------------------
 
 function mapRowToAiCredential(row: any): AIProviderCredential {
-  const diag = row.last_diagnostic_json && typeof row.last_diagnostic_json === 'object'
-    ? row.last_diagnostic_json
-    : null;
+  const diag =
+    row.last_diagnostic_json && typeof row.last_diagnostic_json === 'object'
+      ? row.last_diagnostic_json
+      : null;
   const billingMeta = (diag as any)?._billingMeta;
+  const cleanedDiag = diag ? { ...diag } : null;
+  if (cleanedDiag && '_billingMeta' in cleanedDiag) {
+    delete (cleanedDiag as any)._billingMeta;
+  }
+
   return {
     id: String(row.id),
     providerType: (row.provider_type || 'gemini') as AIProviderCredential['providerType'],
@@ -395,20 +401,33 @@ function mapRowToAiCredential(row: any): AIProviderCredential {
     maskedKey: String(row.masked_key || ''),
     enabled: Boolean(row.enabled),
     priority: Number(row.priority ?? 10),
-    dailyTokenLimit: 500000,
-    dailyTokensUsed: 0,
-    monthlyBudgetUsd: 25,
-    monthlySpendUsd: 0,
+    dailyTokenLimit: Number(row.daily_token_limit ?? 500000),
+    dailyTokensUsed: Number(row.daily_tokens_used ?? 0),
+    monthlyBudgetUsd: Number(row.monthly_budget_usd ?? 25),
+    monthlySpendUsd: Number(row.monthly_spend_usd ?? 0),
     availableModels: Array.isArray(row.available_models_json) ? row.available_models_json : [],
     connectionStatus: (row.connection_status || 'untested') as AIProviderCredential['connectionStatus'],
-    billingStatus: billingMeta?.billingStatus,
-    billingNote: billingMeta?.billingNote,
-    modelListStatus: Array.isArray(row.available_models_json) && row.available_models_json.length > 0 ? 'ok' : 'untested',
-    generationTestStatus: row.last_test_status === 'connected' ? 'ok' : row.last_test_status === 'error' ? 'error' : 'untested',
+    billingStatus: row.billing_status || billingMeta?.billingStatus,
+    billingNote: row.billing_note || billingMeta?.billingNote,
+    modelListStatus:
+      row.model_list_status ||
+      (Array.isArray(row.available_models_json) && row.available_models_json.length > 0 ? 'ok' : 'untested'),
+    generationTestStatus:
+      row.generation_test_status ||
+      (row.last_test_status === 'connected' ? 'ok' : row.last_test_status === 'error' ? 'error' : 'untested'),
     lastTestedAt: row.last_tested_at ? String(row.last_tested_at) : null,
+    lastSuccessfulVerificationAt: row.last_successful_verification_at
+      ? String(row.last_successful_verification_at)
+      : null,
+    lastSuccessfulGenerationAt: row.last_successful_generation_at
+      ? String(row.last_successful_generation_at)
+      : null,
+    lastFailureAt: row.last_failure_at ? String(row.last_failure_at) : null,
     lastTestStatus: (row.last_test_status || 'untested') as AIProviderCredential['lastTestStatus'],
     lastTestMessage: row.last_test_message ? String(row.last_test_message) : undefined,
-    lastDiagnostic: diag,
+    lastLatencyMs: typeof row.last_latency_ms === 'number' ? row.last_latency_ms : undefined,
+    lastCorrelationId: row.last_correlation_id ? String(row.last_correlation_id) : undefined,
+    lastDiagnostic: cleanedDiag && Object.keys(cleanedDiag).length > 0 ? cleanedDiag : null,
     createdAt: row.created_at ? String(row.created_at) : new Date().toISOString(),
     updatedAt: row.updated_at ? String(row.updated_at) : new Date().toISOString(),
   };
@@ -418,92 +437,248 @@ export async function listSupabaseAiCredentials(): Promise<{
   ok: boolean;
   credentials: AIProviderCredential[];
   error?: string;
+  code?: string;
 }> {
   const client = getSupabaseAdminClient();
-  if (!client) return { ok: false, credentials: [], error: 'Supabase not configured.' };
+  if (!client) {
+    return { ok: false, credentials: [], code: 'SUPABASE_NOT_CONFIGURED', error: 'Supabase not configured.' };
+  }
   try {
     const { data, error } = await client
       .from('ai_provider_credentials')
       .select('*')
-      .order('priority', { ascending: true });
-    if (error) return { ok: false, credentials: [], error: error.message };
+      .order('priority', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      return { ok: false, credentials: [], code: error.code || 'SUPABASE_SELECT_ERR', error: error.message };
+    }
     return { ok: true, credentials: (data || []).map(mapRowToAiCredential) };
   } catch (err: any) {
-    return { ok: false, credentials: [], error: err?.message || 'Failed listing Supabase AI credentials' };
+    return {
+      ok: false,
+      credentials: [],
+      code: 'SUPABASE_EXCEPTION',
+      error: err?.message || 'Failed listing Supabase AI credentials',
+    };
   }
 }
 
 export async function upsertSupabaseAiCredential(
   cred: AIProviderCredential
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; credential?: AIProviderCredential; error?: string; code?: string; warning?: string }> {
   const client = getSupabaseAdminClient();
-  if (!client) return { ok: false, error: 'Supabase not configured.' };
+  if (!client) {
+    return { ok: false, code: 'SUPABASE_NOT_CONFIGURED', error: 'Supabase not configured.' };
+  }
   try {
-    const diagPayload = cred.lastDiagnostic || cred.billingStatus
-      ? {
-          ...(cred.lastDiagnostic || {}),
-          _billingMeta: {
-            billingStatus: cred.billingStatus || 'unknown',
-            billingNote: cred.billingNote || '',
-          },
-        }
-      : null;
+    const diagPayload =
+      cred.lastDiagnostic || cred.billingStatus
+        ? {
+            ...(cred.lastDiagnostic || {}),
+            _billingMeta: {
+              billingStatus: cred.billingStatus || 'unknown',
+              billingNote: cred.billingNote || '',
+            },
+          }
+        : null;
 
-    const { error } = await client.from('ai_provider_credentials').upsert(
-      {
-        id: cred.id,
-        provider_type: cred.providerType,
-        label: cred.label,
-        project_id: cred.projectId,
-        endpoint_url: cred.endpointUrl || null,
-        model: cred.model,
-        encrypted_secret: cred.encryptedSecret,
-        masked_key: cred.maskedKey,
-        enabled: Boolean(cred.enabled),
-        priority: cred.priority,
-        connection_status: cred.connectionStatus || 'untested',
-        available_models_json: Array.isArray(cred.availableModels) ? cred.availableModels : [],
-        last_tested_at: cred.lastTestedAt || null,
-        last_test_status: cred.lastTestStatus || 'untested',
-        last_test_message: cred.lastTestMessage || '',
-        last_diagnostic_json: diagPayload,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' }
-    );
-    if (error) {
+    const coreRow = {
+      id: cred.id,
+      provider_type: cred.providerType,
+      label: cred.label,
+      project_id: cred.projectId,
+      endpoint_url: cred.endpointUrl || null,
+      model: cred.model || '',
+      encrypted_secret: cred.encryptedSecret,
+      masked_key: cred.maskedKey,
+      enabled: Boolean(cred.enabled),
+      priority: Number(cred.priority ?? 10),
+      connection_status: cred.connectionStatus || 'untested',
+      available_models_json: Array.isArray(cred.availableModels) ? cred.availableModels : [],
+      last_tested_at: cred.lastTestedAt || null,
+      last_test_status: cred.lastTestStatus || 'untested',
+      last_test_message: cred.lastTestMessage || '',
+      last_diagnostic_json: diagPayload,
+      updated_at: new Date().toISOString(),
+    };
+
+    const extendedRow = {
+      ...coreRow,
+      daily_token_limit: Number(cred.dailyTokenLimit ?? 500000),
+      daily_tokens_used: Number(cred.dailyTokensUsed ?? 0),
+      monthly_budget_usd: Number(cred.monthlyBudgetUsd ?? 25),
+      monthly_spend_usd: Number(cred.monthlySpendUsd ?? 0),
+      billing_status: cred.billingStatus || 'unknown',
+      billing_note: cred.billingNote || '',
+      model_list_status: cred.modelListStatus || 'untested',
+      generation_test_status: cred.generationTestStatus || 'untested',
+      last_successful_verification_at: cred.lastSuccessfulVerificationAt || null,
+      last_successful_generation_at: cred.lastSuccessfulGenerationAt || null,
+      last_failure_at: cred.lastFailureAt || null,
+      last_latency_ms: typeof cred.lastLatencyMs === 'number' ? Math.round(cred.lastLatencyMs) : null,
+      last_correlation_id: cred.lastCorrelationId || null,
+    };
+
+    let warning: string | undefined;
+    let writeRes = await client
+      .from('ai_provider_credentials')
+      .upsert(extendedRow, { onConflict: 'id' })
+      .select('*')
+      .single();
+
+    if (
+      writeRes.error &&
+      (writeRes.error.code === '42703' ||
+        writeRes.error.code === 'PGRST204' ||
+        /column .* does not exist|schema cache/i.test(writeRes.error.message || ''))
+    ) {
+      warning = 'Migration 005 columns not yet applied on live Supabase; core columns synced cleanly.';
+      writeRes = await client
+        .from('ai_provider_credentials')
+        .upsert(coreRow, { onConflict: 'id' })
+        .select('*')
+        .single();
+    }
+
+    if (writeRes.error || !writeRes.data) {
+      const errMsg = writeRes.error?.message || 'Supabase upsert returned zero affected rows.';
+      const errCode = writeRes.error?.code || 'SUPABASE_AI_UPSERT_ERR';
       recordServerError({
         source: 'supabase',
-        code: error.code || 'SUPABASE_AI_UPSERT_ERR',
-        message: `Supabase AI credential upsert failed (${cred.id}): ${error.message}`,
+        code: errCode,
+        message: `Supabase AI credential upsert failed (${cred.id}): ${errMsg}`,
       });
-      return { ok: false, error: error.message };
+      return { ok: false, code: errCode, error: errMsg };
     }
-    return { ok: true };
+
+    // Read-after-write verification using persisted primary key
+    const verify = await client
+      .from('ai_provider_credentials')
+      .select('*')
+      .eq('id', writeRes.data.id)
+      .single();
+
+    if (verify.error || !verify.data) {
+      return {
+        ok: false,
+        code: verify.error?.code || 'SUPABASE_AI_READBACK_ERR',
+        error: verify.error?.message || 'Record upserted but read-after-write verification failed.',
+      };
+    }
+
+    return { ok: true, credential: mapRowToAiCredential(verify.data), warning };
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Supabase AI credential sync error' };
+    return {
+      ok: false,
+      code: 'SUPABASE_AI_EXCEPTION',
+      error: err?.message || 'Supabase AI credential sync error',
+    };
   }
 }
 
-export async function deleteSupabaseAiCredential(id: string): Promise<{ ok: boolean; error?: string }> {
+export async function deleteSupabaseAiCredential(
+  id: string
+): Promise<{ ok: boolean; deletedCount: number; error?: string; code?: string }> {
   const client = getSupabaseAdminClient();
-  if (!client) return { ok: false, error: 'Supabase not configured.' };
+  if (!client) {
+    return { ok: false, deletedCount: 0, code: 'SUPABASE_NOT_CONFIGURED', error: 'Supabase not configured.' };
+  }
   try {
-    const { error } = await client.from('ai_provider_credentials').delete().eq('id', id);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
+    const { data: deletedRows, error } = await client
+      .from('ai_provider_credentials')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) {
+      recordServerError({
+        source: 'supabase',
+        code: error.code || 'SUPABASE_AI_DELETE_ERR',
+        message: `Supabase AI credential delete failed (${id}): ${error.message}`,
+      });
+      return { ok: false, deletedCount: 0, code: error.code || 'SUPABASE_AI_DELETE_ERR', error: error.message };
+    }
+
+    const count = Array.isArray(deletedRows) ? deletedRows.length : 0;
+    if (count === 0) {
+      return {
+        ok: false,
+        deletedCount: 0,
+        code: 'NOT_FOUND',
+        error: `Credential "${id}" was not found in Supabase (0 rows deleted).`,
+      };
+    }
+
+    // Verify record is genuinely absent after delete
+    const verify = await client
+      .from('ai_provider_credentials')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (verify.error) {
+      return {
+        ok: false,
+        deletedCount: count,
+        code: verify.error.code || 'SUPABASE_VERIFY_DELETE_ERR',
+        error: verify.error.message,
+      };
+    }
+    if (verify.data) {
+      return {
+        ok: false,
+        deletedCount: 0,
+        code: 'DELETE_NOT_PERSISTED',
+        error: `Credential "${id}" still exists in Supabase after delete operation.`,
+      };
+    }
+
+    return { ok: true, deletedCount: count };
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Supabase AI credential delete error' };
+    return {
+      ok: false,
+      deletedCount: 0,
+      code: 'SUPABASE_AI_DELETE_EXCEPTION',
+      error: err?.message || 'Supabase AI credential delete error',
+    };
+  }
+}
+
+export async function listSupabaseAiTaskRoutes(): Promise<{
+  ok: boolean;
+  routes: AITaskRouting[];
+  error?: string;
+}> {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, routes: [], error: 'Supabase not configured.' };
+  try {
+    const { data, error } = await client.from('ai_task_routes').select('*');
+    if (error) return { ok: false, routes: [], error: error.message };
+    const routes: AITaskRouting[] = (data || []).map((row: any) => ({
+      task: row.task,
+      label: String(row.label || row.task),
+      primaryCredentialId: row.primary_credential_id ? String(row.primary_credential_id) : '',
+      primaryModel: String(row.primary_model || ''),
+      fallbackCredentialId: row.fallback_credential_id ? String(row.fallback_credential_id) : '',
+      fallbackModel: String(row.fallback_model || ''),
+      temperature: Number(row.temperature ?? 0.4),
+      maxTokens: Number(row.max_tokens ?? 3072),
+    }));
+    return { ok: true, routes };
+  } catch (err: any) {
+    return { ok: false, routes: [], error: err?.message || 'Failed reading Supabase task routes' };
   }
 }
 
 export async function upsertSupabaseAiTaskRoutes(
   routes: AITaskRouting[]
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; savedCount?: number; error?: string; code?: string }> {
   const client = getSupabaseAdminClient();
-  if (!client) return { ok: false, error: 'Supabase not configured.' };
+  if (!client) {
+    return { ok: false, code: 'SUPABASE_NOT_CONFIGURED', error: 'Supabase not configured.' };
+  }
   try {
-    if (!routes.length) return { ok: true };
+    if (!routes.length) return { ok: true, savedCount: 0 };
     const rows = routes.map(r => ({
       task: r.task,
       label: r.label,
@@ -511,15 +686,78 @@ export async function upsertSupabaseAiTaskRoutes(
       primary_model: r.primaryModel || '',
       fallback_credential_id: r.fallbackCredentialId || null,
       fallback_model: r.fallbackModel || '',
-      temperature: r.temperature,
-      max_tokens: r.maxTokens,
+      temperature: Number(r.temperature ?? 0.4),
+      max_tokens: Number(r.maxTokens ?? 3072),
       updated_at: new Date().toISOString(),
     }));
-    const { error } = await client.from('ai_task_routes').upsert(rows, { onConflict: 'task' });
+    const { data, error } = await client
+      .from('ai_task_routes')
+      .upsert(rows, { onConflict: 'task' })
+      .select('task');
+    if (error) {
+      recordServerError({
+        source: 'supabase',
+        code: error.code || 'SUPABASE_AI_ROUTES_ERR',
+        message: `Supabase AI task routes upsert failed: ${error.message}`,
+      });
+      return { ok: false, code: error.code || 'SUPABASE_AI_ROUTES_ERR', error: error.message };
+    }
+    return { ok: true, savedCount: Array.isArray(data) ? data.length : rows.length };
+  } catch (err: any) {
+    return { ok: false, code: 'SUPABASE_AI_ROUTES_EXCEPTION', error: err?.message || 'Supabase task routes sync error' };
+  }
+}
+
+export async function getSupabaseAiEnvSuppression(): Promise<{
+  ok: boolean;
+  suppressed?: { gemini: boolean; grok: boolean };
+  error?: string;
+}> {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: 'Supabase not configured.' };
+  try {
+    const { data, error } = await client
+      .from('site_settings')
+      .select('settings_json')
+      .eq('id', 'ai_runtime_flags')
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    const s = data?.settings_json || {};
+    return {
+      ok: true,
+      suppressed: {
+        gemini: Boolean(s.envSuppressedGemini),
+        grok: Boolean(s.envSuppressedGrok),
+      },
+    };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Failed loading AI env flags' };
+  }
+}
+
+export async function setSupabaseAiEnvSuppression(flags: {
+  gemini: boolean;
+  grok: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  const client = getSupabaseAdminClient();
+  if (!client) return { ok: false, error: 'Supabase not configured.' };
+  try {
+    const { error } = await client.from('site_settings').upsert(
+      {
+        id: 'ai_runtime_flags',
+        settings_json: {
+          envSuppressedGemini: Boolean(flags.gemini),
+          envSuppressedGrok: Boolean(flags.grok),
+          updatedAt: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (err: any) {
-    return { ok: false, error: err?.message || 'Supabase task routes sync error' };
+    return { ok: false, error: err?.message || 'Failed saving AI env flags' };
   }
 }
 
@@ -598,8 +836,24 @@ export async function resetSupabaseAiCredentials(): Promise<{
       return { ok: false, configured: true, removedCount: 0, error: delErr.message };
     }
 
+    // Confirm 0 Gemini/Grok rows remain active
+    const { data: remainingRows } = await client
+      .from('ai_provider_credentials')
+      .select('id')
+      .in('provider_type', ['gemini', 'grok']);
+
+    if (Array.isArray(remainingRows) && remainingRows.length > 0) {
+      return {
+        ok: false,
+        configured: true,
+        removedCount: 0,
+        error: `${remainingRows.length} Gemini/Grok credential rows remained after reset delete.`,
+      };
+    }
+
     // Clear stale validation test caches while preserving ai_usage_logs history
     await client.from('ai_connection_tests').delete().in('provider_type', ['gemini', 'grok']);
+    await setSupabaseAiEnvSuppression({ gemini: true, grok: true });
 
     return { ok: true, configured: true, removedCount };
   } catch (err: any) {
@@ -611,3 +865,302 @@ export async function resetSupabaseAiCredentials(): Promise<{
     };
   }
 }
+
+export async function inspectSupabaseAiInfrastructure(): Promise<{
+  connected: boolean;
+  configured: boolean;
+  projectHost: string | null;
+  secretKeyMode: string;
+  tables: { table: string; available: boolean; rowCount: number | null; error?: string }[];
+  rlsStatus: {
+    credentialsAnonBlocked: boolean;
+    taskRoutesAnonBlocked: boolean;
+    detail: string;
+  };
+  error?: string;
+}> {
+  const envCfg = resolveSupabaseEnvConfig();
+  const tablesToCheck = [
+    'ai_providers',
+    'ai_provider_credentials',
+    'ai_task_routes',
+    'ai_connection_tests',
+    'ai_usage_logs',
+  ];
+
+  const client = getSupabaseAdminClient();
+  if (!envCfg.configured || !client) {
+    return {
+      connected: false,
+      configured: false,
+      projectHost: envCfg.projectHost,
+      secretKeyMode: envCfg.secretKeyMode,
+      tables: tablesToCheck.map(t => ({ table: t, available: false, rowCount: null, error: 'Supabase not configured' })),
+      rlsStatus: {
+        credentialsAnonBlocked: true,
+        taskRoutesAnonBlocked: true,
+        detail: 'Supabase environment variables missing; running in local encrypted vault fallback.',
+      },
+      error: 'SUPABASE_URL and SUPABASE_SECRET_KEY are required for live Supabase inspection.',
+    };
+  }
+
+  const tables = await Promise.all(
+    tablesToCheck.map(async table => {
+      try {
+        const res = await client.from(table).select('*', { count: 'exact', head: true });
+        return {
+          table,
+          available: !res.error,
+          rowCount: typeof res.count === 'number' ? res.count : 0,
+          ...(res.error ? { error: res.error.message } : {}),
+        };
+      } catch (err: any) {
+        return {
+          table,
+          available: false,
+          rowCount: null,
+          error: err?.message || 'Query error',
+        };
+      }
+    })
+  );
+
+  // Verify anon browser keys are strictly blocked from reading AI secrets or task routes
+  let credentialsAnonBlocked = false;
+  let taskRoutesAnonBlocked = false;
+  let rlsDetail = '';
+  const anon = getSupabaseAnonClient();
+  if (anon) {
+    const [anonCredRes, anonRouteRes] = await Promise.all([
+      anon.from('ai_provider_credentials').select('id').limit(1),
+      anon.from('ai_task_routes').select('task').limit(1),
+    ]);
+    credentialsAnonBlocked =
+      Boolean(anonCredRes.error) || (Array.isArray(anonCredRes.data) && anonCredRes.data.length === 0);
+    taskRoutesAnonBlocked =
+      Boolean(anonRouteRes.error) || (Array.isArray(anonRouteRes.data) && anonRouteRes.data.length === 0);
+    rlsDetail =
+      credentialsAnonBlocked && taskRoutesAnonBlocked
+        ? 'RLS verified: unauthenticated anon client blocked from raw AI credentials & task routes.'
+        : 'Warning: Anon policy returned unexpected rows — run Migration 005 RLS hardening.';
+  } else {
+    rlsDetail = 'SUPABASE_PUBLISHABLE_KEY not set; server-side SUPABASE_SECRET_KEY isolation active.';
+  }
+
+  return {
+    connected: tables.some(t => t.available),
+    configured: true,
+    projectHost: envCfg.projectHost,
+    secretKeyMode: envCfg.secretKeyMode,
+    tables,
+    rlsStatus: {
+      credentialsAnonBlocked,
+      taskRoutesAnonBlocked,
+      detail: rlsDetail,
+    },
+  };
+}
+
+export async function runSupabaseAiCrudSelfTest(): Promise<{
+  ok: boolean;
+  configured: boolean;
+  projectHost: string | null;
+  testRecordId: string;
+  stages: {
+    stage: 'INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED';
+    ok: boolean;
+    latencyMs: number;
+    detail: string;
+    error?: string;
+  }[];
+  error?: string;
+}> {
+  const envCfg = resolveSupabaseEnvConfig();
+  const testId = `__diag_ai_crud_${Date.now()}`;
+  const stages: {
+    stage: 'INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED';
+    ok: boolean;
+    latencyMs: number;
+    detail: string;
+    error?: string;
+  }[] = [];
+
+  const client = getSupabaseAdminClient();
+  if (!envCfg.configured || !client) {
+    return {
+      ok: false,
+      configured: false,
+      projectHost: envCfg.projectHost,
+      testRecordId: testId,
+      stages: [
+        {
+          stage: 'INSERT',
+          ok: false,
+          latencyMs: 0,
+          detail: 'Supabase not configured in environment.',
+          error: 'SUPABASE_URL and SUPABASE_SECRET_KEY missing.',
+        },
+      ],
+      error: 'Supabase environment variables are not configured on this server.',
+    };
+  }
+
+  try {
+    // 1. INSERT isolated synthetic row (enabled: false, dummy ciphertext — never usable for generation)
+    let t0 = Date.now();
+    const { data: inserted, error: insErr } = await client
+      .from('ai_provider_credentials')
+      .insert({
+        id: testId,
+        provider_type: 'gemini',
+        label: 'Diagnostic CRUD Probe (Safe Auto-Deleted)',
+        project_id: 'diag-probe-isolated',
+        model: 'diag-model',
+        encrypted_secret: 'enc:v1:diagnostic:probe:nonfunctional',
+        masked_key: 'diag••••••••test',
+        enabled: false,
+        priority: 999,
+        connection_status: 'disabled',
+      })
+      .select('id, label, enabled')
+      .single();
+
+    if (insErr || !inserted) {
+      stages.push({
+        stage: 'INSERT',
+        ok: false,
+        latencyMs: Date.now() - t0,
+        detail: 'Failed inserting isolated test record into ai_provider_credentials.',
+        error: insErr?.message || 'No record returned from INSERT.',
+      });
+      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: insErr?.message };
+    }
+    stages.push({
+      stage: 'INSERT',
+      ok: true,
+      latencyMs: Date.now() - t0,
+      detail: `Inserted test record ${inserted.id}`,
+    });
+
+    // 2. SELECT
+    t0 = Date.now();
+    const { data: selected, error: selErr } = await client
+      .from('ai_provider_credentials')
+      .select('id, label, enabled')
+      .eq('id', testId)
+      .single();
+    if (selErr || !selected) {
+      stages.push({
+        stage: 'SELECT',
+        ok: false,
+        latencyMs: Date.now() - t0,
+        detail: 'Failed reading back test record by ID.',
+        error: selErr?.message || 'Record not found.',
+      });
+      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: selErr?.message };
+    }
+    stages.push({
+      stage: 'SELECT',
+      ok: true,
+      latencyMs: Date.now() - t0,
+      detail: `Read back "${selected.label}" (enabled=${selected.enabled})`,
+    });
+
+    // 3. UPDATE
+    t0 = Date.now();
+    const updatedLabel = 'Diagnostic CRUD Probe Updated';
+    const { data: updated, error: updErr } = await client
+      .from('ai_provider_credentials')
+      .update({ label: updatedLabel, updated_at: new Date().toISOString() })
+      .eq('id', testId)
+      .select('id, label')
+      .single();
+    if (updErr || !updated || updated.label !== updatedLabel) {
+      stages.push({
+        stage: 'UPDATE',
+        ok: false,
+        latencyMs: Date.now() - t0,
+        detail: 'Failed updating test record label.',
+        error: updErr?.message || 'Updated row mismatch or zero rows affected.',
+      });
+      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: updErr?.message };
+    }
+    stages.push({
+      stage: 'UPDATE',
+      ok: true,
+      latencyMs: Date.now() - t0,
+      detail: `Updated label -> "${updated.label}"`,
+    });
+
+    // 4. DELETE
+    t0 = Date.now();
+    const { data: delRows, error: delErr } = await client
+      .from('ai_provider_credentials')
+      .delete()
+      .eq('id', testId)
+      .select('id');
+    const delCount = Array.isArray(delRows) ? delRows.length : 0;
+    if (delErr || delCount !== 1) {
+      stages.push({
+        stage: 'DELETE',
+        ok: false,
+        latencyMs: Date.now() - t0,
+        detail: `Delete affected ${delCount} rows (expected 1).`,
+        error: delErr?.message || 'Zero rows deleted.',
+      });
+      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: delErr?.message };
+    }
+    stages.push({
+      stage: 'DELETE',
+      ok: true,
+      latencyMs: Date.now() - t0,
+      detail: `Deleted 1 test record (${testId})`,
+    });
+
+    // 5. VERIFY_DELETED
+    t0 = Date.now();
+    const { data: verifyAfter, error: verifyErr } = await client
+      .from('ai_provider_credentials')
+      .select('id')
+      .eq('id', testId)
+      .maybeSingle();
+    if (verifyErr || verifyAfter !== null) {
+      stages.push({
+        stage: 'VERIFY_DELETED',
+        ok: false,
+        latencyMs: Date.now() - t0,
+        detail: 'Record still existed or failed verification query after deletion.',
+        error: verifyErr?.message || 'Residual test row detected.',
+      });
+      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: verifyErr?.message };
+    }
+    stages.push({
+      stage: 'VERIFY_DELETED',
+      ok: true,
+      latencyMs: Date.now() - t0,
+      detail: 'Confirmed test record no longer exists in Supabase.',
+    });
+
+    return {
+      ok: true,
+      configured: true,
+      projectHost: envCfg.projectHost,
+      testRecordId: testId,
+      stages,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      configured: true,
+      projectHost: envCfg.projectHost,
+      testRecordId: testId,
+      stages,
+      error: err?.message || 'Unexpected error during AI CRUD self-test',
+    };
+  } finally {
+    // Safety cleanup in case any mid-stage aborted before DELETE
+    await client.from('ai_provider_credentials').delete().eq('id', testId).then(() => {}, () => {});
+  }
+}
+

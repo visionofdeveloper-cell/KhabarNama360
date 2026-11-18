@@ -3304,6 +3304,11 @@ class DatabaseManager {
     return this.data.aiProviders || [];
   }
 
+  public replaceAiProvidersFromSupabase(creds: AIProviderCredential[]): void {
+    this.data.aiProviders = Array.isArray(creds) ? creds : [];
+    this.saveDatabase(this.data);
+  }
+
   public upsertAiProvider(cred: AIProviderCredential, actor: string = 'Super Admin'): AIProviderCredential {
     if (!this.data.aiProviders) this.data.aiProviders = [];
     const idx = this.data.aiProviders.findIndex(p => p.id === cred.id);
@@ -3332,6 +3337,15 @@ class DatabaseManager {
 
   public getAiTaskRoutes(): Record<string, AITaskRouting> {
     return this.data.aiTaskRoutes || {};
+  }
+
+  public replaceAiTaskRoutesFromSupabase(routes: AITaskRouting[]): void {
+    const next: Record<string, AITaskRouting> = {};
+    for (const r of routes || []) {
+      if (r?.task) next[r.task] = r;
+    }
+    this.data.aiTaskRoutes = next;
+    this.saveDatabase(this.data);
   }
 
   public setAiTaskRoute(task: AITaskType, routing: AITaskRouting, actor: string = 'Super Admin'): void {

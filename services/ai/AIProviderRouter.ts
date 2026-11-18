@@ -143,7 +143,7 @@ export class AIProviderRouter {
         task: spec.task,
         label: spec.label,
         primaryCredentialId: defaultCredId,
-        primaryModel: defaultModel || spec.defaultModel,
+        primaryModel: defaultCredId ? defaultModel || spec.defaultModel : '',
         fallbackCredentialId: '',
         fallbackModel: '',
         temperature: spec.task === 'fact_check_prep' || spec.task === 'translation' ? 0.2 : 0.5,
@@ -152,10 +152,15 @@ export class AIProviderRouter {
     });
   }
 
-  public static addOrUpdateCredential(
+  public static async listCredentialsAuthoritative() {
+    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    return this.getAllCredentialsSanitized();
+  }
+
+  public static async addOrUpdateCredential(
     input: Parameters<typeof AIProviderManager.addOrUpdateCredential>[0],
     actor: string
-  ): AIProviderCredential {
+  ): Promise<AIProviderCredential> {
     return AIProviderManager.addOrUpdateCredential(input, actor);
   }
 
@@ -163,10 +168,17 @@ export class AIProviderRouter {
     return AIProviderManager.testSavedCredential(credId, actor);
   }
 
+  public static async getTaskRoutesAuthoritative(): Promise<AITaskRouting[]> {
+    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    return this.getTaskRoutes();
+  }
+
   public static getTaskRoutes(): AITaskRouting[] {
     const saved = db.getAiTaskRoutes();
     const creds = this.getAllCredentialsSanitized();
-    const defaultCred = creds.find((c: any) => c.enabled && c.connectionStatus === 'connected') || creds.find((c: any) => c.enabled);
+    const defaultCred =
+      creds.find((c: any) => c.enabled && c.connectionStatus === 'connected') ||
+      creds.find((c: any) => c.enabled);
 
     return AI_TASK_CATALOG.map(spec => {
       const existing = saved[spec.task];
@@ -175,7 +187,7 @@ export class AIProviderRouter {
         task: spec.task,
         label: spec.label,
         primaryCredentialId: defaultCred?.id || '',
-        primaryModel: defaultCred?.model || spec.defaultModel,
+        primaryModel: defaultCred ? defaultCred.model || spec.defaultModel : '',
         fallbackCredentialId: '',
         fallbackModel: '',
         temperature: spec.task === 'fact_check_prep' || spec.task === 'translation' ? 0.2 : 0.5,
@@ -249,8 +261,12 @@ export class AIProviderRouter {
     let lastDiagnostic: AIDiagnosticError | undefined;
 
     for (const spec of candidateSpecs) {
-      const resolved = AIProviderManager.resolveRawCredential(spec.credId);
+      const resolved = AIProviderManager.resolveRawCredentialDetailed(spec.credId);
       if (!resolved || !resolved.cred.enabled) continue;
+      if (resolved.decryptError || !resolved.rawKey) {
+        errors.push(`[${resolved.cred.label}] Decryption failed: ${resolved.decryptError || 'Empty secret'}`);
+        continue;
+      }
       const { cred, rawKey } = resolved;
 
       // Enforce single-project isolation: never rotate keys inside the same provider+projectId

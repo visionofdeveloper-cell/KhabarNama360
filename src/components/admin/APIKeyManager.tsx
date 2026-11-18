@@ -26,6 +26,10 @@ import {
   Wifi,
   WifiOff,
   Loader2,
+  Database,
+  Pencil,
+  Save,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   AIConnectionStatus,
@@ -34,6 +38,7 @@ import {
   AIProviderCredential,
   AIProviderType,
   AITaskRouting,
+  AITaskType,
   AIUsageLog,
   AIValidationResult,
 } from '../../types/index.ts';
@@ -121,7 +126,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   });
   const [logsLoading, setLogsLoading] = useState(false);
 
-  // Add / Replace Modal state
+  // Sync key so AIConnectionPanel automatically refreshes after table edits/deletes
+  const [panelRefreshKey, setPanelRefreshKey] = useState(0);
+
+  // Add / Edit / Replace Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formProviderType, setFormProviderType] = useState<AIProviderType>('gemini');
@@ -130,10 +138,27 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   const [formEndpointUrl, setFormEndpointUrl] = useState('');
   const [formModel, setFormModel] = useState('');
   const [formApiKey, setFormApiKey] = useState('');
+  const [formEnabled, setFormEnabled] = useState(true);
+  const [formAssignedTasks, setFormAssignedTasks] = useState<AITaskType[]>([]);
   const [showKey, setShowKey] = useState(false);
   const [formPriority, setFormPriority] = useState(10);
   const [formDailyTokenLimit, setFormDailyTokenLimit] = useState(250000);
   const [formMonthlyBudgetUsd, setFormMonthlyBudgetUsd] = useState(0);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  // Confirm Delete Modal state
+  const [deleteTargetCred, setDeleteTargetCred] = useState<ExtendedCredential | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Row & Routing busy state
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [savingRouteTask, setSavingRouteTask] = useState<string | null>(null);
+  const [savingAllRoutes, setSavingAllRoutes] = useState(false);
+
+  // DB CRUD self-test state
+  const [crudTestBusy, setCrudTestBusy] = useState(false);
+  const [crudTestResult, setCrudTestResult] = useState<any>(null);
 
   // Live validation state inside modal
   const [validatingStep, setValidatingStep] = useState<'idle' | 'discovering' | 'testing_generation'>('idle');
@@ -261,12 +286,15 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
 
   const openAddModal = () => {
     setEditingId(null);
+    setModalError(null);
     setFormProviderType('gemini');
     setFormLabel(`Google Gemini Key #${credentials.filter(c => c.providerType === 'gemini').length + 1}`);
     setFormProjectId(`gcp-project-${Math.floor(100 + Math.random() * 900)}`);
     setFormEndpointUrl('');
     setFormModel('');
     setFormApiKey('');
+    setFormEnabled(true);
+    setFormAssignedTasks([]);
     setShowKey(false);
     setFormPriority(10 + credentials.length * 5);
     setFormDailyTokenLimit(250000);
@@ -279,12 +307,17 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
 
   const openEditModal = (cred: ExtendedCredential) => {
     setEditingId(cred.id);
+    setModalError(null);
     setFormProviderType(cred.providerType);
     setFormLabel(cred.label);
     setFormProjectId(cred.projectId);
     setFormEndpointUrl(cred.endpointUrl || (cred.providerType === 'grok' ? 'https://api.x.ai/v1' : ''));
     setFormModel(cred.model);
     setFormApiKey('');
+    setFormEnabled(Boolean(cred.enabled));
+    setFormAssignedTasks(
+      routes.filter(r => r.primaryCredentialId === cred.id).map(r => r.task)
+    );
     setShowKey(false);
     setFormPriority(cred.priority);
     setFormDailyTokenLimit(cred.dailyTokenLimit);
@@ -296,6 +329,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   };
 
   const handleValidateAndConnect = async () => {
+    setModalError(null);
     await runValidation({
       providerType: formProviderType,
       apiKey: formApiKey,
@@ -308,46 +342,56 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
 
   const handleSaveCredential = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setSaving(true);
+    setModalError(null);
     setStatusBanner(null);
     try {
-      const d = await safeFetchJson('/api/v1/admin/ai/providers', {
-        method: 'POST',
+      const endpoint = editingId
+        ? `/api/v1/admin/ai/providers/${encodeURIComponent(editingId)}`
+        : '/api/v1/admin/ai/providers';
+      const method = editingId ? 'PATCH' : 'POST';
+
+      const d = await safeFetchJson(endpoint, {
+        method,
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: editingId || undefined,
-          providerType: formProviderType,
-          label: formLabel,
+          ...(editingId ? {} : { id: undefined, providerType: formProviderType }),
+          label: formLabel.trim(),
           projectId: formProjectId.trim() || `${formProviderType}-project`,
           endpointUrl:
             formEndpointUrl.trim() ||
-            (formProviderType === 'grok' ? 'https://api.x.ai/v1' : undefined),
+            (formProviderType === 'grok' ? 'https://api.x.ai/v1' : ''),
           model: formModel.trim(),
           apiKey: formApiKey.trim() || undefined,
+          enabled: formEnabled,
           priority: formPriority,
           dailyTokenLimit: formDailyTokenLimit,
           monthlyBudgetUsd: formMonthlyBudgetUsd,
+          assignedTasks: formAssignedTasks,
           validationResult: validationResult || undefined,
         }),
       });
       if (d.success) {
         setModalOpen(false);
+        setModalError(null);
         const isVerified = d.provider?.connectionStatus === 'connected';
         setStatusBanner({
           ok: true,
           text: isVerified
-            ? `Saved & connected "${d.provider.label}" (${d.provider.model}) — encrypted with AES-256-GCM.`
-            : `Saved "${d.provider?.label}" encrypted at rest (${d.provider?.connectionStatus || 'untested'}).`,
+            ? `${editingId ? 'Updated' : 'Saved'} & connected "${d.provider.label}" (${d.provider.model}) — encrypted with AES-256-GCM.`
+            : `${editingId ? 'Updated' : 'Saved'} "${d.provider?.label}" encrypted at rest (${d.provider?.connectionStatus || 'untested'}).`,
         });
-        onNotify?.('AI credential saved.');
+        setPanelRefreshKey(k => k + 1);
+        onNotify?.(editingId ? 'AI credential updated.' : 'AI credential saved.');
         onProvidersChanged?.();
-        loadAll();
+        await loadAll();
       } else {
-        setStatusBanner({ ok: false, text: d.error || 'Failed to save credential.' });
+        setModalError(d.error || 'Failed to save credential.');
       }
     } catch (err: any) {
-      setStatusBanner({ ok: false, text: err?.message || 'Network error saving credential.' });
+      setModalError(err?.message || 'Network error saving credential.');
     } finally {
       setSaving(false);
     }
@@ -357,7 +401,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     setTestingId(id);
     setStatusBanner(null);
     try {
-      const d = await safeFetchJson(`/api/v1/admin/ai/providers/${id}/test`, {
+      const d = await safeFetchJson(`/api/v1/admin/ai/providers/${encodeURIComponent(id)}/test`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -368,8 +412,9 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
         suggestion: r?.diagnostic?.suggestedAction,
         correlationId: r?.correlationId,
       });
+      setPanelRefreshKey(k => k + 1);
       onProvidersChanged?.();
-      loadAll();
+      await loadAll();
     } catch (e: any) {
       setStatusBanner({ ok: false, text: e?.message || 'Test request failed.' });
     } finally {
@@ -378,31 +423,70 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   };
 
   const handleToggleEnabled = async (cred: ExtendedCredential) => {
-    const d = await safeFetchJson(`/api/v1/admin/ai/providers/${cred.id}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !cred.enabled }),
-    });
-    if (d.success) {
-      onProvidersChanged?.();
-      loadAll();
-    } else if (d.error) {
-      setStatusBanner({ ok: false, text: d.error });
+    if (togglingId) return;
+    setTogglingId(cred.id);
+    setStatusBanner(null);
+    try {
+      const d = await safeFetchJson(`/api/v1/admin/ai/providers/${encodeURIComponent(cred.id)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !cred.enabled }),
+      });
+      if (d.success) {
+        setStatusBanner({
+          ok: true,
+          text: `"${cred.label}" is now ${!cred.enabled ? 'Enabled' : 'Disabled'}.`,
+        });
+        setPanelRefreshKey(k => k + 1);
+        onProvidersChanged?.();
+        await loadAll();
+      } else {
+        setStatusBanner({ ok: false, text: d.error || 'Failed toggling credential status.' });
+      }
+    } catch (err: any) {
+      setStatusBanner({ ok: false, text: err?.message || 'Network error toggling credential.' });
+    } finally {
+      setTogglingId(null);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const d = await safeFetchJson(`/api/v1/admin/ai/providers/${id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    if (d.success) {
-      setStatusBanner({ ok: true, text: 'AI API key revoked and permanently deleted.' });
-      onProvidersChanged?.();
-      loadAll();
-    } else if (d.error) {
-      setStatusBanner({ ok: false, text: d.error });
+  const openDeleteModal = (cred: ExtendedCredential) => {
+    setDeleteError(null);
+    setDeleteTargetCred(cred);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetCred || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    setStatusBanner(null);
+    try {
+      const d = await safeFetchJson(
+        `/api/v1/admin/ai/providers/${encodeURIComponent(deleteTargetCred.id)}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      );
+      if (d.success) {
+        const deletedLabel = deleteTargetCred.label;
+        setDeleteTargetCred(null);
+        setStatusBanner({
+          ok: true,
+          text: d.message || `Deleted AI API key "${deletedLabel}".`,
+        });
+        setPanelRefreshKey(k => k + 1);
+        onNotify?.('AI credential deleted.');
+        onProvidersChanged?.();
+        await loadAll();
+      } else {
+        setDeleteError(d.error || 'Failed deleting AI credential.');
+      }
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Network error deleting AI credential.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -410,7 +494,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     setLogsModalCred(cred);
     setLogsLoading(true);
     try {
-      const d = await safeFetchJson(`/api/v1/admin/ai/providers/${cred.id}/logs`, {
+      const d = await safeFetchJson(`/api/v1/admin/ai/providers/${encodeURIComponent(cred.id)}/logs`, {
         credentials: 'include',
       });
       if (d.success) {
@@ -422,17 +506,50 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   };
 
   const handleSaveRoute = async (route: AITaskRouting) => {
-    const d = await safeFetchJson('/api/v1/admin/ai/task-routes', {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(route),
-    });
-    if (d.success) {
-      setStatusBanner({ ok: true, text: `Updated task routing for "${route.label}".` });
-      loadAll();
-    } else {
-      setStatusBanner({ ok: false, text: d.error || 'Failed updating route.' });
+    if (savingRouteTask || savingAllRoutes) return;
+    setSavingRouteTask(route.task);
+    setStatusBanner(null);
+    try {
+      const d = await safeFetchJson('/api/v1/admin/ai/task-routes', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(route),
+      });
+      if (d.success) {
+        setStatusBanner({ ok: true, text: `Saved task routing for "${route.label}".` });
+        await loadAll();
+      } else {
+        setStatusBanner({ ok: false, text: d.error || 'Failed updating route.' });
+      }
+    } catch (err: any) {
+      setStatusBanner({ ok: false, text: err?.message || 'Network error saving task route.' });
+    } finally {
+      setSavingRouteTask(null);
+    }
+  };
+
+  const handleSaveAllRoutes = async () => {
+    if (savingAllRoutes || savingRouteTask) return;
+    setSavingAllRoutes(true);
+    setStatusBanner(null);
+    try {
+      const d = await safeFetchJson('/api/v1/admin/ai/task-routes', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ routes }),
+      });
+      if (d.success) {
+        setStatusBanner({ ok: true, text: `All ${routes.length} task routes saved persistently.` });
+        await loadAll();
+      } else {
+        setStatusBanner({ ok: false, text: d.error || 'Failed saving all task routes.' });
+      }
+    } catch (err: any) {
+      setStatusBanner({ ok: false, text: err?.message || 'Network error saving all routes.' });
+    } finally {
+      setSavingAllRoutes(false);
     }
   };
 
@@ -451,12 +568,35 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
             d.summary.connectivity?.overallOk ? 'Reachable' : 'Blocked/Error'
           }.`,
         });
-        loadAll();
+        setPanelRefreshKey(k => k + 1);
+        await loadAll();
       } else {
         setStatusBanner({ ok: false, text: d.error || 'Health check failed.' });
       }
     } finally {
       setHealthBusy(false);
+    }
+  };
+
+  const handleRunCrudSelfTest = async () => {
+    if (crudTestBusy) return;
+    setCrudTestBusy(true);
+    setCrudTestResult(null);
+    try {
+      const d = await safeFetchJson('/api/v1/admin/ai/diagnostics/crud-test', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      setCrudTestResult(d);
+      await loadAll();
+    } catch (err: any) {
+      setCrudTestResult({
+        ok: false,
+        error: err?.message || 'Failed running database CRUD self-test.',
+        stages: [],
+      });
+    } finally {
+      setCrudTestBusy(false);
     }
   };
 
@@ -466,6 +606,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     <div className="space-y-5">
       <AIConnectionPanel
         embeddedInAdvancedVault={true}
+        refreshKey={panelRefreshKey}
         onNotify={onNotify}
         onProvidersChanged={() => {
           loadAll();
@@ -707,31 +848,34 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                             <>
                               <button
                                 type="button"
+                                disabled={togglingId === cred.id}
                                 onClick={() => handleToggleEnabled(cred)}
-                                className={`px-2 py-1 rounded text-[11px] font-bold inline-flex items-center gap-1 ${
+                                className={`px-2 py-1 rounded text-[11px] font-bold inline-flex items-center gap-1 disabled:opacity-50 ${
                                   cred.enabled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-500'
                                 }`}
                               >
                                 <Power className="w-3 h-3" />
-                                <span>{cred.enabled ? 'On' : 'Off'}</span>
+                                <span>{togglingId === cred.id ? '...' : cred.enabled ? 'On' : 'Off'}</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => openEditModal(cred)}
-                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded text-[11px]"
+                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded text-[11px] inline-flex items-center gap-1"
+                                title="Edit label, model, task assignments, limits, or replace API key"
                               >
-                                Replace
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(cred.id)}
-                                className="p-1 text-rose-600 hover:bg-rose-50 rounded"
-                                title="Revoke & Delete"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Pencil className="w-3 h-3" />
+                                <span>Edit</span>
                               </button>
                             </>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => openDeleteModal(cred)}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded inline-flex items-center"
+                            title={isEnv ? 'Suppress environment fallback key' : 'Revoke & Delete'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -746,8 +890,19 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
       {/* TAB 2: TASK ROUTING */}
       {subTab === 'routing' && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-gray-100 text-xs text-gray-600">
-            Assign any verified Gemini or Grok credential and model to each editorial task, plus an isolated cross-project / cross-provider fallback.
+          <div className="p-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Assign any verified Gemini or Grok credential and model to each editorial task, plus an isolated cross-project / cross-provider fallback.
+            </div>
+            <button
+              type="button"
+              disabled={savingAllRoutes || routes.length === 0}
+              onClick={handleSaveAllRoutes}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5 shrink-0"
+            >
+              {savingAllRoutes ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{savingAllRoutes ? 'Saving All...' : 'Save All Routes'}</span>
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
@@ -768,10 +923,18 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                   const fallbackCred = credentials.find(c => c.id === r.fallbackCredentialId);
                   const primaryModels = (primaryCred?.availableModels || []).filter(m => m.supportsTextGeneration);
                   const fallbackModels = (fallbackCred?.availableModels || []).filter(m => m.supportsTextGeneration);
+                  const isUnconfigured = !r.primaryCredentialId || !primaryCred || !primaryCred.enabled;
                   return (
                     <tr key={r.task} className="hover:bg-gray-50">
                       <td className="p-3">
-                        <div className="font-bold text-gray-900">{r.label}</div>
+                        <div className="font-bold text-gray-900 flex flex-wrap items-center gap-1.5">
+                          <span>{r.label}</span>
+                          {isUnconfigured && (
+                            <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded text-[10px] font-bold">
+                              {!primaryCred ? 'Unconfigured' : 'Disabled Key'}
+                            </span>
+                          )}
+                        </div>
                         <div className="font-mono text-[10px] text-gray-500">{r.task}</div>
                       </td>
                       <td className="p-3">
@@ -877,10 +1040,11 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                       <td className="p-3 text-right">
                         <button
                           type="button"
+                          disabled={savingRouteTask === r.task || savingAllRoutes}
                           onClick={() => handleSaveRoute(routes[idx])}
-                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded text-[11px]"
+                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded text-[11px]"
                         >
-                          Save
+                          {savingRouteTask === r.task ? 'Saving...' : 'Save'}
                         </button>
                       </td>
                     </tr>
@@ -979,13 +1143,150 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
         </div>
       )}
 
-      {/* TAB 4: HOSTING & OUTBOUND DIAGNOSTICS */}
+      {/* TAB 4: HOSTING, SUPABASE DB & OUTBOUND DIAGNOSTICS */}
       {subTab === 'diagnostics' && (
         <div className="space-y-4">
+          {/* Supabase & Encrypted Vault CRUD Diagnostics Card */}
           <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-black text-gray-900">Server Outbound HTTPS Diagnostics (Namecheap & Hosting Firewall Check)</h3>
+                <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-700" />
+                  <span>Supabase PostgreSQL &amp; Encrypted AI Vault Diagnostics</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Live database schema check, RLS enforcement status, persistence telemetry, and non-destructive CRUD roundtrip verification.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRunCrudSelfTest}
+                disabled={crudTestBusy}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5"
+              >
+                {crudTestBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>{crudTestBusy ? 'Running CRUD Test...' : 'Test AI Credential CRUD'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">Supabase Backend</div>
+                <div className="font-black text-gray-900 mt-1">
+                  {diagnostics?.supabase?.configured
+                    ? diagnostics?.supabase?.connected
+                      ? 'Connected (Live Postgres)'
+                      : 'Configured (Error)'
+                    : 'Local Encrypted Fallback'}
+                </div>
+                <div className="font-mono text-[10px] text-gray-600 mt-0.5 truncate">
+                  {diagnostics?.supabase?.projectHost || 'No SUPABASE_URL set'}
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">Encryption &amp; Key Vault</div>
+                <div className="font-bold text-gray-900 mt-1">
+                  AI_MASTER_KEY: {diagnostics?.serverEnvironment?.masterKeyConfigured ? 'Set' : 'Missing (Fallback)'}
+                </div>
+                <div className="font-mono text-[10px] text-gray-600 mt-0.5">
+                  Active: {diagnostics?.runtimeTelemetry?.activeConnectedCount ?? 0} / Enabled: {diagnostics?.runtimeTelemetry?.enabledCredentialCount ?? 0} / Total: {diagnostics?.runtimeTelemetry?.storedCredentialCount ?? 0}
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">RLS Access Control</div>
+                <div className="font-bold text-gray-900 mt-1">
+                  {diagnostics?.supabase?.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked (Locked)' : 'Review RLS Rules'}
+                </div>
+                <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={diagnostics?.supabase?.rlsStatus?.detail}>
+                  {diagnostics?.supabase?.rlsStatus?.detail || 'Server secret isolation'}
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">Last Save / Delete</div>
+                <div className="font-mono text-[10px] text-gray-700 mt-1">
+                  Save: {diagnostics?.runtimeTelemetry?.lastSuccessfulSave ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulSave).toLocaleTimeString() : 'None yet'}
+                </div>
+                <div className="font-mono text-[10px] text-gray-700 mt-0.5">
+                  Delete: {diagnostics?.runtimeTelemetry?.lastSuccessfulDelete ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulDelete).toLocaleTimeString() : 'None yet'}
+                </div>
+              </div>
+            </div>
+
+            {diagnostics?.runtimeTelemetry?.lastDbError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900">
+                <strong>Last DB Error ({diagnostics.runtimeTelemetry.lastDbError.operation}):</strong>{' '}
+                {diagnostics.runtimeTelemetry.lastDbError.message}{' '}
+                <span className="font-mono text-[10px]">
+                  ({new Date(diagnostics.runtimeTelemetry.lastDbError.at).toLocaleString()})
+                </span>
+              </div>
+            )}
+
+            {Array.isArray(diagnostics?.supabase?.tables) && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+                {diagnostics.supabase.tables.map((t: any) => (
+                  <div
+                    key={t.table}
+                    className={`p-2.5 rounded-lg border ${
+                      t.available ? 'bg-emerald-50/60 border-emerald-200' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="font-mono font-bold text-gray-900 truncate" title={t.table}>
+                      {t.table}
+                    </div>
+                    <div className="text-[10px] text-gray-600 mt-0.5">
+                      {t.available ? `${t.rowCount ?? 0} rows • OK` : t.error || 'Unavailable'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {crudTestResult && (
+              <div
+                className={`p-4 rounded-xl border text-xs space-y-2.5 ${
+                  crudTestResult.ok
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                    : 'bg-rose-50 border-rose-300 text-rose-950'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 font-black">
+                  <span>
+                    AI Credential CRUD Self-Test ({crudTestResult.mode === 'supabase' ? 'Live Supabase Postgres' : 'Local Encrypted Vault'}):{' '}
+                    {crudTestResult.ok ? 'ALL 5 STAGES PASSED' : 'FAILED'}
+                  </span>
+                  <span className="font-mono text-[10px] opacity-80">{crudTestResult.testRecordId}</span>
+                </div>
+                {crudTestResult.error && <div className="font-semibold">{crudTestResult.error}</div>}
+                {Array.isArray(crudTestResult.stages) && crudTestResult.stages.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-[11px]">
+                    {crudTestResult.stages.map((s: any) => (
+                      <div
+                        key={s.stage}
+                        className={`p-2 rounded border ${
+                          s.ok ? 'bg-white border-emerald-200 text-emerald-900' : 'bg-white border-rose-300 text-rose-900'
+                        }`}
+                      >
+                        <div className="font-mono font-black flex items-center justify-between">
+                          <span>{s.stage}</span>
+                          <span>{s.latencyMs}ms</span>
+                        </div>
+                        <div className="text-[10px] mt-1">{s.error || s.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">Server Outbound HTTPS Diagnostics (Namecheap &amp; Hosting Firewall Check)</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Verifies DNS resolution and TLS Port 443 connectivity from this Node.js backend to official Google Gemini and xAI endpoints.
                 </p>
@@ -997,7 +1298,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                 className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${healthBusy ? 'animate-spin' : ''}`} />
-                <span>Re-check Connectivity & Health</span>
+                <span>Re-check Connectivity &amp; Health</span>
               </button>
             </div>
 
@@ -1100,7 +1401,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
         }
       />
 
-      {/* ADD / VALIDATE & CONNECT CREDENTIAL MODAL */}
+      {/* ADD / EDIT / VALIDATE CREDENTIAL MODAL */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <form
@@ -1110,12 +1411,19 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-700" />
-                <span>{editingId ? 'Replace / Re-Verify AI API Key' : 'Connect & Validate AI Provider API Key'}</span>
+                <span>{editingId ? 'Edit / Replace AI API Key' : 'Connect & Validate AI Provider API Key'}</span>
               </h3>
               <button type="button" onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-700">
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {modalError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
+                <div className="font-semibold">{modalError}</div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -1353,6 +1661,74 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               </div>
             </div>
 
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 font-bold text-gray-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formEnabled}
+                    onChange={e => setFormEnabled(e.target.checked)}
+                    className="rounded border-gray-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>Credential Enabled for Active AI Routing</span>
+                </label>
+                {routes.length > 0 && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setFormAssignedTasks(routes.map(r => r.task))}
+                      className="text-emerald-700 font-bold hover:underline"
+                    >
+                      Assign All Tasks
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormAssignedTasks([])}
+                      className="text-gray-600 font-semibold hover:underline"
+                    >
+                      Clear Tasks
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {routes.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold text-gray-700 mb-1.5">
+                    Primary Editorial Task Assignments ({formAssignedTasks.length} selected)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto p-1">
+                    {routes.map(rt => {
+                      const checked = formAssignedTasks.includes(rt.task);
+                      return (
+                        <label
+                          key={rt.task}
+                          className="inline-flex items-center gap-2 text-[11px] text-gray-700 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setFormAssignedTasks(prev =>
+                                  prev.includes(rt.task) ? prev : [...prev, rt.task]
+                                );
+                              } else {
+                                setFormAssignedTasks(prev => prev.filter(t => t !== rt.task));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-emerald-700 focus:ring-emerald-600"
+                          />
+                          <span className="truncate">{rt.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
               <div className="text-[11px] text-gray-500">
                 {!validationResult?.generationVerified && !editingId
@@ -1372,11 +1748,99 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                   disabled={saving}
                   className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg disabled:opacity-50"
                 >
-                  {saving ? 'Encrypting & Saving...' : 'Save Credential'}
+                  {saving ? 'Encrypting & Saving...' : editingId ? 'Save Changes' : 'Save Credential'}
                 </button>
               </div>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* EXPLICIT CONFIRM DELETE CREDENTIAL MODAL (NO window.confirm) */}
+      {deleteTargetCred && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-rose-200 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl text-xs">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-sm font-black text-rose-950 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-700" />
+                <span>
+                  {deleteTargetCred.id.startsWith('env-')
+                    ? 'Suppress Environment AI Key'
+                    : 'Confirm Delete AI Provider Credential'}
+                </span>
+              </h3>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTargetCred(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5 text-rose-950">
+              <div className="font-bold">{deleteTargetCred.label}</div>
+              <div className="font-mono text-[11px]">
+                Provider: {deleteTargetCred.providerType.toUpperCase()} • Key: {deleteTargetCred.maskedKey}
+              </div>
+              <div className="font-mono text-[10px] text-rose-800">Record ID: {deleteTargetCred.id}</div>
+            </div>
+
+            {(() => {
+              const affectedRoutes = routes.filter(
+                r => r.primaryCredentialId === deleteTargetCred.id || r.fallbackCredentialId === deleteTargetCred.id
+              );
+              if (affectedRoutes.length === 0) return null;
+              return (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-amber-950">
+                  <div className="font-bold">
+                    Dependent Task Routes Affected ({affectedRoutes.length}):
+                  </div>
+                  <div className="text-[11px]">
+                    {affectedRoutes.map(r => r.label).join(', ')}. These routes will automatically switch to your next connected credential or reset cleanly to Unconfigured.
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="text-[11px] text-gray-600 space-y-1">
+              <p>
+                {deleteTargetCred.id.startsWith('env-')
+                  ? 'This suppresses runtime fallback loading for this server environment variable in Supabase and local cache so it will not resurrect.'
+                  : 'This permanently deletes the encrypted secret from Supabase PostgreSQL and local cache. News articles, users, categories, SEO settings, and AI_MASTER_KEY remain untouched.'}
+              </p>
+              <p className="text-gray-500">
+                Note: To revoke the key externally on Google AI Studio or xAI Console, delete or rotate it inside your provider dashboard.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 font-semibold">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTargetCred(null)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+              >
+                {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{deleting ? 'Deleting...' : deleteTargetCred.id.startsWith('env-') ? 'Suppress Env Key' : 'Delete Permanently'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

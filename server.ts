@@ -2977,44 +2977,48 @@ app.get('/api/admin/reports/:reportId', requirePermission('reports:view'), (req,
 // ================= MULTI-PROVIDER AI VAULT, ROUTER & EDITORIAL STUDIO =================
 
 // --- Simplified One-Click AI API Connection Endpoints ---
-app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), (req, res) => {
-  const session: AdminSession | undefined = (req as any).adminSession;
-  const all = AIProviderRouter.getAllCredentialsSanitized();
-  const connected = all.find((c: any) => c.enabled && c.connectionStatus === 'connected');
-  const active = connected || all.find((c: any) => c.enabled) || all[0] || null;
-  const geminiCred = all.find((c: any) => c.providerType === 'gemini' && c.enabled);
-  const grokCred = all.find((c: any) => c.providerType === 'grok' && c.enabled);
-  const supabaseConfigured = isSupabaseConfigured();
-  const recentTests = db.getAiConnectionTests(undefined, 10);
-  const latestTest = recentTests[0] || null;
+app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
+  try {
+    const session: AdminSession | undefined = (req as any).adminSession;
+    const all = await AIProviderRouter.listCredentialsAuthoritative();
+    const connected = all.find((c: any) => c.enabled && c.connectionStatus === 'connected');
+    const active = connected || all.find((c: any) => c.enabled) || all[0] || null;
+    const geminiCred = all.find((c: any) => c.providerType === 'gemini' && c.enabled);
+    const grokCred = all.find((c: any) => c.providerType === 'grok' && c.enabled);
+    const supabaseConfigured = isSupabaseConfigured();
+    const recentTests = db.getAiConnectionTests(undefined, 10);
+    const latestTest = recentTests[0] || null;
 
-  res.json({
-    success: true,
-    connected: Boolean(connected),
-    activeProvider: active,
-    geminiStatus:
-      geminiCred?.connectionStatus === 'connected'
-        ? 'Connected'
-        : geminiCred?.connectionStatus || 'Not Connected',
-    grokStatus:
-      grokCred?.connectionStatus === 'connected'
-        ? 'Connected'
-        : grokCred?.connectionStatus || 'Not Connected',
-    currentUserRole: session?.role || 'Unknown',
-    isSuperAdmin: session?.role === 'Super Admin',
-    totalCredentials: all.length,
-    connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
-    storageBackend: supabaseConfigured ? 'supabase+local_encrypted' : 'local_encrypted',
-    supabaseConfigured,
-    envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
-    serverEnvironment: {
-      nodeEnv: process.env.NODE_ENV || 'development',
-      nodeVersion: process.version,
-      generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000),
-      discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
-    },
-    latestTest,
-  });
+    res.json({
+      success: true,
+      connected: Boolean(connected),
+      activeProvider: active,
+      geminiStatus:
+        geminiCred?.connectionStatus === 'connected'
+          ? 'Connected'
+          : geminiCred?.connectionStatus || 'Not Connected',
+      grokStatus:
+        grokCred?.connectionStatus === 'connected'
+          ? 'Connected'
+          : grokCred?.connectionStatus || 'Not Connected',
+      currentUserRole: session?.role || 'Unknown',
+      isSuperAdmin: session?.role === 'Super Admin',
+      totalCredentials: all.length,
+      connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
+      storageBackend: supabaseConfigured ? 'supabase+local_encrypted' : 'local_encrypted',
+      supabaseConfigured,
+      envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
+      serverEnvironment: {
+        nodeEnv: process.env.NODE_ENV || 'development',
+        nodeVersion: process.version,
+        generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000),
+        discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
+      },
+      latestTest,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed loading AI connection status.' });
+  }
 });
 
 app.post('/api/v1/admin/ai/discover-auto', requireSuperAdmin, async (req, res) => {
@@ -3118,7 +3122,16 @@ app.post('/api/v1/admin/ai/connect-auto', requireSuperAdmin, async (req, res) =>
   }
 });
 
-app.post('/api/v1/admin/ai/reset-all', requireSuperAdmin, async (req, res) => {
+async function handleResetPreview(_req: Request, res: Response) {
+  try {
+    const preview = await AIProviderManager.getResetPreviewSummary();
+    return res.json({ success: true, preview });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed preparing reset summary.' });
+  }
+}
+
+async function handleResetAll(req: Request, res: Response) {
   try {
     const body = req.body || {};
     if (body.confirmReset !== 'RESET_ALL_AI_KEYS') {
@@ -3135,23 +3148,36 @@ app.post('/api/v1/admin/ai/reset-all', requireSuperAdmin, async (req, res) => {
       error: err?.message || 'Failed to reset AI API credentials.',
     });
   }
-});
+}
 
-app.post('/api/v1/admin/ai/disconnect', requireSuperAdmin, async (req, res) => {
+app.get('/api/v1/admin/ai/reset-preview', requireSuperAdmin, handleResetPreview);
+app.get('/api/admin/ai/reset-preview', requireSuperAdmin, handleResetPreview);
+app.post('/api/v1/admin/ai/reset-all', requireSuperAdmin, handleResetAll);
+app.post('/api/v1/admin/ai/providers/reset', requireSuperAdmin, handleResetAll);
+app.post('/api/admin/ai/reset-all', requireSuperAdmin, handleResetAll);
+app.post('/api/admin/ai/providers/reset', requireSuperAdmin, handleResetAll);
+
+async function handleDisconnect(req: Request, res: Response) {
   try {
     const body = req.body || {};
     const out = await AIProviderManager.disconnectCredential(
       body.credentialId ? String(body.credentialId) : undefined,
       getActor(req, 'Super Admin')
     );
-    return res.json({ success: out.ok, ...out });
+    if (!out.ok) {
+      return res.status(out.notFound ? 404 : 500).json({ success: false, error: out.message, ...out });
+    }
+    return res.json({ success: true, ...out });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to disconnect AI provider.' });
   }
-});
+}
 
-// --- Standardized v1 Provider Management, Validation & Diagnostics API ---
-app.post('/api/v1/admin/ai/providers/validate', requireSuperAdmin, async (req, res) => {
+app.post('/api/v1/admin/ai/disconnect', requireSuperAdmin, handleDisconnect);
+app.post('/api/admin/ai/disconnect', requireSuperAdmin, handleDisconnect);
+
+// --- Standardized v1 & /api/admin/ai Provider Validation & Diagnostics (Static Routes Before :id) ---
+async function handleValidateCandidate(req: Request, res: Response) {
   const controller = new AbortController();
   res.on('close', () => {
     if (!res.writableEnded) controller.abort(new Error('Client disconnected'));
@@ -3175,48 +3201,134 @@ app.post('/api/v1/admin/ai/providers/validate', requireSuperAdmin, async (req, r
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Validation failed.' });
   }
-});
+}
 
-app.get('/api/v1/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
-  res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
-});
+app.post('/api/v1/admin/ai/providers/validate', requireSuperAdmin, handleValidateCandidate);
+app.post('/api/admin/ai/providers/validate', requireSuperAdmin, handleValidateCandidate);
+app.post('/api/admin/ai/validate', requireSuperAdmin, handleValidateCandidate);
 
-app.post('/api/v1/admin/ai/providers', requireSuperAdmin, (req, res) => {
+async function handleGetDiagnostics(_req: Request, res: Response) {
   try {
-    const saved = AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
-    return res.json({ success: true, provider: saved });
+    const diagnostics = await AIProviderManager.getDiagnostics();
+    return res.json({ success: true, ...diagnostics });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Failed saving AI credential.' });
+    return res.status(500).json({ success: false, error: err?.message || 'Diagnostics check failed.' });
   }
-});
+}
 
-app.patch('/api/v1/admin/ai/providers/:id', requireSuperAdmin, (req, res) => {
+async function handleRunCrudSelfTest(req: Request, res: Response) {
   try {
-    const updated = AIProviderManager.updateCredentialPartial(
+    const result = await AIProviderManager.runCrudSelfTest(getActor(req, 'Super Admin'));
+    return res.status(result.ok ? 200 : 500).json({ success: result.ok, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'CRUD self-test failed.' });
+  }
+}
+
+app.get('/api/v1/admin/ai/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
+app.get('/api/v1/admin/ai/providers/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
+app.get('/api/admin/ai/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
+app.get('/api/admin/ai/providers/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
+
+app.post('/api/v1/admin/ai/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);
+app.post('/api/v1/admin/ai/providers/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);
+app.post('/api/admin/ai/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);
+app.post('/api/admin/ai/providers/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);
+
+// --- Standardized v1 & /api/admin/ai Provider CRUD ---
+async function handleListProviders(_req: Request, res: Response) {
+  try {
+    const providers = await AIProviderRouter.listCredentialsAuthoritative();
+    return res.json({ success: true, providers });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed listing AI providers.' });
+  }
+}
+
+async function handleCreateOrUpsertProvider(req: Request, res: Response) {
+  try {
+    const saved = await AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
+    return res.status(req.body?.id ? 200 : 201).json({ success: true, provider: saved });
+  } catch (err: any) {
+    const msg = err?.message || 'Failed saving AI credential.';
+    const status = msg.toLowerCase().includes('not found')
+      ? 404
+      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      ? 500
+      : 400;
+    return res.status(status).json({ success: false, error: msg });
+  }
+}
+
+async function handlePatchProvider(req: Request, res: Response) {
+  try {
+    const updated = await AIProviderManager.updateCredentialPartial(
       req.params.id,
       req.body || {},
       getActor(req, 'Super Admin')
     );
     return res.json({ success: true, provider: updated });
   } catch (err: any) {
-    const status = String(err?.message || '').toLowerCase().includes('not found') ? 404 : 400;
-    return res.status(status).json({ success: false, error: err?.message || 'Failed updating AI credential.' });
+    const msg = err?.message || 'Failed updating AI credential.';
+    const status = msg.toLowerCase().includes('not found')
+      ? 404
+      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      ? 500
+      : 400;
+    return res.status(status).json({ success: false, error: msg });
   }
-});
+}
 
-app.delete('/api/v1/admin/ai/providers/:id', requireSuperAdmin, async (req, res) => {
-  const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
-  res.json({ success: out.ok });
-});
+async function handleDeleteProvider(req: Request, res: Response) {
+  try {
+    const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
+    if (!out.ok) {
+      return res.status(out.notFound ? 404 : 500).json({
+        success: false,
+        error: out.message,
+        deletedCount: out.deletedCount ?? 0,
+      });
+    }
+    return res.json({
+      success: true,
+      deletedCount: out.deletedCount ?? 1,
+      disconnectedId: out.disconnectedId,
+      message: out.message,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed deleting AI credential.',
+      deletedCount: 0,
+    });
+  }
+}
 
-app.post('/api/v1/admin/ai/providers/:id/test', requireSuperAdmin, async (req, res) => {
+async function handleTestProviderById(req: Request, res: Response) {
   try {
     const result = await AIProviderManager.testSavedCredential(req.params.id, getActor(req, 'Super Admin'));
     return res.json({ success: result.ok, result });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Provider test failed.' });
+    const msg = err?.message || 'Provider test failed.';
+    const status = msg.toLowerCase().includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg });
   }
-});
+}
+
+app.get('/api/v1/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), handleListProviders);
+app.get('/api/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), handleListProviders);
+
+app.post('/api/v1/admin/ai/providers', requireSuperAdmin, handleCreateOrUpsertProvider);
+app.post('/api/admin/ai/providers', requireSuperAdmin, handleCreateOrUpsertProvider);
+
+app.patch('/api/v1/admin/ai/providers/:id', requireSuperAdmin, handlePatchProvider);
+app.patch('/api/admin/ai/providers/:id', requireSuperAdmin, handlePatchProvider);
+
+app.delete('/api/v1/admin/ai/providers/:id', requireSuperAdmin, handleDeleteProvider);
+app.delete('/api/admin/ai/providers/:id', requireSuperAdmin, handleDeleteProvider);
+
+app.post('/api/v1/admin/ai/providers/:id/test', requireSuperAdmin, handleTestProviderById);
+app.post('/api/admin/ai/providers/:id/test', requireSuperAdmin, handleTestProviderById);
 
 app.get('/api/v1/admin/ai/providers/:id/models', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
   try {
@@ -3237,33 +3349,39 @@ app.get('/api/v1/admin/ai/providers/:id/logs', requirePermission('ai:keys'), (re
   res.json({ success: true, ...logs });
 });
 
-app.get('/api/v1/admin/ai/task-routes', requirePermission('ai:keys'), (_req, res) => {
-  res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
-});
-
-app.put('/api/v1/admin/ai/task-routes', requirePermission('ai:keys'), (req, res) => {
-  const body = req.body || {};
-  const actor = getActor(req, 'Super Admin');
-  if (Array.isArray(body.routes)) {
-    for (const r of body.routes) {
-      if (r?.task) db.setAiTaskRoute(r.task, r, actor);
-    }
-  } else if (body.task) {
-    db.setAiTaskRoute(body.task, body, actor);
-  } else {
-    return res.status(400).json({ success: false, error: 'Task routing payload is required.' });
-  }
-  return res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
-});
-
-app.get('/api/v1/admin/ai/diagnostics', requirePermission('ai:keys'), async (_req, res) => {
+async function handleGetTaskRoutes(_req: Request, res: Response) {
   try {
-    const diagnostics = await AIProviderManager.getDiagnostics();
-    return res.json({ success: true, ...diagnostics });
+    const routes = await AIProviderRouter.getTaskRoutesAuthoritative();
+    return res.json({ success: true, routes });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message || 'Diagnostics check failed.' });
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading AI task routes.' });
   }
-});
+}
+
+async function handleSaveTaskRoutes(req: Request, res: Response) {
+  try {
+    const body = req.body || {};
+    const actor = getActor(req, 'Super Admin');
+    const payload = Array.isArray(body.routes) ? body.routes : body.task ? body : null;
+    if (!payload) {
+      return res.status(400).json({ success: false, error: 'Task routing payload is required.' });
+    }
+    const routes = await AIProviderManager.saveTaskRoutes(payload, actor);
+    return res.json({ success: true, routes });
+  } catch (err: any) {
+    const msg = err?.message || 'Failed saving AI task routes.';
+    const status = msg.toLowerCase().includes('database') ? 500 : 400;
+    return res.status(status).json({ success: false, error: msg });
+  }
+}
+
+app.get('/api/v1/admin/ai/task-routes', requirePermission('ai:keys'), handleGetTaskRoutes);
+app.get('/api/admin/ai/task-routes', requirePermission('ai:keys'), handleGetTaskRoutes);
+app.get('/api/admin/ai/routing', requirePermission('ai:keys'), handleGetTaskRoutes);
+
+app.put('/api/v1/admin/ai/task-routes', requireSuperAdmin, handleSaveTaskRoutes);
+app.put('/api/admin/ai/task-routes', requireSuperAdmin, handleSaveTaskRoutes);
+app.post('/api/admin/ai/routing', requireSuperAdmin, handleSaveTaskRoutes);
 
 app.post('/api/v1/admin/ai/health-check', requirePermission('ai:keys'), async (req, res) => {
   try {
@@ -3276,53 +3394,6 @@ app.post('/api/v1/admin/ai/health-check', requirePermission('ai:keys'), async (r
 
 app.get('/api/v1/admin/ai/usage', requirePermission('ai:keys'), (_req, res) => {
   res.json({ success: true, usage: AIUsageTracker.getSummary() });
-});
-
-// --- Backward-compatible /api/admin/ai/* aliases ---
-app.get('/api/admin/ai/providers', requireAnyPermission(['ai:use', 'ai:keys']), (_req, res) => {
-  res.json({ success: true, providers: AIProviderRouter.getAllCredentialsSanitized() });
-});
-
-app.post('/api/admin/ai/providers', requireSuperAdmin, (req, res) => {
-  try {
-    const saved = AIProviderRouter.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
-    return res.json({ success: true, provider: saved });
-  } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Failed saving AI credential.' });
-  }
-});
-
-app.post('/api/admin/ai/providers/:id/test', requireSuperAdmin, async (req, res) => {
-  try {
-    const result = await AIProviderRouter.testCredential(req.params.id, getActor(req, 'Super Admin'));
-    return res.json({ success: true, result });
-  } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Provider test failed.' });
-  }
-});
-
-app.delete('/api/admin/ai/providers/:id', requireSuperAdmin, async (req, res) => {
-  const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
-  res.json({ success: out.ok });
-});
-
-app.get('/api/admin/ai/routing', requirePermission('ai:keys'), (_req, res) => {
-  res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
-});
-
-app.post('/api/admin/ai/routing', requirePermission('ai:keys'), (req, res) => {
-  const body = req.body || {};
-  const actor = getActor(req, 'Super Admin');
-  if (Array.isArray(body.routes)) {
-    for (const r of body.routes) {
-      if (r?.task) db.setAiTaskRoute(r.task, r, actor);
-    }
-  } else if (body.task) {
-    db.setAiTaskRoute(body.task, body, actor);
-  } else {
-    return res.status(400).json({ success: false, error: 'Task routing payload is required.' });
-  }
-  return res.json({ success: true, routes: AIProviderRouter.getTaskRoutes() });
 });
 
 app.get('/api/admin/ai/usage', requirePermission('ai:keys'), (_req, res) => {

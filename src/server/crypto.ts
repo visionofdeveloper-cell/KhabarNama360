@@ -27,11 +27,13 @@ export function encryptSecret(plaintext: string): string {
   return `enc:v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${encrypted.toString('base64url')}`;
 }
 
-export function decryptSecret(stored: string): string {
-  if (!stored) return '';
-  if (!stored.startsWith('enc:v1:')) return stored;
+export function tryDecryptSecret(stored: string): { ok: boolean; value: string; error?: string } {
+  if (!stored) return { ok: false, value: '', error: 'Stored credential payload is empty.' };
+  if (!stored.startsWith('enc:v1:')) return { ok: true, value: stored };
   const parts = stored.split(':');
-  if (parts.length !== 5) return '';
+  if (parts.length !== 5) {
+    return { ok: false, value: '', error: 'Stored encrypted credential format is malformed.' };
+  }
   try {
     const iv = Buffer.from(parts[2], 'base64url');
     const tag = Buffer.from(parts[3], 'base64url');
@@ -40,10 +42,20 @@ export function decryptSecret(stored: string): string {
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
     const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return decrypted.toString('utf8');
+    return { ok: true, value: decrypted.toString('utf8') };
   } catch {
-    return '';
+    return {
+      ok: false,
+      value: '',
+      error:
+        'Credential decryption failed. Verify AI_MASTER_KEY matches the key used when this credential was encrypted, or replace/re-enter the API key.',
+    };
   }
+}
+
+export function decryptSecret(stored: string): string {
+  const res = tryDecryptSecret(stored);
+  return res.ok ? res.value : '';
 }
 
 export function maskSecret(raw: string): string {
