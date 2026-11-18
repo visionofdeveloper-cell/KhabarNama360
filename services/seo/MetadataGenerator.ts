@@ -43,7 +43,7 @@ export class MetadataGenerator {
     const cleanPath = (requestPath || '/').split('?')[0];
     const data = db.getData();
     const settings = data.siteSettings;
-    const baseUrl = (process.env.APP_URL || 'https://360khabarnama.com').replace(/\/+$/, '');
+    const baseUrl = (settings.siteUrl || process.env.APP_URL || 'https://www.360khabarnama.com').trim().replace(/\/+$/, '');
     const defaultOgImage = `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
 
     // Private Admin isolation — always LTR & noindex
@@ -225,6 +225,35 @@ export class MetadataGenerator {
       );
     }
 
+    const settings = db.getData().siteSettings;
+    const isAdminRoute = meta.canonicalUrl.endsWith('/admin');
+    const gaId = (settings.googleAnalyticsId || '').trim();
+    const gtmId = (settings.googleTagManagerId || '').trim();
+    const bingCode = (settings.bingWebmasterVerification || '').trim();
+    const gscCode = (settings.searchConsoleVerification || '').trim();
+
+    const analyticsTags: string[] = [];
+    if (gscCode && !out.includes('google-site-verification')) {
+      analyticsTags.push(`<meta name="google-site-verification" content="${escapeAttr(gscCode)}" />`);
+    }
+    if (bingCode && !out.includes('msvalidate.01')) {
+      analyticsTags.push(`<meta name="msvalidate.01" content="${escapeAttr(bingCode)}" />`);
+    }
+    if (!isAdminRoute) {
+      if (/^GTM-[A-Z0-9]+$/i.test(gtmId) && !out.includes(gtmId)) {
+        analyticsTags.push(
+          `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${escapeAttr(gtmId)}');</script>`
+        );
+      }
+      if (/^(G|UA|AW|DC)-[A-Z0-9-]+$/i.test(gaId) && !out.includes(gaId)) {
+        const sendPageView = !/^GTM-[A-Z0-9]+$/i.test(gtmId);
+        analyticsTags.push(
+          `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeAttr(gaId)}"></script>` +
+            `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${escapeAttr(gaId)}',{send_page_view:${sendPageView}});</script>`
+        );
+      }
+    }
+
     const injectedHeadTags = [
       `<meta name="robots" content="${escapeAttr(meta.robots)}" />`,
       `<link rel="canonical" href="${escapeAttr(meta.canonicalUrl)}" />`,
@@ -239,6 +268,7 @@ export class MetadataGenerator {
       `<meta name="twitter:card" content="summary_large_image" />`,
       `<meta name="twitter:title" content="${escapeAttr(meta.ogTitle)}" />`,
       `<meta name="twitter:description" content="${escapeAttr(meta.ogDescription)}" />`,
+      ...analyticsTags,
       meta.jsonLd
         ? `<script type="application/ld+json">${JSON.stringify(meta.jsonLd)}</script>`
         : '',

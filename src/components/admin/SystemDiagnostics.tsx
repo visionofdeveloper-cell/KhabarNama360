@@ -31,6 +31,7 @@ function sanitizeDiagText(raw: string): string {
 
 type DiagTab =
   | 'supabase'
+  | 'save_diagnostics'
   | 'database'
   | 'publishing'
   | 'persistence'
@@ -43,6 +44,7 @@ type DiagTab =
 
 const DIAG_TABS: { id: DiagTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'supabase', label: 'Supabase Database', icon: Database },
+  { id: 'save_diagnostics', label: 'Save Diagnostics', icon: FileCheck2 },
   { id: 'database', label: 'Firebase Health', icon: Server },
   { id: 'publishing', label: 'Publishing Pipeline', icon: Zap },
   { id: 'persistence', label: 'Article Persistence', icon: Layers },
@@ -81,6 +83,12 @@ export const SystemDiagnostics: React.FC = () => {
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [collectionsInfo, setCollectionsInfo] = useState<any>(null);
+  const [saveDiagnosticsList, setSaveDiagnosticsList] = useState<any[]>([]);
+  const [storageHealth, setStorageHealth] = useState<any>(null);
+  const [rtDiscoveryMs, setRtDiscoveryMs] = useState<number>(12000);
+  const [rtGenerationMs, setRtGenerationMs] = useState<number>(45000);
+  const [rtInferenceMs, setRtInferenceMs] = useState<number>(50000);
+  const [rtSyncIntervalMin, setRtSyncIntervalMin] = useState<number>(30);
 
   const runBrowserSupabaseSdkProbe = async () => {
     if (!isBrowserSupabaseConfigured()) {
@@ -147,8 +155,10 @@ export const SystemDiagnostics: React.FC = () => {
       switch (tab) {
         case 'supabase': {
           setSupabaseError(null);
-          const [res] = await Promise.all([
+          const [res, storRes, settingsRes] = await Promise.all([
             safeFetchJson('/api/v1/admin/system/supabase-health', { credentials: 'include' }),
+            safeFetchJson('/api/v1/admin/system/storage-health', { credentials: 'include' }).catch(() => null),
+            safeFetchJson('/api/settings', { credentials: 'include' }).catch(() => null),
             runBrowserSupabaseSdkProbe(),
           ]);
           if (res.success && res.report) {
@@ -156,6 +166,23 @@ export const SystemDiagnostics: React.FC = () => {
           } else {
             setSupabaseError(res.error || 'Unable to retrieve Supabase diagnostics.');
           }
+          if (storRes?.success) setStorageHealth(storRes);
+          if (settingsRes?.success && settingsRes.settings?.runtimeDiagnostics) {
+            const rt = settingsRes.settings.runtimeDiagnostics;
+            if (rt.aiDiscoveryTimeoutMs) setRtDiscoveryMs(rt.aiDiscoveryTimeoutMs);
+            if (rt.aiGenerationTimeoutMs) setRtGenerationMs(rt.aiGenerationTimeoutMs);
+            if (rt.aiInferenceTimeoutMs) setRtInferenceMs(rt.aiInferenceTimeoutMs);
+            if (rt.syncDefaultIntervalMinutes) setRtSyncIntervalMin(rt.syncDefaultIntervalMinutes);
+          }
+          break;
+        }
+        case 'save_diagnostics': {
+          const [diagRes, storRes] = await Promise.all([
+            safeFetchJson('/api/v1/admin/system/save-diagnostics?limit=100', { credentials: 'include' }),
+            safeFetchJson('/api/v1/admin/system/storage-health', { credentials: 'include' }).catch(() => null),
+          ]);
+          if (diagRes.success) setSaveDiagnosticsList(diagRes.diagnostics || []);
+          if (storRes?.success) setStorageHealth(storRes);
           break;
         }
         case 'database': {
@@ -261,6 +288,33 @@ export const SystemDiagnostics: React.FC = () => {
         text: res.success
           ? `Supabase PostgreSQL connection, RLS isolation, and authorized write test verified (${res.report?.latencyMs}ms).`
           : res.error || 'Supabase connection or write test failed.',
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveRuntimeSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionBusy(true);
+    setActionBanner(null);
+    try {
+      const res = await safeFetchJson('/api/v1/admin/system/runtime-settings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aiDiscoveryTimeoutMs: rtDiscoveryMs,
+          aiGenerationTimeoutMs: rtGenerationMs,
+          aiInferenceTimeoutMs: rtInferenceMs,
+          syncDefaultIntervalMinutes: rtSyncIntervalMin,
+        }),
+      });
+      setActionBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? `Runtime diagnostic timeouts saved (${rtDiscoveryMs}ms discovery / ${rtGenerationMs}ms generation / ${rtInferenceMs}ms inference).`
+          : res.error || 'Failed updating runtime settings.',
       });
     } finally {
       setActionBusy(false);
@@ -546,7 +600,152 @@ export const SystemDiagnostics: React.FC = () => {
                   <span className="font-bold">Latest Publishing Notice:</span> {supabaseHealth.latestPublishingError}
                 </div>
               )}
+
+              {/* Storage & Multi-Table Module Health */}
+              {storageHealth && (
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-bold text-gray-900">Supabase Multi-Table &amp; Storage Bucket Audit</div>
+                    <span className="font-mono text-[11px] text-gray-600">
+                      Bucket: {storageHealth.storage?.bucket || 'editorial-media'} ({storageHealth.storage?.ok ? 'Accessible' : storageHealth.storage?.detail || 'Local Disk Fallback'})
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                    {Object.entries(storageHealth.modules || {}).map(([mod, info]: [string, any]) => (
+                      <div key={mod} className="bg-white border border-gray-200 rounded-lg p-2 font-mono text-[10px]">
+                        <div className="font-bold text-gray-800 truncate">{mod}</div>
+                        <div className={info.ok ? 'text-emerald-700' : 'text-amber-700'}>
+                          {info.ok ? `OK (${info.count ?? 0})` : info.error || 'Unverified'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Editable Runtime Timeout & Sync Interval Controls */}
+              <form onSubmit={handleSaveRuntimeSettings} className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                <div className="font-bold text-gray-900">Runtime AI Timeouts &amp; Synchronization Defaults</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-600 mb-1">Discovery Timeout (ms)</label>
+                    <input
+                      type="number"
+                      min={5000}
+                      max={25000}
+                      value={rtDiscoveryMs}
+                      onChange={e => setRtDiscoveryMs(parseInt(e.target.value, 10) || 12000)}
+                      className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-600 mb-1">Generation Test Timeout (ms)</label>
+                    <input
+                      type="number"
+                      min={15000}
+                      max={60000}
+                      value={rtGenerationMs}
+                      onChange={e => setRtGenerationMs(parseInt(e.target.value, 10) || 45000)}
+                      className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-600 mb-1">AI Inference Timeout (ms)</label>
+                    <input
+                      type="number"
+                      min={15000}
+                      max={60000}
+                      value={rtInferenceMs}
+                      onChange={e => setRtInferenceMs(parseInt(e.target.value, 10) || 50000)}
+                      className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-600 mb-1">Default Sync Interval (min)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={rtSyncIntervalMin}
+                      onChange={e => setRtSyncIntervalMin(parseInt(e.target.value, 10) || 30)}
+                      className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={actionBusy}
+                    className="px-4 py-1.5 bg-gray-900 hover:bg-black text-white font-bold rounded-lg disabled:opacity-50"
+                  >
+                    Save Runtime Settings
+                  </button>
+                </div>
+              </form>
             </>
+          )}
+        </div>
+      )}
+
+      {/* TAB: SAVE DIAGNOSTICS */}
+      {activeTab === 'save_diagnostics' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <div>
+              <h3 className="font-black text-gray-900 text-sm">Admin Module Save &amp; Persistence Telemetry</h3>
+              <p className="text-gray-500">
+                Tracks real backend write operations, read-back verification, storage engine, and latency across all admin modules.
+              </p>
+            </div>
+            <span className="font-mono text-[11px] text-gray-600">
+              {saveDiagnosticsList.length} recorded mutations
+            </span>
+          </div>
+          {saveDiagnosticsList.length === 0 ? (
+            <div className="p-6 text-center text-gray-500 bg-gray-50 border rounded-xl">
+              No save operations recorded in current dataset yet. Modify any article, campaign, setting, or category to inspect live persistence telemetry.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border rounded-xl max-h-96 overflow-y-auto">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b text-[11px] font-bold text-gray-600">
+                  <tr>
+                    <th className="p-2.5">Module</th>
+                    <th className="p-2.5">Action / Record ID</th>
+                    <th className="p-2.5">Engine</th>
+                    <th className="p-2.5">Verified</th>
+                    <th className="p-2.5">Latency</th>
+                    <th className="p-2.5">Time (PKT)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-mono text-[11px]">
+                  {saveDiagnosticsList.map(entry => (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="p-2.5 font-bold text-gray-900">{entry.module}</td>
+                      <td className="p-2.5">
+                        <span className="uppercase">{entry.action}</span>
+                        {entry.recordId ? ` • ${entry.recordId}` : ''}
+                        {entry.errorMessage && (
+                          <div className="text-rose-700 font-sans text-[10px] mt-0.5">{sanitizeDiagText(entry.errorMessage)}</div>
+                        )}
+                      </td>
+                      <td className="p-2.5">{entry.storageEngine}</td>
+                      <td className="p-2.5">
+                        <span
+                          className={`px-2 py-0.5 rounded font-bold ${
+                            entry.success ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {entry.success ? (entry.verifiedReadBack ? 'VERIFIED' : 'SAVED') : 'FAILED'}
+                        </span>
+                      </td>
+                      <td className="p-2.5">{entry.latencyMs}ms</td>
+                      <td className="p-2.5 text-gray-500">{formatKarachiDateTime(entry.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

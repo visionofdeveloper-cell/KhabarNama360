@@ -1,0 +1,1476 @@
+# 360KHABARNAMA — COMPLETE ADMIN PANEL REPAIR, SUPABASE PERSISTENCE, AI API RESET, NEWS CMS, SEO, AUTOMATION & PERFORMANCE UPGRADE
+
+Act as a Principal Full-Stack Engineer, Supabase PostgreSQL Architect, React/TypeScript Expert, Backend API Engineer, Technical SEO Architect, Google/Bing Integration Specialist, AI Systems Engineer, Security Engineer and Production QA Lead.
+
+## PROJECT DETAILS
+
+Website: 360Khabarnama
+
+Production Domain:
+https://www.360khabarnama.com
+
+Database:
+Existing Supabase PostgreSQL project
+
+Hosting:
+Namecheap Shared Hosting
+
+Development:
+Existing Google AI Studio project
+
+Languages:
+English and Urdu
+
+This is an EXISTING production website with an existing frontend and private administration dashboard.
+
+DO NOT build a new website.
+
+DO NOT create a new Supabase project.
+
+DO NOT migrate to Firebase or MySQL.
+
+DO NOT redesign the approved public website.
+
+DO NOT change the existing branding, header, navigation or colors unnecessarily.
+
+DO NOT restore E-Paper.
+
+Preserve existing published news, categories, authors, pages, analytics, users and database content.
+
+# CRITICAL PROBLEM
+
+The current admin dashboard displays many management features, but changes are NOT saving correctly.
+
+Examples:
+
+- New Gemini keys cannot be added.
+- Old Gemini keys cannot be deleted.
+- Advertising campaigns cannot be added or removed.
+- Global Settings changes do not persist.
+- Several admin controls appear functional but do not update Supabase.
+- Article publishing and data visibility have previously been unreliable.
+
+Your FIRST responsibility is to identify and repair the underlying persistence and CRUD problems across the entire administration application.
+
+Do not simply redesign forms or add buttons.
+
+Implement and verify real backend functionality.
+
+---
+
+# PHASE 1 — COMPLETE BACKEND AND DATABASE AUDIT
+
+Inspect:
+
+- Existing Supabase client configuration
+- Supabase URL and project identifier
+- Supabase Auth integration
+- Supabase PostgreSQL tables
+- Row Level Security policies
+- Table permissions
+- Storage buckets
+- Existing migrations
+- Admin API routes
+- Backend authentication middleware
+- Admin forms
+- React state management
+- Save and delete handlers
+- API error handling
+- Application environment variables
+- Production API base URL
+- Deployment/build configuration
+
+Identify why admin changes fail to save.
+
+Investigate:
+
+1. Missing database tables.
+2. Missing columns.
+3. Invalid migrations.
+4. RLS policies denying writes.
+5. Missing authenticated admin sessions.
+6. Incorrect role permissions.
+7. Incorrect Supabase project.
+8. Incorrect Supabase client initialization.
+9. Undefined API endpoints.
+10. Unawaited asynchronous database operations.
+11. Incorrect request payloads.
+12. Database constraint failures.
+13. Frontend-only state changes.
+14. Missing cache invalidation.
+15. Silent exceptions.
+16. Fake success notifications.
+17. Incorrect record identifiers.
+18. Broken form submission handlers.
+19. Production environment mismatch.
+20. Stale deployment artifacts.
+
+Build a module-by-module issue report.
+
+Do not assume Supabase is the problem without evidence.
+
+Before applying database changes:
+
+- Create a verified database backup.
+- Preserve all existing content.
+- Generate additive, reversible migrations.
+- Test migrations against staging.
+- Document a rollback procedure.
+
+Never wipe production tables to repair a form.
+
+---
+
+# PHASE 2 — UNIVERSAL ADMIN CRUD REPAIR
+
+Implement a reliable, reusable data-management architecture for ALL admin modules.
+
+Every Add, Save, Edit, Delete, Enable, Disable, Publish, Unpublish and Reorder action must communicate with a real authenticated backend or properly authorized Supabase operation.
+
+Required behavior:
+
+1. Validate the form.
+2. Authenticate the administrator.
+3. Check permissions.
+4. Execute database mutation.
+5. Await the result.
+6. Handle and display any error.
+7. Confirm database persistence.
+8. Reload the affected record from Supabase.
+9. Update frontend cache/state.
+10. Show success only after verification.
+11. Maintain audit history.
+
+Create reusable backend utilities:
+
+- database service
+- authorized mutation service
+- error normalization
+- form validation
+- audit logging
+- optimistic concurrency/version checking
+- cache invalidation
+- transaction handling where required
+
+Implement actual loading states.
+
+Disable duplicate submissions while operations are pending.
+
+Prevent losing unsaved form data when requests fail.
+
+Show clear backend validation errors.
+
+For deletion, provide confirmation and use appropriate soft deletion where content recovery matters.
+
+Create an Admin Save Diagnostics module showing:
+
+- Requested operation
+- Affected module
+- Record identifier
+- API result
+- Database result
+- Error code
+- Timestamp
+- Correlation ID
+
+Never expose secrets in logs.
+
+---
+
+# PHASE 3 — FULL SUPABASE INTEGRATION AND RLS
+
+Use the existing Supabase PostgreSQL database.
+
+Verify:
+
+SUPABASE_URL
+SUPABASE_PUBLISHABLE_KEY
+SUPABASE_SECRET_KEY, for trusted server-only tasks
+
+Support existing legacy key configuration when necessary.
+
+Do not expose privileged Supabase credentials in public JavaScript.
+
+Use Supabase Auth or the existing secure backend session system consistently.
+
+Check all Row Level Security policies.
+
+Required access:
+
+Public:
+- Read published articles.
+- Read public pages.
+- Read public categories.
+- Read published homepage settings where appropriate.
+
+Authorized Admin:
+- Create and update permitted content.
+- Manage approved modules according to roles.
+
+Super Admin:
+- Configure integrations and site-wide settings.
+- Manage authorized secrets and providers.
+- Manage administrative access.
+
+Do not disable RLS globally.
+
+Do not create unrestricted public write policies.
+
+Do not rely on possession of a Supabase secret key without server-side authorization.
+
+Use safe migrations to repair incomplete tables and constraints.
+
+Ensure English and Urdu data are stored correctly.
+
+---
+
+# PHASE 4 — REMOVE ALL OLD GEMINI AND GROK CREDENTIALS
+
+I want a FRESH AI API setup.
+
+Implement a secure Super Admin action:
+
+Admin → Connect AI API → Reset All AI Credentials
+
+After explicit Super Admin confirmation:
+
+- Delete or securely deactivate previously saved Gemini credentials.
+- Delete or securely deactivate previously saved Grok credentials.
+- Remove old active provider assignments.
+- Clear outdated model discovery caches.
+- Clear stale validation states.
+- Remove unusable stored credential references.
+- Clear stale in-memory provider configuration.
+
+Preserve non-sensitive historical logs.
+
+Do not delete:
+
+- Articles
+- Categories
+- Users
+- Supabase credentials
+- SEO settings
+- Other data providers
+- Audit history
+
+If old credentials are stored in Namecheap environment variables or another external secret manager, report their locations and provide exact removal instructions.
+
+Do not claim they have been removed from external settings unless actually verified.
+
+Do not change AI_MASTER_KEY because existing encrypted data may depend on it.
+
+After reset, the UI must display:
+
+Gemini — Not Connected
+Grok — Not Connected
+
+Do not automatically reconnect old keys from cached environment configuration.
+
+Implement an auditable key reset transaction.
+
+Do not revoke keys in Google or xAI accounts unless that provider-side action is specifically authorized and supported.
+
+---
+
+# PHASE 5 — SIMPLE ONE-CLICK AI API CONNECTION
+
+Replace the current complicated basic configuration interface.
+
+Admin → Connect AI API
+
+Basic UI must contain:
+
+- One API key input
+- Connect Automatically button
+- Connected providers list
+- Connection status
+- Selected model
+- Remove/Replace key
+- Re-test connection
+
+No manual model name, endpoint, project ID or other technical fields should be necessary for basic use.
+
+Workflow:
+
+1. Administrator pastes an API key.
+2. Backend identifies the likely provider.
+3. Backend validates against the correct official provider.
+4. Models are discovered dynamically.
+5. A suitable available model is selected.
+6. A minimal generation test is executed.
+7. Credential is encrypted server-side.
+8. Credential metadata is saved to Supabase.
+9. Provider is activated.
+10. Connected AI features use the provider.
+
+Do not rely only on API key prefixes.
+
+If provider detection is ambiguous, show a simple Gemini/Grok selector.
+
+Support multiple authorized Gemini keys and Grok keys.
+
+Respect Gemini project-level quotas.
+
+Prefer suitable confirmed free-tier Gemini models where supported.
+
+Do not assume Grok provides free generation.
+
+Never automatically activate paid usage without authorization.
+
+## Connection diagnostics
+
+Show separate statuses for:
+
+- Authentication
+- Model discovery
+- Generation
+- Credential persistence
+- Provider activation
+
+Handle:
+
+401
+403
+404
+429
+Timeout
+Quota exceeded
+Billing required
+Model unavailable
+TLS error
+DNS failure
+Server timeout
+
+Fix existing 20000ms generation timeout by identifying the actual bottleneck.
+
+Use a lightweight validation request before generation testing.
+
+Use a bounded configurable generation deadline suitable for the actual Namecheap infrastructure.
+
+Do not treat timeouts as invalid credentials.
+
+## AI tools to connect
+
+- Bilingual News Composer
+- Auto Translate
+- Suggest Headlines
+- Generate SEO Tags
+- AI Editorial Studio
+- Article Summarizer
+- Social Captions
+- AI Newsroom
+
+All features must use the same secure centralized AI provider service.
+
+---
+
+# PHASE 6 — COMPLETE BILINGUAL NEWS COMPOSER
+
+Audit and repair the entire article editor.
+
+Support:
+
+- Article title
+- Urdu title
+- Summary
+- Full article body
+- Rich text editor
+- Category
+- Subcategory
+- Tags
+- Author
+- Status
+- Publish now
+- Schedule publication
+- SEO metadata
+- Canonical URL
+- Featured media
+- Article preview
+- Save draft
+- Publish
+- Update
+- Archive
+- Revision history
+
+All article records must persist in Supabase.
+
+## NEW HERO IMAGE AND FEATURED IMAGE MANAGEMENT
+
+Add two distinct optional image fields:
+
+1. Hero Image
+2. Featured/Thumbnail Image
+
+The administrator must be able to:
+
+- Upload a new image.
+- Choose an existing image from Media Library.
+- Preview the selected image before saving.
+- Replace an image.
+- Remove image association.
+- Enter image alt text.
+- Enter caption.
+- Enter image credit.
+- Enter source/license information.
+- View image dimensions.
+- View file size.
+- Crop using safe image tools when supported.
+- Select article social-sharing image.
+
+Use Supabase Storage or the existing properly configured media storage system.
+
+Verify storage bucket permissions and RLS policies.
+
+Do not store large image files as ordinary article JSON fields.
+
+Store durable image references and metadata in the appropriate database records.
+
+Validate:
+- File type
+- File size
+- Image dimensions
+- MIME type
+- Upload permissions
+
+Use appropriate server-side security checks and avoid executable file uploads.
+
+## IMAGE PREVIEW REQUIREMENTS
+
+The editor must clearly display:
+
+Hero Image Preview
+Featured Image Preview
+
+Show the actual selected or uploaded images, not placeholder thumbnails.
+
+Allow side-by-side viewing.
+
+After saving and refreshing, the correct images must still appear.
+
+After publishing:
+
+- Hero image appears on article page according to the existing design.
+- Featured image appears in latest news cards and category listings.
+- Appropriate Open Graph image is used for sharing.
+- Images have useful alt text and meaningful dimensions.
+
+If only one image is selected, support an optional explicit "Use as both" setting.
+
+Do not silently change article images.
+
+## PUBLICATION RELIABILITY
+
+After saving an article:
+
+- Re-query the Supabase record.
+- Confirm persisted content.
+- Confirm image associations.
+- Confirm categories.
+- Confirm SEO metadata.
+- Refresh the article list.
+
+After publishing:
+
+- Verify the public article query.
+- Verify the public URL.
+- Invalidate relevant cached content.
+- Update applicable sitemaps.
+- Display the actual published URL.
+
+Never show a fake success notification.
+
+---
+
+# PHASE 7 — HOMEPAGE LATEST NEWS
+
+Update the existing homepage so it can display at least 10–15 latest published news articles.
+
+Default latest news limit: 15.
+
+Provide an admin setting:
+
+Homepage → Latest News → Number of Articles
+
+Allow the administrator to choose an appropriate count, for example 10, 12, 15, 20 or more where supported.
+
+Requirements:
+
+- Latest published articles from Supabase.
+- Correct published_at sorting.
+- Exclude drafts and scheduled future articles.
+- Feature images displayed correctly.
+- Category labels.
+- Headlines.
+- Publication timestamps.
+- Working article links.
+- English/Urdu language support.
+- Responsive desktop/mobile layout.
+- Pagination or Load More where suitable.
+- Fast queries using indexes and pagination.
+- Refresh after article publication.
+
+Do not download all articles just to display 15.
+
+Do not display duplicate articles.
+
+Maintain current homepage branding and section ordering.
+
+Provide manual featured-news selection separately from latest chronological news.
+
+---
+
+# PHASE 8 — COMPLETE ALL-IN-ONE SEO CONTROL CENTER
+
+Create or fully repair:
+
+Admin → SEO & Search Engine Manager
+
+This should provide comprehensive SEO capabilities similar in breadth to a professional all-in-one SEO management tool, without copying proprietary software.
+
+Required tabs:
+
+1. SEO Dashboard
+2. Homepage SEO
+3. News SEO
+4. Category SEO
+5. Page SEO
+6. Technical SEO
+7. XML Sitemaps
+8. Robots.txt
+9. Structured Data
+10. Google Search Console
+11. Google Analytics 4
+12. Google Tag Manager
+13. Bing Webmaster Tools
+14. IndexNow
+15. Redirect Manager
+16. Broken Link Checker
+17. Internal Link Manager
+18. Image SEO
+19. English/Urdu SEO
+20. Search Performance
+21. Core Web Vitals
+22. SEO Audit Logs
+
+Every configuration form must save persistently to Supabase.
+
+## PAGE-LEVEL SEO
+
+Support per-page:
+
+- SEO title
+- Meta description
+- Canonical URL
+- SEO-friendly slug
+- Open Graph title
+- Open Graph description
+- Open Graph image
+- Twitter/X card metadata
+- Robots meta directives
+- Schema type
+- Breadcrumbs
+- Article author
+- Publication and modification dates
+- Hreflang
+- Focus search intent
+- SEO preview
+
+Preserve manual overrides.
+
+Never overwrite custom SEO metadata without permission.
+
+## SEARCH ENGINE INTEGRATIONS
+
+Make setup as simple as possible.
+
+### Google Analytics 4
+
+Allow entry of the Measurement ID.
+
+Validate the format and the installed tag where technically possible.
+
+Insert tracking exactly once.
+
+Provide a real test/verification status.
+
+### Google Tag Manager
+
+Allow a GTM container ID.
+
+Install supported container snippets in the correct locations.
+
+Avoid duplicate GA4 events if tags are also managed in GTM.
+
+### Google Search Console
+
+Provide a simple Connect Google button using an authorized OAuth flow.
+
+Support property selection and API access.
+
+Where domain ownership verification is needed, guide the administrator through DNS or supported verification methods.
+
+Do not falsely report verified ownership.
+
+Display genuine:
+
+- Clicks
+- Impressions
+- CTR
+- Average position
+- Top queries
+- Top pages
+- URL Inspection results where supported
+- Sitemap submission status
+
+### Bing Webmaster Tools
+
+Provide authorized connection and API configuration.
+
+Support property verification guidance, sitemap submission and available search data.
+
+### IndexNow
+
+Generate and configure an IndexNow key.
+
+Place the verification key file in the required public host location.
+
+Submit eligible new, updated and removed URLs to supported engines.
+
+Use the official IndexNow protocol.
+
+Never claim IndexNow guarantees indexing.
+
+## ONE-CLICK SETUP EXPERIENCE
+
+Where an authorized OAuth integration supports it, use a Connect button.
+
+Where manual IDs, credentials, DNS verification or external approval are required, provide a short setup wizard.
+
+Do not falsely promise every third-party integration can be completed with one click without authorization.
+
+---
+
+# PHASE 9 — SITEMAP, ROBOTS.TXT, RSS AND LLM DISCOVERY FILES
+
+Create or repair:
+
+/robots.txt
+/sitemap.xml
+/sitemap-index.xml
+/news-sitemap.xml
+/image-sitemap.xml
+/video-sitemap.xml
+/en/feed.xml
+/ur/feed.xml
+/llms.txt
+
+Generate optional language-specific sitemaps if appropriate.
+
+Use canonical production domain:
+
+https://www.360khabarnama.com
+
+## Sitemap rules
+
+- Include eligible published canonical pages.
+- Include article pages.
+- Include category pages.
+- Include relevant static content.
+- Exclude drafts.
+- Exclude private admin routes.
+- Exclude blocked/deleted pages.
+- Exclude duplicate alternate URLs.
+- Support English/Urdu alternates.
+- Use accurate lastmod timestamps.
+- Generate News sitemap for eligible recent news content.
+- Update sitemap after publication.
+- Return real XML with correct content type and status.
+
+## Robots.txt
+
+Allow safe administration of robots directives.
+
+Do not use robots.txt alone to secure private data.
+
+Protect admin routes with authentication.
+
+Prevent accidental blocking of important public pages.
+
+Include the canonical sitemap reference.
+
+Provide a validation and preview feature before publishing modifications.
+
+## LLMs.txt
+
+Generate an optional factual llms.txt file containing the website's main public sections and relevant resource descriptions.
+
+Keep it synchronized with actual live content.
+
+Do not treat llms.txt as a Google ranking factor or an indexing guarantee.
+
+## RSS
+
+Provide valid English and Urdu feeds.
+
+Ensure each entry uses the proper public article URL.
+
+Include accurate title, publication date and description.
+
+---
+
+# PHASE 10 — ADVERTISING & MONETIZATION MANAGER
+
+The current advertising manager cannot reliably create or delete campaigns.
+
+Fix the backend and Supabase persistence.
+
+Allow:
+
+- Add campaign
+- Edit campaign
+- Save draft
+- Activate
+- Pause
+- Resume
+- Archive
+- Delete with confirmation
+- Upload banner
+- Select placement
+- Set campaign dates
+- Set destination URL
+- Set impressions/click tracking
+- Set advertiser
+- Set campaign priority
+- View campaign reports
+
+All campaign changes must be stored in Supabase.
+
+After saving, retrieve the campaign from the database.
+
+Verify the campaign remains visible after page refresh.
+
+Do not show "Campaign Added" unless the database write succeeds.
+
+## AdSense
+
+Support:
+
+- Google AdSense Publisher ID
+- AdSense verification
+- ads.txt management
+- Auto Ads configuration
+- Manual ad placement
+- Advertising policy checks
+- Consent management where required
+
+Do not fake AdSense approval or revenue.
+
+Ensure ad placements do not produce deceptive layouts or policy violations.
+
+---
+
+# PHASE 11 — AUDIENCE & ALERTS MANAGER
+
+Inspect and repair the existing Audience & Alerts section.
+
+Implement:
+
+- Newsletter subscriber management
+- Subscription forms
+- Email validation
+- Consent records
+- Subscriber status
+- Unsubscribe
+- News alerts
+- Breaking news alerts
+- Category-based alerts
+- Email campaign drafts
+- Scheduled alerts
+- Push notifications where supported
+- Delivery status
+- Failed delivery logs
+- Audience analytics
+- Preference center
+
+Use authorized notification/email providers.
+
+Do not send campaigns without the required consent or valid delivery configuration.
+
+Do not invent subscriber counts.
+
+Every setting must save in Supabase.
+
+Use real campaign status and logs.
+
+---
+
+# PHASE 12 — CENTRAL SYNCHRONIZATION & CUSTOM FEEDS MANAGER
+
+Complete the existing Central Synchronization & Custom Feeds Manager.
+
+Required tabs:
+
+Overview
+News
+Finance
+Weather
+Cricket & Sports
+Islamic Information
+Jobs
+Education & Results
+Prize Bonds
+Custom API Providers
+Scheduling
+Manual Sync
+Error Logs
+Source Validation
+Provider Settings
+
+## UNIVERSAL CUSTOM API MANAGER
+
+Allow Super Admin to:
+
+- Add a new API
+- Edit API configuration
+- Test API
+- Enable/disable API
+- Remove API
+- View logs
+- Configure refresh interval
+- Configure field mappings
+- Select target content category
+- Set source attribution
+- View last successful update
+
+Support:
+
+- REST JSON APIs
+- Authorized RSS/Atom feeds
+- Public government datasets
+- Approved licensed data feeds
+
+Support appropriate authentication configurations:
+
+- Public/no authentication
+- API key header
+- Bearer token
+- Query-based key when unavoidable
+- OAuth where supported
+
+Store API secrets server-side.
+
+Prevent SSRF by validating endpoints and blocking unsafe private-network destinations.
+
+Do not expose credentials to the public frontend.
+
+## ISLAMIC DATA PROVIDERS
+
+Provide integrations for:
+
+- Prayer times
+- City-based namaz timing
+- Calculation methods
+- Hijri dates
+- Ramadan calendar
+- Sehri and Iftar times
+- Islamic calendar events
+
+Use documented provider calculation methods, source information and timestamps.
+
+Allow city-specific settings.
+
+Do not assume one prayer calculation method is universally correct.
+
+## JOBS PROVIDERS
+
+Create integration for:
+
+- Government job notices
+- Private job listings from authorized sources
+- Employer name
+- Job title
+- City
+- Application deadline
+- Job description
+- Official apply URL
+- Expiration status
+
+Use source licensing and permissions.
+
+Check expired job listings.
+
+Allow manual job creation and editing.
+
+Support accurate JobPosting structured data where eligible.
+
+## OTHER FEEDS
+
+Support:
+
+- News
+- Gold and silver
+- Currency
+- Petrol and diesel
+- Weather
+- Air quality
+- Cricket
+- Education results
+- Prize bonds
+- Stock market
+- Automobile prices
+- Mobile prices
+
+Use reliable licensed providers.
+
+Never generate fake live rates, results, jobs or sports scores.
+
+## SCHEDULING
+
+Use the existing production-compatible scheduler.
+
+For Namecheap Shared Hosting:
+
+- Respect five-minute minimum cron intervals.
+- Use bounded batches.
+- Store job state in Supabase.
+- Prevent overlapping jobs.
+- Record timestamps.
+- Implement retry with backoff.
+- Respect API quotas.
+
+Do not use frontend timers for production synchronization.
+
+---
+
+# PHASE 13 — GLOBAL SITE SETTINGS & CONFIGURATION
+
+The existing Global Site Settings module is incomplete and changes often do not save.
+
+Fix its persistence first.
+
+Create functional configuration tabs:
+
+## General
+
+- Website name
+- Urdu name
+- Tagline
+- Website description
+- Production URL
+- Default language
+- Timezone
+- Maintenance mode
+- Site visibility
+
+## Branding
+
+- Logo
+- Favicon
+- Header logo
+- Footer logo
+- Brand colors
+- Default social sharing image
+
+## Header & Navigation
+
+- Main menu
+- Submenus
+- Breaking news ticker
+- Search
+- Language switch
+- Live rates widgets
+- Header visibility by page type
+
+## Homepage
+
+- Section visibility
+- Section order
+- Featured article selection
+- Latest news count
+- Category blocks
+- Sidebar blocks
+- Advertisement positions
+
+## Footer
+
+- Footer menus
+- Legal links
+- Copyright
+- Contact details
+- Social accounts
+
+## Content Settings
+
+- Default article status
+- Editor rules
+- Image settings
+- Author options
+- Categories
+- Article pagination
+- Publication workflow
+
+## SEO
+
+- SEO defaults
+- Canonical domain
+- Robots defaults
+- Sitemaps
+- Schema publisher details
+- Social previews
+
+## Integrations
+
+- Gemini
+- Grok
+- Custom APIs
+- GA4
+- GTM
+- Search Console
+- Bing
+- AdSense
+- Email provider
+
+## Security
+
+- Admin sessions
+- User roles
+- Login protections
+- API access
+- Audit logs
+
+## Performance
+
+- Image optimization
+- Cache settings
+- Pagination
+- Lazy loading
+- Query optimization
+- Content delivery settings
+
+## Backups
+
+- Backup configuration
+- Export
+- Restore procedures
+- Retention
+
+All settings must save to Supabase and remain after refresh/restart.
+
+Provide confirmation and rollback for sensitive changes.
+
+---
+
+# PHASE 14 — SYSTEM & DATABASE DIAGNOSTICS CONSOLE
+
+Completely repair and expand:
+
+Admin → System & Database Diagnostics
+
+Create functional sections:
+
+Supabase Connection
+Database Tables
+RLS Policy Audit
+Admin Authentication
+Storage Buckets
+Article Publishing
+AI API Health
+External API Health
+Cron Jobs
+Deployment Version
+Backend Errors
+Cache Status
+SEO Checks
+Website Performance
+
+## SUPABASE CONNECTION MANAGER
+
+Allow a Super Admin to configure or update the existing Supabase connection through a protected server-side setup workflow.
+
+Provide:
+
+- Supabase Project URL
+- Publishable API Key
+- Server-only Secret Key
+- Test Connection
+- Check Auth
+- Check Storage
+- Check Required Tables
+- Check RLS
+- Save Configuration
+
+Never expose privileged keys to the public client.
+
+Do not dynamically switch production projects without a verified backup, explicit confirmation, migration review and rollback plan.
+
+Prefer deployment environment secrets for production credentials.
+
+If a setting cannot safely be edited at runtime, provide exact instructions and status instead of pretending it is editable.
+
+Do not display the actual privileged credential after saving.
+
+## EDITABLE DIAGNOSTIC SETTINGS
+
+Allow authorized editing of:
+
+- Health-check intervals
+- Alert thresholds
+- Log retention configuration
+- API timeout configuration
+- Safe cache settings
+- Automation retry limits
+- Monitoring notification settings
+
+Raw audit records and historical database errors should remain read-only and tamper-resistant.
+
+Do not permit arbitrary SQL execution from the ordinary admin UI.
+
+Provide a controlled troubleshooting interface, not an unrestricted database shell.
+
+---
+
+# PHASE 15 — WEBSITE PERFORMANCE AND CORE WEB VITALS
+
+Audit the current frontend and backend performance.
+
+Focus on:
+
+- Largest Contentful Paint
+- Interaction to Next Paint
+- Cumulative Layout Shift
+- Time to First Byte
+- Image loading
+- JavaScript bundle size
+- Critical CSS
+- Font loading
+- Caching
+- Database query performance
+- API response times
+- Mobile responsiveness
+
+Implement where appropriate:
+
+- Optimized hero and featured images
+- Responsive image sizes
+- WebP/AVIF where supported
+- Proper width/height attributes
+- Lazy loading below-the-fold images
+- Eager/prioritized loading of the primary LCP image
+- Reduced unnecessary JavaScript
+- Code splitting
+- Query pagination
+- Supabase PostgreSQL indexing
+- API response caching
+- Cache invalidation on publish
+- Reusable data-fetching services
+
+Do not use aggressive caching that prevents newly published articles from appearing.
+
+Provide measurable before/after results when testing tools are available.
+
+Do not invent PageSpeed scores.
+
+---
+
+# PHASE 16 — ADVANCED NEWS SEO AND GROWTH FEATURES
+
+Add:
+
+1. Automated internal linking suggestions.
+2. Related article recommendations.
+3. News topic clustering.
+4. Category landing page optimization.
+5. Accurate NewsArticle structured data.
+6. Author profile pages.
+7. Publisher and editorial transparency.
+8. Article correction and update history.
+9. Image alt text management.
+10. Broken link monitoring.
+11. Redirect management.
+12. Orphan page detection.
+13. Duplicate canonical detection.
+14. Missing metadata reports.
+15. Expired job detection.
+16. Search intent/topic opportunity reports based on real data.
+17. Search Console performance insights.
+18. Editorial content freshness reminders.
+19. Realistic sitemap monitoring.
+20. Schema validation and error monitoring.
+
+Create a Content Opportunity Dashboard using genuine Search Console and website analytics data.
+
+Do not invent keyword search volumes or ranking opportunities.
+
+Do not mass-generate thin or duplicate news pages.
+
+Prioritize original reporting, reliable sources, proper attribution and useful localized content.
+
+## GOOGLE INDEXING RULES
+
+Do not use Google's Indexing API for ordinary news article submissions.
+
+Use sitemaps, internal links, accessible server-rendered/pre-rendered HTML and appropriate Search Console workflows for normal articles.
+
+Use the Indexing API only for eligible supported content types, such as qualifying JobPosting or livestream pages.
+
+Use IndexNow for eligible notifications to participating search engines.
+
+Do not claim any method guarantees immediate indexing or Google rankings.
+
+---
+
+# PHASE 17 — INDEPENDENT ENGLISH AND URDU PAGE SEO
+
+Every public article, category, tool and information page must have its own accessible URL and SEO configuration.
+
+Verify:
+
+- English /en/ routes
+- Urdu /ur/ routes
+- Independent article URLs
+- Category routes
+- Direct refresh
+- Correct server HTTP responses
+- Canonical URLs
+- Hreflang
+- Initial HTML metadata
+- Article body availability to crawlers
+- Accurate sitemap inclusion
+
+Preserve existing working URLs.
+
+Do not create redirect loops or unnecessary URL changes.
+
+Avoid treating a purely client-rendered empty HTML shell as fully verified SEO rendering.
+
+If hosting architecture prevents proper SSR, implement a compatible pre-rendering or equivalent solution.
+
+---
+
+# PHASE 18 — AUDIT ALL ADMIN MODULES
+
+Create a complete registry of existing admin screens.
+
+For each module test:
+
+- Open page
+- Load records
+- Create record
+- Edit record
+- Save
+- Delete
+- Refresh
+- Search
+- Filter
+- Pagination
+- Permissions
+- Error messages
+- Supabase persistence
+- Public frontend updates when applicable
+
+Do not skip modules that are not explicitly listed in this prompt.
+
+Include all existing:
+
+- News
+- Articles
+- Pages
+- Categories
+- Media
+- Homepage
+- SEO
+- Advertising
+- Audience
+- Alerts
+- APIs
+- Automation
+- Reports
+- AI
+- Settings
+- Diagnostics
+- Users
+
+Produce a functional audit matrix.
+
+---
+
+# PHASE 19 — REAL TESTING AND QA
+
+Build reliable end-to-end tests using staging and non-destructive fixtures.
+
+## Supabase
+
+- Connection succeeds.
+- Admin authentication works.
+- RLS permits authorized writes.
+- RLS blocks unauthorized writes.
+- New records persist.
+- Updated records persist.
+- Deleted records are correctly removed or archived.
+- Existing data remains intact.
+
+## AI
+
+- Old keys are reset after explicit confirmation.
+- New Gemini key can be added.
+- New Gemini key persists.
+- Gemini validation works.
+- Connected model can generate text.
+- Grok can be configured when authorized.
+- AI errors are displayed accurately.
+
+## News
+
+- New article saves.
+- Hero image uploads.
+- Featured image uploads.
+- Image previews work.
+- Image association persists.
+- Article publishes.
+- Public article appears.
+- Category listing updates.
+- Latest 15 news feed updates.
+
+## Advertising
+
+- Add campaign.
+- Save campaign.
+- Edit campaign.
+- Pause campaign.
+- Delete/archive campaign.
+- Refresh confirms persistence.
+
+## SEO
+
+- Update title.
+- Update meta description.
+- Save.
+- Verify actual HTML.
+- Verify sitemap.
+- Verify canonical.
+- Verify Search Console authorization.
+- Verify GA4/GTM configuration.
+
+## Automation
+
+- Add API provider.
+- Edit provider.
+- Remove provider.
+- Test provider.
+- Execute synchronization.
+- Verify data writes.
+- Verify logs and scheduling.
+
+## Settings
+
+- Change setting.
+- Save.
+- Refresh.
+- Verify persisted value.
+- Confirm affected frontend behavior.
+
+## Diagnostics
+
+- Test Supabase connection.
+- Test storage.
+- Test APIs.
+- Show actual backend logs.
+- Verify admin-only access.
+
+Never claim success for tests that were not actually run.
+
+---
+
+# PHASE 20 — IMPLEMENTATION AND DEPLOYMENT ORDER
+
+Implement in this exact priority order:
+
+STAGE 1:
+Audit the existing project and determine why Save/Add/Edit/Delete operations fail.
+
+STAGE 2:
+Repair Supabase connectivity, RLS, CRUD services, authentication and persistence.
+
+STAGE 3:
+Implement secure old AI key reset and new one-click API connection.
+
+STAGE 4:
+Repair News Composer and add working hero/featured images.
+
+STAGE 5:
+Repair publication workflow and show 15 latest articles on the homepage.
+
+STAGE 6:
+Repair Advertising & Monetization Manager.
+
+STAGE 7:
+Repair Central Synchronization & Custom Feeds Manager.
+
+STAGE 8:
+Repair Audience & Alerts.
+
+STAGE 9:
+Complete Global Settings and Supabase Diagnostics.
+
+STAGE 10:
+Build comprehensive SEO, integrations, sitemaps, robots, RSS and IndexNow.
+
+STAGE 11:
+Optimize performance and verify all independent public URLs.
+
+STAGE 12:
+Run tests, prepare deployment package and document production changes.
+
+For every stage provide:
+
+- Issues identified
+- Root causes
+- Files changed
+- Backend routes changed
+- Supabase migrations
+- Test results
+- Remaining problems
+- Required administrator configuration
+- Deployment instructions
+
+Do not stop after describing a plan.
+
+Implement real code in the existing project.
+
+If the task exceeds a single execution window, preserve the completed code changes and produce an exact continuation checklist without claiming unfinished modules are complete.
+
+# FINAL ACCEPTANCE CRITERIA
+
+The upgrade is complete only when:
+
+1. Admin settings save permanently in Supabase.
+2. Old AI keys can be removed through authenticated reset.
+3. Fresh Gemini keys can be added and validated.
+4. AI functions work with confirmed provider access.
+5. News Composer supports working hero and featured image uploads.
+6. Images remain visible after save and refresh.
+7. Articles publish to the live frontend.
+8. Homepage shows 10–15 or more configured latest articles.
+9. Advertising campaigns can be created, edited and removed.
+10. Custom feeds can be created, edited, tested and removed.
+11. Islamic and jobs feeds are integrated with authorized sources.
+12. Audience & Alerts functions persist and operate correctly.
+13. Global Settings are editable and persistent.
+14. Supabase diagnostics return real results.
+15. SEO settings save and affect actual public HTML.
+16. Google/Bing integrations use proper authorized setup.
+17. Sitemaps, robots.txt, RSS and optional llms.txt work.
+18. English and Urdu content remain accessible on independent URLs.
+19. Existing news and production content are preserved.
+20. Production build remains compatible with Namecheap Shared Hosting.
+
+FINAL INSTRUCTION:
+
+DO NOT CREATE ANOTHER STATIC OR DEMONSTRATION ADMIN DASHBOARD.
+
+REPAIR THE ACTUAL EXISTING SUPABASE-BACKED ADMIN APPLICATION.
+
+PRIORITIZE DATABASE PERSISTENCE AND REAL CRUD OPERATIONS BEFORE ADDING NEW VISUAL FEATURES.
+
+START WITH THE FULL ADMIN SAVE/DELETE AUDIT AND PROVIDE VERIFIED RESULTS.

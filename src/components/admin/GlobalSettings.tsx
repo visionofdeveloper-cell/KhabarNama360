@@ -4,8 +4,8 @@
  * 360Khabarnama — Global Portal Settings (9 Validated Tabs + Backup Export)
  */
 
-import React, { useEffect, useState } from 'react';
-import { Sliders, Save, Download, CheckCircle2, KeyRound, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Sliders, Save, Download, Upload, CheckCircle2, AlertTriangle, KeyRound, Activity, X } from 'lucide-react';
 import { SiteSettings } from '../../types/index.ts';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
 import { AIConnectionPanel } from './AIConnectionPanel.tsx';
@@ -25,14 +25,16 @@ type SettingsTab =
 interface GlobalSettingsProps {
   settings: SiteSettings | null;
   onSaved: () => void;
-  onJumpToModule?: (mod: 'ai-keys' | 'seo' | 'automation') => void;
+  onJumpToModule?: (mod: 'ai-keys' | 'seo' | 'automation' | 'diagnostics') => void;
 }
 
 export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSaved, onJumpToModule }) => {
   const [tab, setTab] = useState<SettingsTab>('general');
   const [form, setForm] = useState<SiteSettings | null>(settings);
   const [saving, setSaving] = useState(false);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (settings) setForm(JSON.parse(JSON.stringify(settings)));
@@ -43,6 +45,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setBanner(null);
     try {
       const d = await safeFetchJson('/api/settings', {
         method: 'POST',
@@ -51,18 +54,51 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
         body: JSON.stringify(form),
       });
       if (d.success) {
-        setBanner('All settings saved and synced.');
+        setBanner({ type: 'success', text: 'All settings saved and synced.' });
         onSaved();
-      } else if (d.error) {
-        setBanner(d.error);
+      } else {
+        setBanner({ type: 'error', text: d.error || 'Failed to save settings.' });
       }
+    } catch (err: any) {
+      setBanner({ type: 'error', text: err?.message || 'Network or server error saving settings.' });
     } finally {
       setSaving(false);
     }
   };
 
+  const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRestoring(true);
+    setBanner(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const d = await safeFetchJson('/api/admin/backup/restore', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot: parsed }),
+      });
+      if (d.success) {
+        setBanner({
+          type: 'success',
+          text: `Backup restored cleanly (${(d.restoredSections || []).join(', ')}).`,
+        });
+        onSaved();
+      } else {
+        setBanner({ type: 'error', text: d.error || 'Backup restore failed.' });
+      }
+    } catch (err: any) {
+      setBanner({ type: 'error', text: err?.message || 'Invalid JSON backup file.' });
+    } finally {
+      setRestoring(false);
+      if (restoreInputRef.current) restoreInputRef.current.value = '';
+    }
+  };
+
   const TABS: { id: SettingsTab; label: string }[] = [
-    { id: 'general', label: 'General' },
+    { id: 'general', label: 'General & Content' },
     { id: 'ai-connection', label: 'AI API Connection' },
     { id: 'branding', label: 'Branding' },
     { id: 'navigation', label: 'Header & Navigation' },
@@ -71,7 +107,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
     { id: 'integrations', label: 'Integrations & Analytics' },
     { id: 'automation', label: 'Automation' },
     { id: 'security', label: 'Security' },
-    { id: 'maintenance', label: 'Site Maintenance' },
+    { id: 'maintenance', label: 'Maintenance & Backups' },
   ];
 
   return (
@@ -82,10 +118,20 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
             <Sliders className="w-4 h-4 text-emerald-700" />
             <span>Global Site Settings & Configuration</span>
           </h2>
-          <p className="text-gray-500">Manage bilingual brand metadata, header/footer layout, SEO defaults, security & maintenance state.</p>
+          <p className="text-gray-500">Manage bilingual brand metadata, homepage feed count, integrations, backups, & maintenance state.</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onJumpToModule && (
+            <button
+              type="button"
+              onClick={() => onJumpToModule('diagnostics')}
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Diagnostics</span>
+            </button>
+          )}
           <a
             href="/api/admin/backup/export"
             className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1.5"
@@ -96,7 +142,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-60"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{saving ? 'Saving...' : 'Save Settings'}</span>
@@ -105,10 +151,20 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
       </div>
 
       {banner && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-            {banner}
+        <div
+          className={`p-3 rounded-xl flex items-center justify-between border ${
+            banner.type === 'error'
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+          }`}
+        >
+          <span className="flex items-center gap-2 font-medium">
+            {banner.type === 'error' ? (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            )}
+            {banner.text}
           </span>
           <button type="button" onClick={() => setBanner(null)}><X className="w-3.5 h-3.5" /></button>
         </div>
@@ -132,7 +188,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
 
       {tab === 'ai-connection' ? (
         <AIConnectionPanel
-          onNotify={msg => setBanner(msg)}
+          onNotify={msg => setBanner({ type: 'success', text: msg })}
           onProvidersChanged={onSaved}
           onOpenAdvancedVault={onJumpToModule ? () => onJumpToModule('ai-keys') : undefined}
         />
@@ -179,6 +235,16 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
               />
             </div>
             <div>
+              <label className="block font-bold text-gray-700 mb-1">Canonical Production Site URL</label>
+              <input
+                type="url"
+                value={form.siteUrl || 'https://www.360khabarnama.com'}
+                onChange={e => setForm({ ...form, siteUrl: e.target.value })}
+                placeholder="https://www.360khabarnama.com"
+                className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+              />
+            </div>
+            <div>
               <label className="block font-bold text-gray-700 mb-1">Editorial Contact Email</label>
               <input
                 type="email"
@@ -197,6 +263,32 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
                 <option value="ur">Urdu (RTL Default)</option>
                 <option value="en">English (LTR Default)</option>
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Homepage Latest News Count</label>
+                <input
+                  type="number"
+                  min={5}
+                  max={50}
+                  value={form.latestNewsCount ?? 15}
+                  onChange={e => setForm({ ...form, latestNewsCount: Math.max(5, Math.min(50, parseInt(e.target.value, 10) || 15)) })}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Display Date Format</label>
+                <select
+                  value={form.dateFormat || 'MMM d, yyyy'}
+                  onChange={e => setForm({ ...form, dateFormat: e.target.value })}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-mono"
+                >
+                  <option value="MMM d, yyyy">MMM d, yyyy</option>
+                  <option value="dd/MM/yyyy">dd/MM/yyyy</option>
+                  <option value="yyyy-MM-dd">yyyy-MM-dd</option>
+                  <option value="relative">Relative (2h ago)</option>
+                </select>
+              </div>
             </div>
           </div>
         )}
@@ -255,7 +347,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
               <input
                 type="checkbox"
                 checked={form.navigation?.showAskAiButton ?? true}
-                onChange={e => setForm({ ...form, navigation: { ...(form.navigation || { showBreakingTicker: true, showTopRatesBar: true, stickyHeader: true }), showAskAiButton: e.target.checked } })}
+                onChange={e => setForm({ ...form, navigation: { ...(form.navigation || { showBreakingTicker: true, showTopRatesBar: true, stickyHeader: true, showAskAiButton: true }), showAskAiButton: e.target.checked } })}
               />
             </label>
           </div>
@@ -326,37 +418,88 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
                   type="text"
                   value={form.adsensePublisherId || ''}
                   onChange={e => setForm({ ...form, adsensePublisherId: e.target.value })}
+                  placeholder="ca-pub-xxxxxxxxxxxxxxxx"
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
                 />
               </div>
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Google Analytics Measurement ID (G-...)</label>
+                <label className="block font-bold text-gray-700 mb-1">Google Analytics 4 ID (G-...)</label>
                 <input
                   type="text"
                   value={form.googleAnalyticsId || ''}
                   onChange={e => setForm({ ...form, googleAnalyticsId: e.target.value })}
+                  placeholder="G-XXXXXXXXXX"
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
                 />
               </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Google Tag Manager ID (GTM-...)</label>
+                <input
+                  type="text"
+                  value={form.googleTagManagerId || ''}
+                  onChange={e => setForm({ ...form, googleTagManagerId: e.target.value })}
+                  placeholder="GTM-XXXXXXX"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Bing Webmaster Verification (msvalidate.01)</label>
+                <input
+                  type="text"
+                  value={form.bingWebmasterVerification || ''}
+                  onChange={e => setForm({ ...form, bingWebmasterVerification: e.target.value })}
+                  placeholder="Bing meta verification token"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">IndexNow Verification Key (serves /:key.txt)</label>
+                <input
+                  type="text"
+                  value={form.indexNowKey || ''}
+                  onChange={e => setForm({ ...form, indexNowKey: e.target.value })}
+                  placeholder="e.g. a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+              <label className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg self-end">
+                <span className="font-bold text-gray-800">Consent Banner Active</span>
+                <input
+                  type="checkbox"
+                  checked={form.consentBannerEnabled ?? true}
+                  onChange={e => setForm({ ...form, consentBannerEnabled: e.target.checked })}
+                />
+              </label>
             </div>
 
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-bold text-gray-900">AI API Connection &amp; Search Console Credentials</div>
-                  <div className="text-gray-500">Connect a Google Gemini or xAI Grok API key in one click or configure Search Console.</div>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setTab('ai-connection')} className="px-3.5 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>Connect AI API</span>
-                  </button>
-                  {onJumpToModule && (
-                    <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-gray-900 text-white font-bold rounded-lg">
-                      Search Console Setup
-                    </button>
-                  )}
-                </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Custom /ads.txt Override (optional — overrides default AdSense line)</label>
+              <textarea
+                rows={3}
+                value={form.adsTxtCustom || ''}
+                onChange={e => setForm({ ...form, adsTxtCustom: e.target.value })}
+                placeholder="google.com, pub-xxxxxxxxxxxxxxxx, DIRECT, f08c47fec0942fa0"
+                className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
+              />
+            </div>
+
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-bold text-gray-900">AI API Connection &amp; Search Console Credentials</div>
+                <div className="text-gray-500">Connect a Google Gemini or xAI Grok API key in one click or configure Search Console.</div>
               </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setTab('ai-connection')} className="px-3.5 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Connect AI API</span>
+                </button>
+                {onJumpToModule && (
+                  <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-gray-900 text-white font-bold rounded-lg">
+                    Search Console Setup
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -401,7 +544,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
         )}
 
         {tab === 'maintenance' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <label className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
               <div>
                 <div className="font-bold text-amber-950">Enable Public Maintenance Mode</div>
@@ -432,6 +575,31 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
                   onChange={e => setForm({ ...form, maintenance: { ...(form.maintenance || { enabled: false, messageEn: '' }), messageUr: e.target.value } })}
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-urdu"
                 />
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-bold text-gray-900">Backups &amp; Non-Secret JSON Restore</div>
+                <div className="text-gray-500">Restore site settings, homepage config, categories, ads, SEO rules, or subscribers from an exported snapshot without overwriting credentials.</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={handleRestoreBackup}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={restoring}
+                  onClick={() => restoreInputRef.current?.click()}
+                  className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white font-bold rounded-lg inline-flex items-center gap-1.5 disabled:opacity-60"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{restoring ? 'Restoring...' : 'Upload & Restore JSON'}</span>
+                </button>
               </div>
             </div>
           </div>

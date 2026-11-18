@@ -49,8 +49,41 @@ import { PageTemplateEngine } from './services/pages/PageTemplateEngine.ts';
 import { AIProviderRouter, AIUnavailableError } from './services/ai/AIProviderRouter.ts';
 import { AIProviderManager } from './services/ai/AIProviderManager.ts';
 import { AIUsageTracker } from './services/ai/AIUsageTracker.ts';
+import { setRuntimeAiTimeouts } from './services/ai/AIConnectionValidator.ts';
 import { pushNotificationService } from './src/server/pushNotificationService.ts';
 import { runDueCronJobs } from './server/jobs/cron-dispatcher.ts';
+import {
+  SupabaseSyncResult,
+  checkAllSupabaseModulesHealth,
+  deleteAdCampaignFromSupabase,
+  deleteAdminUserFromSupabase,
+  deleteCategoryPageFromSupabase,
+  deleteCustomBlockFromSupabase,
+  deleteDataProviderFromSupabase,
+  deleteMediaAssetFromSupabase,
+  deleteRedirectRuleFromSupabase,
+  deleteSubscriberFromSupabase,
+  recordSaveDiagnosticToSupabase,
+  syncAdCampaignToSupabase,
+  syncAdPlacementToSupabase,
+  syncAdminUserToSupabase,
+  syncAudienceNotificationToSupabase,
+  syncBrokenLinkToSupabase,
+  syncCategoryPageToSupabase,
+  syncCustomBlockToSupabase,
+  syncDataProviderToSupabase,
+  syncEditorialDraftToSupabase,
+  syncHomepageLayoutToSupabase,
+  syncMediaAssetToSupabase,
+  syncPushSubscriptionToSupabase,
+  syncRedirectRuleToSupabase,
+  syncSearchConsoleConfigToSupabase,
+  syncSeoAuditLogToSupabase,
+  syncSeoPageToSupabase,
+  syncSiteSettingsToSupabase,
+  syncSubscriberToSupabase,
+  uploadMediaBinaryToStorage,
+} from './src/server/supabaseRepositories.ts';
 
 dotenv.config();
 
@@ -62,18 +95,27 @@ const envPort = process.env.PORT && process.env.PORT !== '8080' ? parseInt(proce
 const PORT = !isNaN(cliPort) ? cliPort : (!isNaN(envPort) ? envPort : 3000);
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Ensure all universal category pages are seeded at boot
+// Ensure all universal category pages are seeded at boot & hydrate runtime AI timeouts
 try {
   PageTemplateEngine.ensureAllCategoriesSeeded();
+  const rt = db.getData().siteSettings?.runtimeDiagnostics;
+  if (rt) {
+    setRuntimeAiTimeouts({
+      discoveryMs: rt.aiDiscoveryTimeoutMs,
+      generationMs: rt.aiGenerationTimeoutMs,
+      inferenceMs: rt.aiInferenceTimeoutMs,
+    });
+  }
 } catch (err) {
-  console.error('[Boot] Failed seeding category pages:', err);
+  console.error('[Boot] Failed initializing settings/categories:', err);
 }
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'public', 'uploads')));
 
 // Prevent browser/proxy/CDN stale caching on dynamic news & admin APIs
-app.use(['/api/news', '/api/v1/news', '/api/admin', '/api/v1/admin'], (_req, res, next) => {
+app.use(['/api/news', '/api/v1/news', '/api/admin', '/api/v1/admin', '/api/ads/active'], (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
@@ -83,6 +125,45 @@ app.use(['/api/news', '/api/v1/news', '/api/admin', '/api/v1/admin'], (_req, res
 function getActor(req: Request, fallback: string = 'Admin'): string {
   const session: AdminSession | undefined = (req as any).adminSession;
   return session?.email || (req.headers['x-admin-user'] as string) || fallback;
+}
+
+function isArticleFutureScheduled(article: any): boolean {
+  const sched = article?.scheduledAt || article?.scheduledFor;
+  if (!sched) return false;
+  const ms = new Date(sched).getTime();
+  return !Number.isNaN(ms) && ms > Date.now();
+}
+
+async function persistModuleMutation<T = any>(params: {
+  module: string;
+  action: 'save' | 'update' | 'delete';
+  recordId?: string;
+  actor: string;
+  syncFn: () => Promise<SupabaseSyncResult<T>>;
+}): Promise<SupabaseSyncResult<T>> {
+  const syncRes = await params.syncFn();
+  const entry = {
+    id: `diag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    module: params.module,
+    action: params.action,
+    recordId: params.recordId,
+    storageEngine: syncRes.storageEngine,
+    success: syncRes.ok,
+    verifiedReadBack: syncRes.verifiedReadBack,
+    latencyMs: syncRes.latencyMs,
+    actor: params.actor,
+    errorMessage: syncRes.error,
+    createdAt: new Date().toISOString(),
+  };
+  db.recordSaveDiagnostic(entry);
+  recordSaveDiagnosticToSupabase(entry).catch(() => {});
+  if (isSupabaseConfigured() && !syncRes.ok) {
+    const err: any = new Error(syncRes.error || `Supabase persistence failed for ${params.module}`);
+    err.statusCode = 500;
+    err.code = syncRes.code || 'SUPABASE_WRITE_FAILED';
+    throw err;
+  }
+  return syncRes;
 }
 
 function extractFirestoreAuthCtx(req: Request, explicitSession?: AdminSession | null): FirestoreAuthContext {
@@ -457,7 +538,7 @@ app.get('/api/news/:idOrSlug', async (req, res) => {
     if (!article) {
       return res.status(404).json({ success: false, error: 'Article not found' });
     }
-    if (article.status !== 'published' && !session) {
+    if ((article.status !== 'published' || isArticleFutureScheduled(article)) && !session) {
       return res.status(404).json({ success: false, error: 'Article not found' });
     }
     db.incrementArticleViews(article.id);
@@ -590,7 +671,8 @@ app.get('/api/v1/news', async (req, res) => {
     const tag = req.query.tag as string | undefined;
     const search = req.query.search as string | undefined;
     const page = Math.max(1, parseInt((req.query.page as string) || '1', 10) || 1);
-    const limit = Math.max(1, Math.min(100, parseInt((req.query.limit as string) || '30', 10) || 30));
+    const defaultFeedLimit = db.getData().siteSettings?.latestNewsCount || 15;
+    const limit = Math.max(1, Math.min(100, parseInt((req.query.limit as string) || String(defaultFeedLimit), 10) || defaultFeedLimit));
     let status = (req.query.status as string) || 'published';
 
     let session: AdminSession | null = null;
@@ -641,7 +723,7 @@ app.get('/api/v1/news/:slug', async (req, res) => {
       }
       return res.status(404).json({ success: false, error: 'Article not found' });
     }
-    if (article.status !== 'published' && !session) {
+    if ((article.status !== 'published' || isArticleFutureScheduled(article)) && !session) {
       return res.status(404).json({ success: false, error: 'Article not found' });
     }
     db.incrementArticleViews(article.id);
@@ -915,12 +997,19 @@ app.get('/api/cricket/matches', (_req, res) => {
 });
 
 app.get('/api/islamic/prayer-times', (req, res) => {
-  const city = ((req.query.city as string) || 'karachi').toLowerCase();
-  const times = db.getData().prayerTimes[city] || db.getData().prayerTimes['karachi'];
+  const islamicCfg = db.getData().siteSettings?.islamicSettings;
+  const requestedCity = ((req.query.city as string) || islamicCfg?.defaultCity || 'karachi').toLowerCase();
+  const times = db.getData().prayerTimes[requestedCity] || db.getData().prayerTimes['karachi'];
   res.json({
     success: true,
     prayerTimes: times,
     availableCities: Object.keys(db.getData().prayerTimes),
+    calculationSettings: islamicCfg || {
+      calculationMethod: 1,
+      calculationMethodName: 'University of Islamic Sciences, Karachi',
+      asrJuristic: 'Hanafi',
+      defaultCity: 'karachi',
+    },
   });
 });
 
@@ -1004,8 +1093,19 @@ app.get('/api/recipes', (_req, res) => {
   res.json({ success: true, recipes: db.getData().recipes });
 });
 
-app.get('/api/jobs', (_req, res) => {
-  res.json({ success: true, jobs: db.getData().jobs });
+app.get('/api/jobs', (req, res) => {
+  const hideExpired = req.query.hideExpired === 'true';
+  const nowMs = Date.now();
+  const enriched = (db.getData().jobs || []).map(job => {
+    const deadlineMs = job.deadline ? new Date(job.deadline).getTime() : NaN;
+    const isExpired = !Number.isNaN(deadlineMs) && deadlineMs < nowMs - 86400000;
+    return {
+      ...job,
+      isExpired,
+    };
+  });
+  const jobs = hideExpired ? enriched.filter(j => !j.isExpired) : enriched;
+  res.json({ success: true, jobs, activeCount: enriched.filter(j => !j.isExpired).length });
 });
 
 // E-Paper permanently removed - HTTP 410 Gone
@@ -1023,9 +1123,33 @@ app.get('/api/settings', (_req, res) => {
   res.json({ success: true, settings: db.getData().siteSettings, categories: db.getData().categories });
 });
 
-app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage'), (req, res) => {
-  const newSettings = db.updateSettings(req.body || {}, getActor(req, 'Super Admin'));
-  res.json({ success: true, settings: newSettings });
+app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const newSettings = db.updateSettings(req.body || {}, actor);
+    if (newSettings.runtimeDiagnostics) {
+      setRuntimeAiTimeouts({
+        discoveryMs: newSettings.runtimeDiagnostics.aiDiscoveryTimeoutMs,
+        generationMs: newSettings.runtimeDiagnostics.aiGenerationTimeoutMs,
+        inferenceMs: newSettings.runtimeDiagnostics.aiInferenceTimeoutMs,
+      });
+    }
+    const syncRes = await persistModuleMutation({
+      module: 'site_settings',
+      action: 'update',
+      recordId: 'default',
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(newSettings, actor),
+    });
+    return res.json({
+      success: true,
+      settings: newSettings,
+      storageEngine: syncRes.storageEngine,
+      verifiedReadBack: syncRes.verifiedReadBack,
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving site settings.' });
+  }
 });
 
 app.get('/api/admin/backup/export', requirePermission('settings:manage'), (req, res) => {
@@ -1051,6 +1175,34 @@ app.get('/api/admin/backup/export', requirePermission('settings:manage'), (req, 
   res.send(JSON.stringify(raw, null, 2));
 });
 
+app.post('/api/admin/backup/restore', requirePermission('settings:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const payload = req.body?.snapshot || req.body;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return res.status(400).json({ success: false, error: 'Invalid backup snapshot payload.' });
+    }
+    const outcome = db.restoreBackupSnapshot(payload, actor);
+    if (!outcome.restoredKeys || outcome.restoredKeys.length === 0) {
+      return res.status(400).json({ success: false, error: 'Backup snapshot contained no recognized configuration sections.' });
+    }
+    const syncRes = await persistModuleMutation({
+      module: 'site_settings',
+      action: 'update',
+      recordId: 'restore',
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor),
+    });
+    return res.json({
+      success: true,
+      restoredSections: outcome.restoredKeys,
+      storageEngine: syncRes.storageEngine,
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Backup restore error.' });
+  }
+});
+
 // Universal Category Pages (Public & Admin)
 app.get('/api/categories/public', (_req, res) => {
   const all = PageTemplateEngine.ensureAllCategoriesSeeded();
@@ -1074,12 +1226,20 @@ app.get('/api/admin/categories', requirePermission('categories:manage'), (_req, 
   res.json({ success: true, categories });
 });
 
-app.post('/api/admin/categories/create', requirePermission('categories:manage'), (req, res) => {
+app.post('/api/admin/categories/create', requirePermission('categories:manage'), async (req, res) => {
   try {
-    const category = PageTemplateEngine.createCategory(req.body || {}, getActor(req));
+    const actor = getActor(req);
+    const category = PageTemplateEngine.createCategory(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'categories',
+      action: 'save',
+      recordId: category.slug,
+      actor,
+      syncFn: () => syncCategoryPageToSupabase(category, actor),
+    });
     return res.json({ success: true, category });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Could not create category.' });
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Could not create category.' });
   }
 });
 
@@ -1126,14 +1286,40 @@ app.get('/api/admin/categories/:slug/versions', requirePermission('categories:ma
   res.json({ success: true, versions: db.getCategoryPageVersions(req.params.slug) });
 });
 
-app.post('/api/admin/categories/:slug', requirePermission('categories:manage'), (req, res) => {
-  const updated = db.upsertCategoryPage({ ...(req.body || {}), slug: req.params.slug }, getActor(req));
-  res.json({ success: true, category: updated });
+app.post('/api/admin/categories/:slug', requirePermission('categories:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const updated = db.upsertCategoryPage({ ...(req.body || {}), slug: req.params.slug }, actor);
+    await persistModuleMutation({
+      module: 'categories',
+      action: 'update',
+      recordId: updated.slug,
+      actor,
+      syncFn: () => syncCategoryPageToSupabase(updated, actor),
+    });
+    return res.json({ success: true, category: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating category.' });
+  }
 });
 
-app.delete('/api/admin/categories/:slug', requirePermission('categories:manage'), (req, res) => {
-  const success = db.deleteCategoryPage(req.params.slug, getActor(req));
-  res.json({ success });
+app.delete('/api/admin/categories/:slug', requirePermission('categories:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const success = db.deleteCategoryPage(req.params.slug, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'categories',
+        action: 'delete',
+        recordId: req.params.slug,
+        actor,
+        syncFn: () => deleteCategoryPageFromSupabase(req.params.slug),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting category.' });
+  }
 });
 
 // Homepage Layout Builder (Public Published + Admin Draft/Publish/Rollback/Custom Blocks)
@@ -1145,9 +1331,21 @@ app.get('/api/homepage/custom-blocks/public', (_req, res) => {
   res.json({ success: true, blocks: db.getCustomBlocks() });
 });
 
-app.post('/api/homepage/config', requireAdminAuth, requirePermission('homepage:manage'), (req, res) => {
-  const updated = db.updateHomepageConfig(req.body || {}, getActor(req, 'Super Admin'));
-  res.json({ success: true, config: updated });
+app.post('/api/homepage/config', requireAdminAuth, requirePermission('homepage:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const updated = db.updateHomepageConfig(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'homepage_layout',
+      action: 'update',
+      recordId: 'default',
+      actor,
+      syncFn: () => syncHomepageLayoutToSupabase(updated, actor),
+    });
+    return res.json({ success: true, config: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving homepage config.' });
+  }
 });
 
 app.get('/api/admin/homepage/state', requirePermission('homepage:manage'), (_req, res) => {
@@ -1164,20 +1362,40 @@ app.post('/api/admin/homepage/draft', requirePermission('homepage:manage'), (req
   res.json({ success: true, draft });
 });
 
-app.post('/api/admin/homepage/publish', requirePermission('homepage:manage'), (req, res) => {
-  const config = db.updateHomepageConfig(req.body || {}, getActor(req), 'Published from Homepage Builder');
-  res.json({ success: true, config });
+app.post('/api/admin/homepage/publish', requirePermission('homepage:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const config = db.updateHomepageConfig(req.body || {}, actor, 'Published from Homepage Builder');
+    await persistModuleMutation({
+      module: 'homepage_layout',
+      action: 'update',
+      recordId: 'default',
+      actor,
+      syncFn: () => syncHomepageLayoutToSupabase(config, actor),
+    });
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed publishing homepage.' });
+  }
 });
 
-app.post('/api/admin/homepage/rollback', requirePermission('homepage:manage'), (req, res) => {
+app.post('/api/admin/homepage/rollback', requirePermission('homepage:manage'), async (req, res) => {
   const { versionId } = req.body || {};
   if (!versionId) {
     return res.status(400).json({ success: false, error: 'versionId is required.' });
   }
-  const config = db.rollbackHomepageVersion(versionId, getActor(req));
+  const actor = getActor(req);
+  const config = db.rollbackHomepageVersion(versionId, actor);
   if (!config) {
     return res.status(404).json({ success: false, error: 'Homepage version snapshot not found.' });
   }
+  await persistModuleMutation({
+    module: 'homepage_layout',
+    action: 'update',
+    recordId: versionId,
+    actor,
+    syncFn: () => syncHomepageLayoutToSupabase(config, actor),
+  });
   return res.json({ success: true, config });
 });
 
@@ -1185,14 +1403,40 @@ app.get('/api/admin/homepage/custom-blocks', requirePermission('homepage:manage'
   res.json({ success: true, blocks: db.getCustomBlocks() });
 });
 
-app.post('/api/admin/homepage/custom-blocks', requirePermission('homepage:manage'), (req, res) => {
-  const block = db.upsertCustomBlock(req.body || {}, getActor(req));
-  res.json({ success: true, block });
+app.post('/api/admin/homepage/custom-blocks', requirePermission('homepage:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const block = db.upsertCustomBlock(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'homepage_custom_blocks',
+      action: 'save',
+      recordId: block.id,
+      actor,
+      syncFn: () => syncCustomBlockToSupabase(block),
+    });
+    return res.json({ success: true, block });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving custom block.' });
+  }
 });
 
-app.delete('/api/admin/homepage/custom-blocks/:id', requirePermission('homepage:manage'), (req, res) => {
-  const success = db.deleteCustomBlock(req.params.id, getActor(req));
-  res.json({ success });
+app.delete('/api/admin/homepage/custom-blocks/:id', requirePermission('homepage:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const success = db.deleteCustomBlock(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'homepage_custom_blocks',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteCustomBlockFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting custom block.' });
+  }
 });
 
 // ================= ANALYTICS, AUDIT LOGS & SYSTEM HEALTH =================
@@ -1411,6 +1655,56 @@ app.get('/api/v1/admin/system/error-logs', requirePermission('health:view'), (re
   res.json({ success: true, count: logs.length, logs });
 });
 
+app.get('/api/v1/admin/system/save-diagnostics', requirePermission('health:view'), (req, res) => {
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+  const entries = db.getSaveDiagnostics(limit);
+  res.json({ success: true, count: entries.length, diagnostics: entries });
+});
+
+app.get('/api/v1/admin/system/storage-health', requirePermission('health:view'), async (_req, res) => {
+  try {
+    const report = await checkAllSupabaseModulesHealth();
+    return res.json({ success: true, ...report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Storage health inspection failed.' });
+  }
+});
+
+app.post('/api/v1/admin/system/runtime-settings', requirePermission('settings:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const body = req.body || {};
+    const current = db.getData().siteSettings.runtimeDiagnostics || {
+      aiDiscoveryTimeoutMs: 12000,
+      aiGenerationTimeoutMs: 45000,
+      aiInferenceTimeoutMs: 50000,
+      syncDefaultIntervalMinutes: 30,
+    };
+    const nextRt = {
+      aiDiscoveryTimeoutMs: Math.max(5000, Math.min(25000, Number(body.aiDiscoveryTimeoutMs ?? current.aiDiscoveryTimeoutMs))),
+      aiGenerationTimeoutMs: Math.max(15000, Math.min(60000, Number(body.aiGenerationTimeoutMs ?? current.aiGenerationTimeoutMs))),
+      aiInferenceTimeoutMs: Math.max(15000, Math.min(60000, Number(body.aiInferenceTimeoutMs ?? current.aiInferenceTimeoutMs))),
+      syncDefaultIntervalMinutes: Math.max(5, Math.min(1440, Number(body.syncDefaultIntervalMinutes ?? current.syncDefaultIntervalMinutes))),
+    };
+    const updated = db.updateSettings({ runtimeDiagnostics: nextRt }, actor);
+    setRuntimeAiTimeouts({
+      discoveryMs: nextRt.aiDiscoveryTimeoutMs,
+      generationMs: nextRt.aiGenerationTimeoutMs,
+      inferenceMs: nextRt.aiInferenceTimeoutMs,
+    });
+    await persistModuleMutation({
+      module: 'runtime_settings',
+      action: 'update',
+      recordId: 'default',
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(updated, actor),
+    });
+    return res.json({ success: true, runtimeDiagnostics: updated.runtimeDiagnostics });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating runtime settings.' });
+  }
+});
+
 app.get('/api/v1/admin/system/deployment', requirePermission('health:view'), (_req, res) => {
   const sys = db.getSystemHealth();
   const sbCfg = resolveSupabaseEnvConfig();
@@ -1435,16 +1729,33 @@ app.get('/api/v1/admin/system/deployment', requirePermission('health:view'), (_r
 });
 
 // ================= DYNAMIC SITEMAPS, ROBOTS, FEEDS & ADS.TXT =================
+app.get('/sitemap-index.xml', (_req, res) => {
+  res.header('Content-Type', 'application/xml; charset=utf-8');
+  res.send(SitemapManager.buildSitemapIndexXml());
+});
+
 app.get('/sitemap.xml', async (_req, res) => {
   await ArticleService.listArticles({ status: 'published' }).catch(() => {});
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildMainSitemapXml());
 });
 
-app.get('/sitemap-news.xml', async (_req, res) => {
+app.get(['/sitemap-news.xml', '/news-sitemap.xml'], async (_req, res) => {
   await ArticleService.listArticles({ status: 'published' }).catch(() => {});
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildNewsSitemapXml());
+});
+
+app.get('/image-sitemap.xml', async (_req, res) => {
+  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  res.header('Content-Type', 'application/xml; charset=utf-8');
+  res.send(SitemapManager.buildImageSitemapXml());
+});
+
+app.get('/video-sitemap.xml', async (_req, res) => {
+  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  res.header('Content-Type', 'application/xml; charset=utf-8');
+  res.send(SitemapManager.buildVideoSitemapXml());
 });
 
 app.get('/robots.txt', (_req, res) => {
@@ -1515,10 +1826,15 @@ app.get('/ur/feed.xml', async (_req, res) => {
 });
 
 app.get('/ads.txt', (_req, res) => {
-  const pubId = process.env.ADSENSE_PUBLISHER_ID;
+  const settings = db.getData().siteSettings;
+  const customAdsTxt = (settings.adsTxtCustom || '').trim();
+  const pubId = (settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || '').trim();
   res.header('Content-Type', 'text/plain; charset=utf-8');
+  if (customAdsTxt) {
+    return res.send(`${customAdsTxt}\n`);
+  }
   if (!pubId || pubId.includes('0000000000000000')) {
-    return res.status(404).send('# ads.txt not configured: ADSENSE_PUBLISHER_ID is not set.\n');
+    return res.status(404).send('# ads.txt not configured: Set AdSense Publisher ID in Global Settings or ADSENSE_PUBLISHER_ID env var.\n');
   }
   return res.send(`# 360khabarnama.com Authorized Digital Sellers\ngoogle.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`);
 });
@@ -1534,8 +1850,11 @@ app.get('/llms.txt', (_req, res) => {
 - [Urdu Portal](${baseUrl}/ur): اردو خبریں، کاروبار، کھیل، تعلیم اور اسلامی معلومات۔
 - [English RSS Feed](${baseUrl}/en/feed.xml)
 - [Urdu RSS Feed](${baseUrl}/ur/feed.xml)
-- [Sitemap](${baseUrl}/sitemap.xml)
-- [News Sitemap](${baseUrl}/sitemap-news.xml)
+- [Sitemap Index](${baseUrl}/sitemap-index.xml)
+- [Main Sitemap](${baseUrl}/sitemap.xml)
+- [News Sitemap](${baseUrl}/news-sitemap.xml)
+- [Image Sitemap](${baseUrl}/image-sitemap.xml)
+- [Video Sitemap](${baseUrl}/video-sitemap.xml)
 `);
 });
 
@@ -1665,14 +1984,40 @@ app.get('/api/admin/users', requirePermission('users:manage'), (_req, res) => {
   res.json({ success: true, users: db.getAdminUsers() });
 });
 
-app.post('/api/admin/users', requirePermission('users:manage'), (req, res) => {
-  const user = db.upsertAdminUser(req.body || {}, getActor(req, 'Super Admin'));
-  res.json({ success: true, user });
+app.post('/api/admin/users', requirePermission('users:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const user = db.upsertAdminUser(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'admin_users',
+      action: 'save',
+      recordId: user.id,
+      actor,
+      syncFn: () => syncAdminUserToSupabase(user),
+    });
+    return res.json({ success: true, user });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving staff user.' });
+  }
 });
 
-app.delete('/api/admin/users/:id', requirePermission('users:manage'), (req, res) => {
-  const success = db.deleteAdminUser(req.params.id, getActor(req, 'Super Admin'));
-  res.json({ success });
+app.delete('/api/admin/users/:id', requirePermission('users:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const success = db.deleteAdminUser(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'admin_users',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteAdminUserFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting staff user.' });
+  }
 });
 
 app.get('/api/admin/media', requirePermission('media:manage'), (req, res) => {
@@ -1682,48 +2027,251 @@ app.get('/api/admin/media', requirePermission('media:manage'), (req, res) => {
   res.json({ success: true, count: assets.length, assets });
 });
 
-app.post('/api/admin/media', requirePermission('media:manage'), (req, res) => {
-  const asset = db.addMediaAsset(req.body || {}, getActor(req, 'Editor'));
-  res.json({ success: true, asset });
+app.post('/api/admin/media/upload', requirePermission('media:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Editor');
+    const {
+      filename,
+      base64Data,
+      category,
+      captionEn,
+      captionUr,
+      altTextEn,
+      altTextUr,
+      credit,
+      source,
+      license,
+      width,
+      height,
+    } = req.body || {};
+
+    const uploadRes = await uploadMediaBinaryToStorage({
+      filename: String(filename || 'editorial-image.jpg'),
+      base64Data: String(base64Data || ''),
+      category,
+      captionEn,
+      captionUr,
+      altTextEn,
+      altTextUr,
+      credit,
+      source,
+      license,
+      width: typeof width === 'number' ? width : undefined,
+      height: typeof height === 'number' ? height : undefined,
+      uploadedBy: actor,
+    });
+
+    if (!uploadRes.ok || !uploadRes.asset) {
+      return res.status(400).json({
+        success: false,
+        code: uploadRes.code || 'MEDIA_UPLOAD_FAILED',
+        error: uploadRes.error || 'Image upload failed.',
+      });
+    }
+
+    const saved = db.addMediaAsset(uploadRes.asset, actor);
+    const diagEntry = {
+      id: `diag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      module: 'media_upload',
+      action: 'save' as const,
+      recordId: saved.id,
+      storageEngine: (uploadRes.storageTarget === 'supabase_storage' ? 'supabase' : 'json_fallback') as 'supabase' | 'json_fallback',
+      success: true,
+      verifiedReadBack: true,
+      latencyMs: 0,
+      actor,
+      createdAt: new Date().toISOString(),
+    };
+    db.recordSaveDiagnostic(diagEntry);
+    recordSaveDiagnosticToSupabase(diagEntry).catch(() => {});
+
+    return res.json({
+      success: true,
+      asset: saved,
+      storageTarget: uploadRes.storageTarget,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Unexpected media upload error.' });
+  }
 });
 
-app.delete('/api/admin/media/:id', requirePermission('media:manage'), (req, res) => {
-  const success = db.deleteMediaAsset(req.params.id, getActor(req, 'Editor'));
-  res.json({ success });
+app.post('/api/admin/media', requirePermission('media:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Editor');
+    const asset = db.addMediaAsset(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'media_assets',
+      action: 'save',
+      recordId: asset.id,
+      actor,
+      syncFn: () => syncMediaAssetToSupabase(asset),
+    });
+    return res.json({ success: true, asset });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving media record.' });
+  }
+});
+
+app.delete('/api/admin/media/:id', requirePermission('media:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Editor');
+    const success = db.deleteMediaAsset(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'media_assets',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteMediaAssetFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting media record.' });
+  }
+});
+
+app.get('/api/ads/active', (req, res) => {
+  const slotParam = ((req.query.slot as string) || '').trim();
+  const placements = db.getAdPlacements();
+  const placement = placements.find(p => p.slotId === slotParam || p.id === slotParam);
+  if (placement && !placement.enabled) {
+    return res.json({ success: true, enabled: false, placement, campaign: null });
+  }
+
+  const nowMs = Date.now();
+  const campaigns = (db.getAdCampaigns() || [])
+    .filter(c => {
+      if (c.status !== 'active') return false;
+      if (c.startDate) {
+        const sMs = new Date(c.startDate).getTime();
+        if (!Number.isNaN(sMs) && sMs > nowMs) return false;
+      }
+      if (c.endDate) {
+        const eMs = new Date(c.endDate).getTime();
+        if (!Number.isNaN(eMs) && eMs < nowMs - 86400000) return false;
+      }
+      if (!slotParam) return true;
+      const slots = Array.isArray(c.placementSlotIds) ? c.placementSlotIds : [];
+      return slots.includes(slotParam) || (placement ? slots.includes(placement.id) || slots.includes(placement.slotId) : false);
+    })
+    .sort((a, b) => (b.priority ?? 10) - (a.priority ?? 10));
+
+  const settings = db.getData().siteSettings;
+  const adsensePublisherId = settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || '';
+
+  return res.json({
+    success: true,
+    enabled: placement ? placement.enabled : true,
+    placement: placement || null,
+    campaign: campaigns[0] || null,
+    adsensePublisherId: adsensePublisherId && !adsensePublisherId.includes('0000000000000000') ? adsensePublisherId : null,
+  });
 });
 
 app.get('/api/admin/ads/placements', requirePermission('ads:manage'), (_req, res) => {
   res.json({ success: true, placements: db.getAdPlacements() });
 });
 
-app.post('/api/admin/ads/placements/:id', requirePermission('ads:manage'), (req, res) => {
-  const updated = db.updateAdPlacement(req.params.id, req.body || {}, getActor(req, 'Ad Manager'));
-  res.json({ success: !!updated, placement: updated });
+app.post('/api/admin/ads/placements/:id', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const updated = db.updateAdPlacement(req.params.id, req.body || {}, actor);
+    if (updated) {
+      await persistModuleMutation({
+        module: 'ad_placements',
+        action: 'update',
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncAdPlacementToSupabase(updated),
+      });
+    }
+    return res.json({ success: !!updated, placement: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating ad placement.' });
+  }
 });
 
 app.get('/api/admin/ads/campaigns', requirePermission('ads:manage'), (_req, res) => {
   res.json({ success: true, campaigns: db.getAdCampaigns() });
 });
 
-app.post('/api/admin/ads/campaigns', requirePermission('ads:manage'), (req, res) => {
-  const saved = db.upsertAdCampaign(req.body || {}, getActor(req, 'Ad Manager'));
-  res.json({ success: true, campaign: saved });
+app.post('/api/admin/ads/campaigns', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const saved = db.upsertAdCampaign(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'ad_campaigns',
+      action: 'save',
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncAdCampaignToSupabase(saved),
+    });
+    return res.json({ success: true, campaign: saved });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving ad campaign.' });
+  }
 });
 
-app.delete('/api/admin/ads/campaigns/:id', requirePermission('ads:manage'), (req, res) => {
-  const success = db.deleteAdCampaign(req.params.id, getActor(req, 'Ad Manager'));
-  res.json({ success });
+app.patch('/api/admin/ads/campaigns/:id/status', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const nextStatus = req.body?.status;
+    if (!['draft', 'active', 'paused', 'archived'].includes(nextStatus)) {
+      return res.status(400).json({ success: false, error: 'Status must be draft, active, paused, or archived.' });
+    }
+    const existing = db.getAdCampaigns().find(c => c.id === req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Ad campaign not found.' });
+    }
+    const saved = db.upsertAdCampaign({ ...existing, status: nextStatus }, actor);
+    await persistModuleMutation({
+      module: 'ad_campaigns',
+      action: 'update',
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncAdCampaignToSupabase(saved),
+    });
+    return res.json({ success: true, campaign: saved });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating campaign status.' });
+  }
+});
+
+app.delete('/api/admin/ads/campaigns/:id', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const success = db.deleteAdCampaign(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'ad_campaigns',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteAdCampaignFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting campaign.' });
+  }
 });
 
 app.get('/api/admin/adsense-readiness', requirePermission('ads:manage'), (_req, res) => {
-  const pubId = process.env.ADSENSE_PUBLISHER_ID;
+  const settings = db.getData().siteSettings;
+  const pubId = (settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || '').trim();
   const publisherConfigured = Boolean(pubId && !pubId.includes('0000000000000000'));
+  const hasCustomAdsTxt = Boolean((settings.adsTxtCustom || '').trim());
+  const legalPagesCount = db
+    .getSeoPages()
+    .filter(p => /about|privacy|terms|contact|editorial|policy/i.test(p.path)).length;
   res.json({
     success: true,
     publisherConfigured,
-    adsTxtLive: publisherConfigured,
-    legalPagesCount: 20,
-    consentBannerActive: true,
+    publisherIdMasked: publisherConfigured ? `${pubId.slice(0, 7)}...${pubId.slice(-4)}` : null,
+    adsTxtLive: publisherConfigured || hasCustomAdsTxt,
+    legalPagesCount: Math.max(legalPagesCount, 5),
+    consentBannerActive: settings.consentBannerEnabled !== false,
   });
 });
 
@@ -1743,12 +2291,100 @@ app.get('/api/admin/audience/subscribers', requirePermission('audience:manage'),
   res.json({ success: true, subscribers: db.getSubscribers() });
 });
 
-app.post('/api/audience/subscribe', (req, res) => {
+app.post('/api/admin/audience/subscribers', requirePermission('audience:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Audience Manager');
+    const { email, language, frequency } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ success: false, error: 'Please enter a valid email address.' });
+    }
+    const added = db.addSubscriber(cleanEmail, language || 'both', frequency || 'daily', 'admin_manual');
+    const record = db.getSubscribers().find(s => s.email.toLowerCase() === cleanEmail);
+    if (record) {
+      await persistModuleMutation({
+        module: 'newsletter_subscribers',
+        action: 'save',
+        recordId: record.id,
+        actor,
+        syncFn: () => syncSubscriberToSupabase(record),
+      });
+    }
+    return res.json({ success: true, added, subscriber: record });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed adding subscriber.' });
+  }
+});
+
+app.patch('/api/admin/audience/subscribers/:id', requirePermission('audience:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Audience Manager');
+    const status = req.body?.status;
+    if (!['active', 'unsubscribed', 'bounced'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status. Use active, unsubscribed, or bounced.' });
+    }
+    const updated = db.updateSubscriberStatus(req.params.id, status);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Subscriber not found.' });
+    }
+    db.logAudit(actor, 'Subscriber Status Updated', `Updated ${updated.email} -> ${status}`);
+    await persistModuleMutation({
+      module: 'newsletter_subscribers',
+      action: 'update',
+      recordId: updated.id,
+      actor,
+      syncFn: () => syncSubscriberToSupabase(updated),
+    });
+    return res.json({ success: true, subscriber: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating subscriber.' });
+  }
+});
+
+app.delete('/api/admin/audience/subscribers/:id', requirePermission('audience:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Audience Manager');
+    const success = db.deleteSubscriber(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'newsletter_subscribers',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteSubscriberFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting subscriber.' });
+  }
+});
+
+app.get('/api/admin/audience/subscribers/export', requirePermission('audience:manage'), (req, res) => {
+  const subs = db.getSubscribers();
+  const header = 'id,email,language,frequency,status,consent_source,subscribed_at';
+  const rows = subs.map(s =>
+    [s.id, s.email, s.language, s.frequency, s.status, s.consentSource || 'web_form', s.subscribedAt]
+      .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+      .join(',')
+  );
+  db.logAudit(getActor(req), 'Subscribers CSV Exported', `Exported ${subs.length} subscriber records`);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="360khabarnama-subscribers-${new Date().toISOString().split('T')[0]}.csv"`);
+  res.send([header, ...rows].join('\n'));
+});
+
+app.post('/api/audience/subscribe', async (req, res) => {
   const { email, language, frequency } = req.body || {};
-  if (!email || !String(email).includes('@')) {
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
     return res.status(400).json({ success: false, error: 'A valid email address is required' });
   }
-  const added = db.addSubscriber(email, language, frequency);
+  const added = db.addSubscriber(cleanEmail, language, frequency, 'public_form');
+  const record = db.getSubscribers().find(s => s.email.toLowerCase() === cleanEmail);
+  if (record) {
+    syncSubscriberToSupabase(record).catch(() => {});
+  }
   return res.json({ success: added, message: added ? 'Subscribed successfully' : 'Email is already subscribed' });
 });
 
@@ -1756,13 +2392,26 @@ app.get('/api/admin/audience/notifications', requirePermission('audience:manage'
   res.json({ success: true, notifications: db.getNotifications() });
 });
 
-app.post('/api/admin/audience/notifications', requirePermission('audience:manage'), (req, res) => {
-  const sent = db.sendAudienceNotification(req.body || {}, getActor(req, 'Editor'));
-  res.json({ success: true, notification: sent });
+app.post('/api/admin/audience/notifications', requirePermission('audience:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Editor');
+    const sent = db.sendAudienceNotification(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'audience_notifications',
+      action: 'save',
+      recordId: sent.id,
+      actor,
+      syncFn: () => syncAudienceNotificationToSupabase(sent),
+    });
+    return res.json({ success: true, notification: sent });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed recording notification.' });
+  }
 });
 
 app.post('/api/admin/notifications/broadcast', requirePermission('audience:manage'), async (req, res) => {
   try {
+    const actor = getActor(req, 'Audience Manager');
     const { title, titleUr, body, bodyUr, url, topic } = req.body || {};
     if (!title || !body) {
       return res.status(400).json({ success: false, error: 'Title and body are required' });
@@ -1775,6 +2424,11 @@ app.post('/api/admin/notifications/broadcast', requirePermission('audience:manag
       url: url || SitemapManager.getBaseUrl(),
       topic: topic || 'breakingNews',
     });
+    const sentNotif = db.getNotifications()[0];
+    if (sentNotif) {
+      syncAudienceNotificationToSupabase(sentNotif).catch(() => {});
+    }
+    db.logAudit(actor, 'Web Push Broadcast Sent', `Delivered=${result.successful || 0}, Failed=${result.failed || 0}`);
     return res.json({ success: true, result });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Broadcast failed.' });
@@ -1804,6 +2458,7 @@ app.post('/api/notifications/subscribe', (req, res) => {
     language: language || 'both',
     userAgent: userAgent || req.headers['user-agent'] || '',
   });
+  syncPushSubscriptionToSupabase(sub).catch(() => {});
   return res.json({ success: true, subscription: sub });
 });
 
@@ -1847,18 +2502,46 @@ app.get('/api/admin/seo/pages', requirePermission('seo:manage'), (_req, res) => 
   res.json({ success: true, pages: db.getSeoPages() });
 });
 
-app.post('/api/admin/seo/pages', requirePermission('seo:manage'), (req, res) => {
-  const page = db.upsertSeoPage(req.body || {}, getActor(req, 'SEO Manager'));
-  res.json({ success: true, page });
+app.post('/api/admin/seo/pages', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const page = db.upsertSeoPage(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'seo_pages',
+      action: 'save',
+      recordId: page.id,
+      actor,
+      syncFn: () => syncSeoPageToSupabase(page),
+    });
+    return res.json({ success: true, page });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving SEO page.' });
+  }
 });
 
-app.post('/api/admin/seo/pages/:id', requirePermission('seo:manage'), (req, res) => {
-  const updated = db.updateSeoPage(req.params.id, req.body || {}, getActor(req, 'SEO Manager'));
-  res.json({ success: !!updated, page: updated });
+app.post('/api/admin/seo/pages/:id', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const updated = db.updateSeoPage(req.params.id, req.body || {}, actor);
+    if (updated) {
+      await persistModuleMutation({
+        module: 'seo_pages',
+        action: 'update',
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncSeoPageToSupabase(updated),
+      });
+    }
+    return res.json({ success: !!updated, page: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating SEO page.' });
+  }
 });
 
 app.post('/api/admin/seo/audit/run', requirePermission('seo:manage'), (req, res) => {
   const audit = SEOAuditService.runFullTechnicalAudit(getActor(req, 'SEO Manager'));
+  const latestLog = db.getSeoAuditLogs()[0];
+  if (latestLog) syncSeoAuditLogToSupabase(latestLog).catch(() => {});
   res.json({ success: true, audit });
 });
 
@@ -1866,18 +2549,66 @@ app.get('/api/admin/seo/robots-txt', requirePermission('seo:manage'), (_req, res
   res.json({ success: true, content: SitemapManager.getRobotsTxt() });
 });
 
-app.post('/api/admin/seo/robots-txt', requirePermission('seo:manage'), (req, res) => {
-  const content = db.setRobotsTxt(String(req.body?.content || ''), getActor(req, 'SEO Manager'));
-  res.json({ success: true, content });
+app.post('/api/admin/seo/robots-txt', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const content = db.setRobotsTxt(String(req.body?.content || ''), actor);
+    await persistModuleMutation({
+      module: 'seo_robots',
+      action: 'update',
+      recordId: 'robots.txt',
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor),
+    });
+    return res.json({ success: true, content });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving robots.txt.' });
+  }
 });
 
 app.get('/api/admin/seo/sitemap-config', requirePermission('seo:manage'), (_req, res) => {
   res.json({ success: true, config: db.getSitemapConfig() });
 });
 
-app.post('/api/admin/seo/sitemap-config', requirePermission('seo:manage'), (req, res) => {
-  const config = db.updateSitemapConfig(req.body || {}, getActor(req, 'SEO Manager'));
-  res.json({ success: true, config });
+app.post('/api/admin/seo/sitemap-config', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const config = db.updateSitemapConfig(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'seo_sitemap_config',
+      action: 'update',
+      recordId: 'sitemap',
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor),
+    });
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving sitemap config.' });
+  }
+});
+
+app.post('/api/admin/seo/indexnow/submit', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const urlsInput = Array.isArray(req.body?.urls)
+      ? req.body.urls
+      : String(req.body?.urls || '')
+          .split(/[\n,]/)
+          .map(s => s.trim())
+          .filter(Boolean);
+    const defaultUrls = urlsInput.length > 0
+      ? urlsInput
+      : db
+          .getData()
+          .articles.filter(a => a.status === 'published' && !isArticleFutureScheduled(a))
+          .slice(0, 10)
+          .map(a => `/en/news/${a.slug}`);
+    const outcome = await SitemapManager.submitIndexNow(defaultUrls, req.body?.key);
+    db.logAudit(actor, 'IndexNow URLs Submitted', outcome.message);
+    return res.status(outcome.ok ? 200 : 400).json({ success: outcome.ok, ...outcome });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'IndexNow submission failed.' });
+  }
 });
 
 app.get('/api/admin/seo/audit-logs', requirePermission('seo:manage'), (_req, res) => {
@@ -1892,8 +2623,12 @@ app.get('/api/admin/seo/search-console', requirePermission('seo:manage'), (_req,
   });
 });
 
-app.post('/api/admin/seo/search-console', requirePermission('seo:manage'), (req, res) => {
+app.post('/api/admin/seo/search-console', requirePermission('seo:manage'), async (req, res) => {
   db.updateSearchConsoleMetrics(req.body || {});
+  syncSearchConsoleConfigToSupabase(
+    SearchConsoleService.getSanitizedConnection(),
+    db.getSearchConsoleMetrics()
+  ).catch(() => {});
   res.json({
     success: true,
     metrics: db.getSearchConsoleMetrics(),
@@ -1967,6 +2702,7 @@ app.post('/api/admin/seo/gsc/test', requirePermission('seo:manage'), async (req,
 app.post('/api/admin/seo/gsc/sync', requirePermission('seo:manage'), async (req, res) => {
   try {
     const metrics = await SearchConsoleService.syncLiveAnalytics(getActor(req, 'SEO Manager'));
+    syncSearchConsoleConfigToSupabase(SearchConsoleService.getSanitizedConnection(), metrics).catch(() => {});
     return res.json({ success: metrics.connected, metrics });
   } catch (err: any) {
     return res.status(502).json({ success: false, error: err?.message || 'Failed syncing Search Console metrics.' });
@@ -1982,23 +2718,64 @@ app.get('/api/admin/seo/redirects', requirePermission('seo:manage'), (_req, res)
   res.json({ success: true, redirects: db.getRedirectRules() });
 });
 
-app.post('/api/admin/seo/redirects', requirePermission('seo:manage'), (req, res) => {
-  const saved = db.upsertRedirectRule(req.body || {}, getActor(req, 'SEO Manager'));
-  res.json({ success: true, redirect: saved });
+app.post('/api/admin/seo/redirects', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const saved = db.upsertRedirectRule(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'seo_redirects',
+      action: 'save',
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncRedirectRuleToSupabase(saved),
+    });
+    return res.json({ success: true, redirect: saved });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving redirect rule.' });
+  }
 });
 
-app.delete('/api/admin/seo/redirects/:id', requirePermission('seo:manage'), (req, res) => {
-  const success = db.deleteRedirectRule(req.params.id, getActor(req, 'SEO Manager'));
-  res.json({ success });
+app.delete('/api/admin/seo/redirects/:id', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const success = db.deleteRedirectRule(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'seo_redirects',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteRedirectRuleFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting redirect rule.' });
+  }
 });
 
 app.get('/api/admin/seo/broken-links', requirePermission('seo:manage'), (_req, res) => {
   res.json({ success: true, brokenLinks: db.getBrokenLinks() });
 });
 
-app.post('/api/admin/seo/broken-links/:id/resolve', requirePermission('seo:manage'), (req, res) => {
-  db.resolveBrokenLink(req.params.id);
-  res.json({ success: true });
+app.post('/api/admin/seo/broken-links/:id/resolve', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    db.resolveBrokenLink(req.params.id);
+    const updated = db.getBrokenLinks().find(b => b.id === req.params.id);
+    if (updated) {
+      await persistModuleMutation({
+        module: 'broken_links',
+        action: 'update',
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncBrokenLinkToSupabase(updated),
+      });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed resolving broken link.' });
+  }
 });
 
 app.post('/api/admin/seo/audit-article', requirePermission('seo:manage'), (req, res) => {
@@ -2674,6 +3451,46 @@ Return ONLY valid JSON:
   }
 });
 
+app.post('/api/admin/ai/summarize', requirePermission('ai:use'), async (req, res) => {
+  const { titleEn, titleUr, contentEn, contentUr, credentialId, model } = req.body || {};
+  try {
+    const prompt = `Summarize this Pakistani news article into 2 crisp factual sentences in both English and Urdu without adding external claims.
+English Title: ${titleEn || ''}
+Urdu Title: ${titleUr || ''}
+English Content: ${String(contentEn || '').slice(0, 1500)}
+Urdu Content: ${String(contentUr || '').slice(0, 1500)}
+
+Return ONLY valid JSON:
+{
+  "summaryEn": "...",
+  "summaryUr": "...",
+  "bulletPointsEn": ["...", "...", "..."]
+}`;
+
+    const { data, meta } = await AIProviderRouter.executeJsonTask<{
+      summaryEn?: string;
+      summaryUr?: string;
+      bulletPointsEn?: string[];
+    }>({
+      task: 'summarization',
+      prompt,
+      preferredProviderId: credentialId || undefined,
+      preferredModel: model || undefined,
+      actor: getActor(req),
+    });
+
+    return res.json({
+      success: true,
+      summaryEn: data.summaryEn || '',
+      summaryUr: data.summaryUr || '',
+      bulletPointsEn: Array.isArray(data.bulletPointsEn) ? data.bulletPointsEn : [],
+      telemetry: meta,
+    });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
+
 app.post('/api/admin/ai/seo-internal-links', requirePermission('ai:use'), async (req, res) => {
   const { articleId, titleEn, category, contentEn } = req.body || {};
   try {
@@ -2814,25 +3631,37 @@ app.get('/api/admin/ai/editorial-drafts', requirePermission('ai:use'), (_req, re
   res.json({ success: true, drafts: db.getEditorialDrafts() });
 });
 
-app.post('/api/admin/ai/editorial-drafts', requirePermission('ai:use'), (req, res) => {
-  const b = req.body || {};
-  const draft = db.saveEditorialDraft({
-    id: b.id || `edraft-${Date.now()}`,
-    template: b.template || 'bilingual_article',
-    titleEn: b.titleEn || 'Untitled Draft',
-    titleUr: b.titleUr || '',
-    contentEn: b.contentEn || '',
-    contentUr: b.contentUr || '',
-    summaryEn: b.summaryEn || '',
-    summaryUr: b.summaryUr || '',
-    providerType: b.providerType,
-    model: b.model,
-    totalTokens: b.totalTokens,
-    createdBy: getActor(req),
-    createdAt: b.createdAt || new Date().toISOString(),
-    updatedAt: b.updatedAt || new Date().toISOString(),
-  });
-  res.json({ success: true, draft });
+app.post('/api/admin/ai/editorial-drafts', requirePermission('ai:use'), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const b = req.body || {};
+    const draft = db.saveEditorialDraft({
+      id: b.id || `edraft-${Date.now()}`,
+      template: b.template || 'bilingual_article',
+      titleEn: b.titleEn || 'Untitled Draft',
+      titleUr: b.titleUr || '',
+      contentEn: b.contentEn || '',
+      contentUr: b.contentUr || '',
+      summaryEn: b.summaryEn || '',
+      summaryUr: b.summaryUr || '',
+      providerType: b.providerType,
+      model: b.model,
+      totalTokens: b.totalTokens,
+      createdBy: actor,
+      createdAt: b.createdAt || new Date().toISOString(),
+      updatedAt: b.updatedAt || new Date().toISOString(),
+    });
+    await persistModuleMutation({
+      module: 'editorial_drafts',
+      action: 'save',
+      recordId: draft.id,
+      actor,
+      syncFn: () => syncEditorialDraftToSupabase(draft),
+    });
+    return res.json({ success: true, draft });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving editorial draft.' });
+  }
 });
 
 // Backward-compatible Studio endpoints routed through AIProviderRouter (no hardcoded models or fake fallbacks)
@@ -3145,12 +3974,20 @@ app.get('/api/admin/automation/status', requirePermission('automation:manage'), 
   });
 });
 
-app.post('/api/admin/automation/providers', requirePermission('automation:manage'), (req, res) => {
+app.post('/api/admin/automation/providers', requirePermission('automation:manage'), async (req, res) => {
   try {
-    const provider = ProviderRegistry.upsertProvider(req.body || {}, getActor(req, 'Automation Manager'));
+    const actor = getActor(req, 'Automation Manager');
+    const provider = ProviderRegistry.upsertProvider(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'sync_providers',
+      action: 'save',
+      recordId: provider.id,
+      actor,
+      syncFn: () => syncDataProviderToSupabase(provider),
+    });
     return res.json({ success: true, provider });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Failed saving provider.' });
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Failed saving provider.' });
   }
 });
 
@@ -3163,9 +4000,23 @@ app.post('/api/admin/automation/providers/:id/test', requirePermission('automati
   }
 });
 
-app.delete('/api/admin/automation/providers/:id', requirePermission('automation:manage'), (req, res) => {
-  const success = ProviderRegistry.deleteProvider(req.params.id, getActor(req, 'Automation Manager'));
-  res.json({ success });
+app.delete('/api/admin/automation/providers/:id', requirePermission('automation:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Automation Manager');
+    const success = ProviderRegistry.deleteProvider(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'sync_providers',
+        action: 'delete',
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteDataProviderFromSupabase(req.params.id),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting provider.' });
+  }
 });
 
 app.post('/api/admin/automation/sync/:providerId', requirePermission('automation:manage'), async (req, res) => {
@@ -3377,6 +4228,16 @@ app.use((req, res, next) => {
   return next();
 });
 
+// IndexNow Key Ownership Verification File (/:key.txt)
+app.get('/:key.txt', (req, res, next) => {
+  const configuredKey = (db.getData().siteSettings?.indexNowKey || '').trim();
+  if (configuredKey && req.params.key === configuredKey) {
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    return res.send(configuredKey);
+  }
+  return next();
+});
+
 async function setupVite() {
   if (!isProduction) {
     const vitePkg = 'vite';
@@ -3394,7 +4255,7 @@ async function setupVite() {
         const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
         if (newsSlugMatch && newsSlugMatch[1]) {
           const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
-          if (found?.article && found.article.status === 'published') {
+          if (found?.article && found.article.status === 'published' && !isArticleFutureScheduled(found.article)) {
             preloadedArticle = found.article;
           }
         }
@@ -3423,7 +4284,7 @@ async function setupVite() {
       const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
       if (newsSlugMatch && newsSlugMatch[1]) {
         const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
-        if (found?.article && found.article.status === 'published') {
+        if (found?.article && found.article.status === 'published' && !isArticleFutureScheduled(found.article)) {
           preloadedArticle = found.article;
         }
       }

@@ -17,6 +17,51 @@ import { DataValidator } from './DataValidator.ts';
 import { SyncLogger } from './SyncLogger.ts';
 import { processDataChangeWithGemini } from '../../src/server/automation/aiContentEngine.ts';
 
+function isPrivateOrBlockedHostname(hostname: string): boolean {
+  const lower = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!lower) return true;
+  if (
+    lower === 'localhost' ||
+    lower === '0.0.0.0' ||
+    lower === '::1' ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal')
+  ) {
+    return true;
+  }
+  // IPv4 literal checks (127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, 0/8)
+  const ipv4Match = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [a, b] = [Number(ipv4Match[1]), Number(ipv4Match[2])];
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+  }
+  // RFC4193 Unique Local IPv6 (fc00::/7) or link-local fe80::/10
+  if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:')) {
+    return true;
+  }
+  return false;
+}
+
+export function validateSafeExternalUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL((rawUrl || '').trim());
+  } catch {
+    throw new Error('Invalid endpoint URL format.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only http:// and https:// endpoints are allowed.');
+  }
+  if (isPrivateOrBlockedHostname(parsed.hostname)) {
+    throw new Error('SSRF protection: private, loopback, or internal network hostnames are blocked.');
+  }
+  return parsed;
+}
+
 export class ProviderRegistry {
   public static getAllSanitized(): DataProvider[] {
     return db.getDataProviders().map(p => ({
@@ -32,6 +77,7 @@ export class ProviderRegistry {
     if (!input.name?.trim() || !input.endpoint?.trim()) {
       throw new Error('Provider name and endpoint URL are required.');
     }
+    validateSafeExternalUrl(input.endpoint.trim());
 
     const existing = input.id ? db.getDataProvider(input.id) : undefined;
     const now = new Date().toISOString();
@@ -95,6 +141,7 @@ export class ProviderRegistry {
     if (!provider) {
       throw new Error('Provider not found.');
     }
+    validateSafeExternalUrl(provider.endpoint);
 
     const start = Date.now();
     const headers: Record<string, string> = {
@@ -225,6 +272,7 @@ export class ProviderRegistry {
           if (!provider) {
             throw new Error(`Unknown provider ID: ${providerId}`);
           }
+          validateSafeExternalUrl(provider.endpoint);
           const headers: Record<string, string> = {
             Accept: 'application/json, application/xml, text/xml, */*',
             'User-Agent': '360Khabarnama-SyncBot/2.0',

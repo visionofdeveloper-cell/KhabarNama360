@@ -118,6 +118,10 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
   const [savingProvider, setSavingProvider] = useState(false);
 
   const [aiHealth, setAiHealth] = useState<any>(null);
+  const [islamicMethod, setIslamicMethod] = useState<number>(1);
+  const [islamicAsr, setIslamicAsr] = useState<'Hanafi' | 'Shafi'>('Hanafi');
+  const [islamicCity, setIslamicCity] = useState<string>('karachi');
+  const [jobsSummary, setJobsSummary] = useState<{ total: number; activeCount: number; expiredCount: number } | null>(null);
 
   const loadAllData = () => {
     setLoading(true);
@@ -127,13 +131,29 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
       fetch('/api/admin/automation/drafts', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/admin/automation/settings', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/v1/admin/ai/diagnostics', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+      fetch('/api/settings', { credentials: 'include' }).then(r => r.json()).catch(() => null),
+      fetch('/api/jobs').then(r => r.json()).catch(() => null),
     ])
-      .then(([statusRes, historyRes, draftsRes, settingsRes, aiDiagRes]) => {
+      .then(([statusRes, historyRes, draftsRes, settingsRes, aiDiagRes, siteSetRes, jobsRes]) => {
         if (statusRes.success) setProviders(statusRes.providers || []);
         if (historyRes.success) setSyncHistory(historyRes.runs || []);
         if (draftsRes.success) setAiDrafts(draftsRes.drafts || []);
         if (settingsRes.success) setSettings(settingsRes.settings || null);
         if (aiDiagRes?.success) setAiHealth(aiDiagRes);
+        if (siteSetRes?.success && siteSetRes.settings?.islamicSettings) {
+          const ic = siteSetRes.settings.islamicSettings;
+          if (ic.calculationMethod) setIslamicMethod(ic.calculationMethod);
+          if (ic.asrJuristic) setIslamicAsr(ic.asrJuristic);
+          if (ic.defaultCity) setIslamicCity(ic.defaultCity);
+        }
+        if (jobsRes?.success && Array.isArray(jobsRes.jobs)) {
+          const expiredCount = jobsRes.jobs.filter((j: any) => j.isExpired).length;
+          setJobsSummary({
+            total: jobsRes.jobs.length,
+            activeCount: jobsRes.activeCount ?? jobsRes.jobs.length - expiredCount,
+            expiredCount,
+          });
+        }
       })
       .catch(err => {
         setFeedback({ ok: false, text: err?.message || 'Failed to load automation state.' });
@@ -428,6 +448,40 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
       }
     } catch (e: any) {
       setFeedback({ ok: false, text: e?.message || 'Error saving settings.' });
+    }
+  };
+
+  const handleSaveIslamicConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const methodNames: Record<number, string> = {
+      1: 'University of Islamic Sciences, Karachi',
+      2: 'Islamic Society of North America (ISNA)',
+      3: 'Muslim World League (MWL)',
+      4: 'Umm Al-Qura University, Makkah',
+    };
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          islamicSettings: {
+            calculationMethod: islamicMethod,
+            calculationMethodName: methodNames[islamicMethod] || 'University of Islamic Sciences, Karachi',
+            asrJuristic: islamicAsr,
+            defaultCity: islamicCity,
+          },
+        }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setFeedback({ ok: true, text: `Saved Islamic Prayer Calculation Settings (${methodNames[islamicMethod]}, ${islamicAsr}).` });
+        loadAllData();
+      } else {
+        setFeedback({ ok: false, text: d.error || 'Failed saving Islamic configuration.' });
+      }
+    } catch (e: any) {
+      setFeedback({ ok: false, text: e?.message || 'Network error saving Islamic configuration.' });
     }
   };
 
@@ -878,12 +932,88 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
       )}
 
       {/* DOMAIN CATEGORY TABS */}
-      {categoryFilterMap[activeTab] &&
-        renderCategoryProvidersCard(
-          `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Sync Feeds`,
-          'Domain-specific feeds with commercial rights and daily quota enforcement.',
-          categoryFilterMap[activeTab]
-        )}
+      {categoryFilterMap[activeTab] && (
+        <div className="space-y-4">
+          {renderCategoryProvidersCard(
+            `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Sync Feeds`,
+            'Domain-specific feeds with commercial rights and daily quota enforcement.',
+            categoryFilterMap[activeTab]
+          )}
+
+          {activeTab === 'islamic' && (
+            <form onSubmit={handleSaveIslamicConfig} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 text-xs">
+              <div className="border-b border-gray-100 pb-3">
+                <h3 className="text-sm font-black text-gray-900">Islamic Prayer Time Calculation &amp; Jurisprudence Defaults</h3>
+                <p className="text-gray-500">Persisted directly in global site configuration and served dynamically via /api/islamic/prayer-times.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Calculation Method</label>
+                  <select
+                    value={islamicMethod}
+                    onChange={e => setIslamicMethod(parseInt(e.target.value, 10) || 1)}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-semibold"
+                  >
+                    <option value={1}>1 — University of Islamic Sciences, Karachi</option>
+                    <option value={2}>2 — ISNA (North America)</option>
+                    <option value={3}>3 — Muslim World League (MWL)</option>
+                    <option value={4}>4 — Umm Al-Qura University, Makkah</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Asr Juristic Method</label>
+                  <select
+                    value={islamicAsr}
+                    onChange={e => setIslamicAsr(e.target.value === 'Shafi' ? 'Shafi' : 'Hanafi')}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-semibold"
+                  >
+                    <option value="Hanafi">Hanafi (Standard South Asia)</option>
+                    <option value="Shafi">Shafi / Maliki / Hanbali</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Default Metro City</label>
+                  <select
+                    value={islamicCity}
+                    onChange={e => setIslamicCity(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-semibold"
+                  >
+                    <option value="karachi">Karachi</option>
+                    <option value="lahore">Lahore</option>
+                    <option value="islamabad">Islamabad</option>
+                    <option value="peshawar">Peshawar</option>
+                    <option value="quetta">Quetta</option>
+                    <option value="multan">Multan</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button type="submit" className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg">
+                  Save Islamic Calculation Rules
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === 'education' && jobsSummary && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-gray-900">Jobs Expiration Filter &amp; JobPosting Readiness</h3>
+                  <p className="text-gray-500">
+                    <code>/api/jobs?hideExpired=true</code> automatically filters past-deadline listings and calculates <code>isExpired</code> for Schema.org JobPosting accuracy.
+                  </p>
+                </div>
+                <div className="flex gap-2 font-mono text-[11px]">
+                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded font-bold">Active: {jobsSummary.activeCount}</span>
+                  <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded font-bold">Expired: {jobsSummary.expiredCount}</span>
+                  <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded font-bold">Total: {jobsSummary.total}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* SCHEDULES & NAMECHEAP CPANEL CRON */}
       {activeTab === 'schedules' && settings && (
@@ -1359,6 +1489,9 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                   placeholder="https://api.example.com/v1/feed.json"
                   className="w-full p-2 border border-gray-300 rounded-lg font-mono"
                 />
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  SSRF Protection active: localhost, .local/.internal, and private/metadata IPs are rejected server-side.
+                </p>
               </div>
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Method</label>

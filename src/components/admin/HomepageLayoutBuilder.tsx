@@ -36,6 +36,7 @@ interface HomepageLayoutBuilderProps {
 const SECTION_PRESETS: { type: HomepageSectionType; label: string; nameEn: string; nameUr: string }[] = [
   { type: 'live_widgets_bar', label: 'Live Cricket / Gold / Weather Strip', nameEn: 'Live Market & Cricket Bar', nameUr: 'لائیو کرکٹ، سونا اور موسم' },
   { type: 'hero_editorial_grid', label: 'Hero Lead Story + Trending Sidebar', nameEn: 'Top Editorial Hero & Trending', nameUr: 'اہم خبریں اور مقبول ترین' },
+  { type: 'latest_news_feed', label: 'Latest News Chronological Feed (15 Default)', nameEn: 'Latest News', nameUr: 'تازہ ترین خبریں' },
   { type: 'category_news_grid', label: 'Category News Block', nameEn: 'Category Spotlight', nameUr: 'منتخب کیٹیگری کی خبریں' },
   { type: 'ad_banner', label: 'Advertising Slot Banner', nameEn: 'Sponsored Leaderboard', nameUr: 'اشتہاری بینر' },
   { type: 'islamic_prayer_digest', label: 'Islamic Prayer Times & Hadith Digest', nameEn: 'Daily Islamic Digest', nameUr: 'اوقاتِ نماز اور اسلامی معلومات' },
@@ -112,8 +113,13 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
       width: 'contained',
       template: preset.type === 'hero_editorial_grid' ? 'lead-plus-list' : 'grid',
       categorySlug: categories[0]?.slug || 'pakistan',
-      articleSource: preset.type === 'hero_editorial_grid' ? 'featured' : 'category',
-      itemLimit: 6,
+      articleSource:
+        preset.type === 'hero_editorial_grid'
+          ? 'featured'
+          : preset.type === 'latest_news_feed'
+          ? 'latest'
+          : 'category',
+      itemLimit: preset.type === 'latest_news_feed' ? 15 : 6,
       displayMode: 'current_lang',
       adSlot: preset.type === 'ad_banner' ? 'leaderboard' : undefined,
     };
@@ -431,6 +437,20 @@ export const HomepageLayoutBuilder: React.FC<HomepageLayoutBuilderProps> = ({ ca
                     />
                   </div>
                 </div>
+
+                {selected.type === 'latest_news_feed' && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Latest News Feed Count (Default: 15)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={30}
+                      value={selected.itemLimit || 15}
+                      onChange={e => updateSelected({ itemLimit: Math.max(5, Math.min(30, parseInt(e.target.value) || 15)) })}
+                      className="w-full p-2 border border-gray-300 rounded-lg font-mono"
+                    />
+                  </div>
+                )}
 
                 {selected.type === 'category_news_grid' && (
                   <div className="grid grid-cols-2 gap-3">

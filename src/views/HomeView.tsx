@@ -53,6 +53,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
   const [boards, setBoards] = useState<EducationBoard[]>([]);
   const [layoutSections, setLayoutSections] = useState<HomepageSectionItem[]>(DEFAULT_HOME_SECTIONS);
   const [customBlocks, setCustomBlocks] = useState<CustomReusableBlock[]>([]);
+  const [latestFeedArticles, setLatestFeedArticles] = useState<Article[]>([]);
+  const [latestTotal, setLatestTotal] = useState(0);
+  const [latestPage, setLatestPage] = useState(1);
+  const [loadingMoreLatest, setLoadingMoreLatest] = useState(false);
+  const [latestLimitSetting, setLatestLimitSetting] = useState<number>(15);
 
   // Quick Roll Number Checker state
   const [selectedBoard, setSelectedBoard] = useState('BISE_LHR');
@@ -64,11 +69,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
   useEffect(() => {
     const loadHomeFeeds = async () => {
       const [newsData, weatherData, finData, cricketData, prayerData] = await Promise.all([
-        safeFetchJson('/api/news'),
+        safeFetchJson('/api/news?limit=30'),
         safeFetchJson('/api/weather'),
         safeFetchJson('/api/finance/rates'),
         safeFetchJson('/api/cricket/matches'),
-        safeFetchJson('/api/islamic/prayer-times?city=karachi'),
+        safeFetchJson('/api/islamic/prayer-times'),
       ]);
 
       if (newsData.success) setArticles(newsData.articles || []);
@@ -82,17 +87,32 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
     };
 
     const loadStaticLayout = async () => {
-      const [boardsData, homeCfg, blocksData] = await Promise.all([
+      const [boardsData, homeCfg, blocksData, settingsData] = await Promise.all([
         safeFetchJson('/api/education/boards'),
         safeFetchJson('/api/homepage/config'),
         safeFetchJson('/api/homepage/custom-blocks/public'),
+        safeFetchJson('/api/settings'),
       ]);
       if (boardsData.success) setBoards(boardsData.boards || []);
-      if (homeCfg.success && Array.isArray(homeCfg.config?.sections) && homeCfg.config.sections.length > 0) {
-        setLayoutSections(homeCfg.config.sections);
-      }
+      const sections: HomepageSectionItem[] =
+        homeCfg.success && Array.isArray(homeCfg.config?.sections) && homeCfg.config.sections.length > 0
+          ? homeCfg.config.sections
+          : DEFAULT_HOME_SECTIONS;
+      setLayoutSections(sections);
       if (blocksData.success && Array.isArray(blocksData.blocks)) {
         setCustomBlocks(blocksData.blocks);
+      }
+      const latestSection = sections.find(s => s.type === 'latest_news_feed');
+      const configuredLimit = Math.max(
+        5,
+        Number(latestSection?.itemLimit || settingsData?.settings?.latestNewsCount || 15)
+      );
+      setLatestLimitSetting(configuredLimit);
+      const latestRes = await safeFetchJson(`/api/v1/news?status=published&limit=${configuredLimit}&page=1`);
+      if (latestRes.success) {
+        setLatestFeedArticles(latestRes.articles || []);
+        setLatestTotal(latestRes.total || (latestRes.articles || []).length);
+        setLatestPage(1);
       }
     };
 
@@ -164,13 +184,47 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
     }
   };
 
+  const handleLoadMoreLatest = async (limit: number) => {
+    setLoadingMoreLatest(true);
+    try {
+      const nextPage = latestPage + 1;
+      const res = await safeFetchJson(`/api/v1/news?status=published&limit=${limit}&page=${nextPage}`);
+      if (res.success && Array.isArray(res.articles)) {
+        setLatestFeedArticles(prev => {
+          const seen = new Set(prev.map(a => a.id));
+          return [...prev, ...res.articles.filter((a: Article) => !seen.has(a.id))];
+        });
+        setLatestTotal(res.total || latestTotal);
+        setLatestPage(nextPage);
+      }
+    } finally {
+      setLoadingMoreLatest(false);
+    }
+  };
+
   const featuredArticle = articles.find(a => a.isFeatured) || articles[0];
   const secondaryArticles = articles.filter(a => a.id !== featuredArticle?.id).slice(0, 4);
   const liveCricket = cricketMatches[0];
 
-  const orderedSections = [...layoutSections]
+  const baseOrdered = [...layoutSections]
     .filter(s => s.enabled !== false)
     .sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+
+  const orderedSections = baseOrdered.some(s => s.type === 'latest_news_feed')
+    ? baseOrdered
+    : [
+        ...baseOrdered.slice(0, 2),
+        {
+          id: 'def-latest-15',
+          type: 'latest_news_feed' as const,
+          nameEn: 'Latest News & Top Stories',
+          nameUr: 'تازہ ترین خبریں',
+          enabled: true,
+          order: 2.5,
+          itemLimit: latestLimitSetting,
+        },
+        ...baseOrdered.slice(2),
+      ];
 
   const renderSection = (sec: HomepageSectionItem) => {
     if (sec.type === 'live_widgets_bar') {
@@ -280,7 +334,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
               <div className="relative aspect-16/9 overflow-hidden bg-gray-100">
                 <img
                   src={featuredArticle.heroImage}
-                  alt={featuredArticle.titleEn}
+                  alt={isUrdu ? featuredArticle.heroImageMeta?.altTextUr || featuredArticle.titleUr : featuredArticle.heroImageMeta?.altTextEn || featuredArticle.titleEn}
+                  width={1200}
+                  height={675}
+                  fetchPriority="high"
+                  decoding="async"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
                 <div className="absolute top-3 left-3 flex gap-2">
@@ -368,8 +426,16 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
                         </span>
                       </div>
                     </div>
-                    {art.heroImage && (
-                      <img src={art.heroImage} alt={art.titleEn} className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                    {(art.featuredImage || art.heroImage) && (
+                      <img
+                        src={art.featuredImage || art.heroImage}
+                        alt={isUrdu ? art.featuredImageMeta?.altTextUr || art.titleUr : art.featuredImageMeta?.altTextEn || art.titleEn}
+                        width={64}
+                        height={64}
+                        loading="lazy"
+                        decoding="async"
+                        className="w-16 h-16 rounded-xl object-cover shrink-0"
+                      />
                     )}
                   </div>
                 ))}
@@ -464,6 +530,112 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
 
     if (sec.type === 'ad_banner') {
       return <AdBanner key={sec.id} slot={(sec.adSlot as any) || 'leaderboard'} />;
+    }
+
+    if (sec.type === 'latest_news_feed') {
+      const limit = sec.itemLimit || latestLimitSetting || 15;
+      const list = (latestFeedArticles.length > 0 ? latestFeedArticles : articles).slice(0, Math.max(limit, latestFeedArticles.length || limit));
+      const hasMore = latestTotal > list.length;
+      if (list.length === 0) return null;
+
+      return (
+        <section key={sec.id} className="bg-white border border-gray-200 rounded-3xl p-6 shadow-xs space-y-5">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div>
+              <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                <Newspaper className="w-5 h-5 text-emerald-700" />
+                <span>{isUrdu ? sec.nameUr : sec.nameEn}</span>
+              </h3>
+              <p className="text-xs text-gray-500">
+                {isUrdu
+                  ? `تازہ ترین ${list.length} مستند خبریں`
+                  : `Showing latest ${list.length} published stories in chronological order`}
+              </p>
+            </div>
+            <button
+              onClick={() => navigateTo('pakistan')}
+              className="text-xs font-bold text-emerald-700 hover:underline flex items-center gap-1"
+            >
+              <span>{t('common.viewAll')}</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {list.map(art => {
+              const cardImg = art.featuredImage || art.heroImage;
+              const cardTitle = isUrdu ? art.titleUr || art.titleEn : art.titleEn || art.titleUr;
+              const cardSummary = isUrdu ? art.summaryUr || art.summaryEn : art.summaryEn || art.summaryUr;
+              const href = `/${isUrdu ? 'ur' : 'en'}/news/${encodeURIComponent(art.slug)}`;
+              return (
+                <article
+                  key={art.id}
+                  onClick={() => onSelectArticle(art)}
+                  className="border border-gray-200 rounded-2xl overflow-hidden cursor-pointer group hover:shadow-md transition-all flex flex-col justify-between bg-white"
+                >
+                  <div>
+                    <div className="aspect-16/10 bg-gray-100 overflow-hidden relative">
+                      {cardImg && (
+                        <img
+                          src={cardImg}
+                          alt={isUrdu ? art.featuredImageMeta?.altTextUr || cardTitle : art.featuredImageMeta?.altTextEn || cardTitle}
+                          width={640}
+                          height={400}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      )}
+                      <span className="absolute top-2.5 left-2.5 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+                        {art.category}
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-gray-400">
+                        <span>{new Date(art.publishedAt || art.updatedAt).toLocaleDateString()}</span>
+                        <span>
+                          {art.readingTimeMin || 3} {t('common.minRead')}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-sm text-gray-900 line-clamp-2 group-hover:text-emerald-700 leading-snug">
+                        <a
+                          href={href}
+                          onClick={e => {
+                            e.preventDefault();
+                            onSelectArticle(art);
+                          }}
+                        >
+                          {cardTitle}
+                        </a>
+                      </h4>
+                      <p className="text-xs text-gray-500 line-clamp-2">{cardSummary}</p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                disabled={loadingMoreLatest}
+                onClick={() => void handleLoadMoreLatest(limit)}
+                className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-colors"
+              >
+                {loadingMoreLatest
+                  ? isUrdu
+                    ? 'لوڈ ہو رہا ہے...'
+                    : 'Loading more...'
+                  : isUrdu
+                  ? 'مزید تازہ ترین خبریں دیکھیں'
+                  : 'Load More Latest News'}
+              </button>
+            </div>
+          )}
+        </section>
+      );
     }
 
     if (sec.type === 'islamic_prayer_digest' && prayerTimes) {
@@ -597,8 +769,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
               >
                 <div className="aspect-16/10 bg-gray-100 overflow-hidden">
                   <img
-                    src={art.heroImage}
-                    alt={art.titleEn}
+                    src={art.featuredImage || art.heroImage}
+                    alt={isUrdu ? art.featuredImageMeta?.altTextUr || art.titleUr : art.featuredImageMeta?.altTextEn || art.titleEn}
+                    width={640}
+                    height={400}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                   />
                 </div>

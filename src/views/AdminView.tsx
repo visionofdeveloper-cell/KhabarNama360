@@ -55,6 +55,12 @@ import {
   KeyRound,
   Square,
   RefreshCw,
+  Upload,
+  Image as ImageIcon,
+  Eye,
+  Pause,
+  Play,
+  Archive,
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -112,8 +118,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   // Advertising States
   const [adPlacements, setAdPlacements] = useState<AdPlacement[]>([]);
   const [adCampaigns, setAdCampaigns] = useState<AdCampaign[]>([]);
+  const [adsenseReadiness, setAdsenseReadiness] = useState<any>(null);
   const [activeAdTab, setActiveAdTab] = useState<'campaigns' | 'placements'>('campaigns');
   const [newCampaignModal, setNewCampaignModal] = useState(false);
+  const [savingCampaign, setSavingCampaign] = useState(false);
   const [newCampaign, setNewCampaign] = useState<Partial<AdCampaign>>({
     campaignName: '',
     advertiserName: '',
@@ -124,6 +132,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     destinationUrl: 'https://',
     placementSlotIds: ['slot-1'],
     status: 'active',
+    priority: 10,
+    notes: '',
   });
 
   // Media Library States
@@ -138,6 +148,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     altTextEn: '',
     altTextUr: '',
   });
+  const [mediaPickerTarget, setMediaPickerTarget] = useState<'hero' | 'featured' | 'social' | 'campaign' | null>(null);
+  const [uploadingImageSlot, setUploadingImageSlot] = useState<string | null>(null);
 
   // Users & RBAC
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -155,6 +167,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   // Audience & Broadcasts
   const [subscribers, setSubscribers] = useState<NewsletterSubscriber[]>([]);
+  const [newSubEmail, setNewSubEmail] = useState('');
+  const [newSubLang, setNewSubLang] = useState<'en' | 'ur' | 'both'>('both');
+  const [newSubFreq, setNewSubFreq] = useState<'daily' | 'breaking'>('daily');
+  const [addingSub, setAddingSub] = useState(false);
   const [notificationsList, setNotificationsList] = useState<AudienceNotification[]>([]);
   const [newNotification, setNewNotification] = useState<Partial<AudienceNotification>>({
     titleEn: '',
@@ -192,6 +208,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const [composerCredentialId, setComposerCredentialId] = useState<string>('');
   const [composerTelemetry, setComposerTelemetry] = useState<any>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [savingArticle, setSavingArticle] = useState(false);
   const [headlineChoices, setHeadlineChoices] = useState<{
     headlinesEn?: string[];
     headlinesUr?: string[];
@@ -218,6 +235,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     isTrending: false,
     readingTimeMin: 3,
     heroImage: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
+    featuredImage: '',
+    socialImageUrl: '',
+    useHeroAsFeatured: false,
+    heroImageMeta: {},
+    featuredImageMeta: {},
     imageCaptionEn: 'Editorial reporting.',
     imageCaptionUr: 'خصوصی رپورٹنگ۔',
     author: {
@@ -300,12 +322,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const loadModuleData = async (mod: AdminModuleId) => {
     try {
       if (mod === 'ads') {
-        const [plRes, cRes] = await Promise.all([
+        const [plRes, cRes, arRes, mRes] = await Promise.all([
           safeFetchJson('/api/admin/ads/placements', { credentials: 'include' }),
           safeFetchJson('/api/admin/ads/campaigns', { credentials: 'include' }),
+          safeFetchJson('/api/admin/adsense-readiness', { credentials: 'include' }).catch(() => null),
+          safeFetchJson('/api/admin/media', { credentials: 'include' }).catch(() => null),
         ]);
         if (plRes.success) setAdPlacements(plRes.placements || []);
         if (cRes.success) setAdCampaigns(cRes.campaigns || []);
+        if (arRes?.success) setAdsenseReadiness(arRes);
+        if (mRes?.success) setMediaAssets(mRes.assets || []);
       } else if (mod === 'media' || mod === 'seo') {
         const res = await safeFetchJson('/api/admin/media', { credentials: 'include' });
         if (res.success) setMediaAssets(res.assets || []);
@@ -320,12 +346,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         if (sRes.success) setSubscribers(sRes.subscribers || []);
         if (nRes.success) setNotificationsList(nRes.notifications || []);
       } else if (mod === 'ai-studio' || mod === 'composer') {
-        const [pRes, dRes] = await Promise.all([
+        const [pRes, dRes, mRes] = await Promise.all([
           safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }),
           safeFetchJson('/api/admin/ai/editorial-drafts', { credentials: 'include' }),
+          safeFetchJson('/api/admin/media', { credentials: 'include' }).catch(() => null),
         ]);
         if (pRes.success) setAiProviders(pRes.providers || []);
         if (dRes.success) setSavedDrafts(dRes.drafts || []);
+        if (mRes?.success) setMediaAssets(mRes.assets || []);
       } else if (mod === 'health') {
         const res = await safeFetchJson('/api/admin/system/health', { credentials: 'include' });
         if (res.success) setSystemHealth(res.health);
@@ -378,6 +406,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       isTrending: false,
       readingTimeMin: 3,
       heroImage: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
+      featuredImage: '',
+      socialImageUrl: '',
+      useHeroAsFeatured: false,
+      heroImageMeta: {},
+      featuredImageMeta: {},
       imageCaptionEn: 'Editorial reporting.',
       imageCaptionUr: 'خصوصی رپورٹنگ۔',
       author: {
@@ -392,6 +425,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const handleSaveArticle = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingArticle) return;
     setComposerError(null);
     if (!formData.titleEn?.trim() && !formData.titleUr?.trim()) {
       const msg = 'Please provide at least one headline (English or Urdu) before saving.';
@@ -405,9 +439,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       ...formData,
       id: editingArticleId || `art-${Date.now()}`,
       slug: finalSlug,
+      featuredImage: formData.useHeroAsFeatured ? formData.heroImage : formData.featuredImage,
       ...(editingArticleId && typeof formData.version === 'number' ? { expectedVersion: formData.version } : {}),
     };
 
+    setSavingArticle(true);
     try {
       const res = await authorizedFetch('/api/news', {
         method: 'POST',
@@ -437,14 +473,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         broadcastArticlesUpdated();
         await loadCoreData();
       } else {
-        const errMsg = data.error || 'Failed to save article';
+        const errMsg = data.error || 'Failed to save article — form inputs preserved.';
         setComposerError(errMsg);
         notify(errMsg, 'error');
       }
     } catch {
-      const errMsg = 'Network error saving article';
+      const errMsg = 'Network error saving article — form inputs preserved.';
       setComposerError(errMsg);
       notify(errMsg, 'error');
+    } finally {
+      setSavingArticle(false);
     }
   };
 
@@ -642,6 +680,132 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     }
   };
 
+  const handleSummarizeComposer = async () => {
+    const titleEn = formData.titleEn || '';
+    const titleUr = formData.titleUr || '';
+    const contentEn = formData.contentEn || '';
+    const contentUr = formData.contentUr || '';
+    if (!titleEn && !titleUr && !contentEn && !contentUr) {
+      notify('Enter headline or body before summarizing.', 'error');
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const res = await authorizedFetch('/api/admin/ai/summarize', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titleEn,
+          titleUr,
+          contentEn,
+          contentUr,
+          credentialId: composerCredentialId || undefined,
+        }),
+      });
+      const { data: d } = await safeParseResponse(res);
+      if (res.ok && d.success) {
+        setFormData(prev => ({
+          ...prev,
+          summaryEn: d.summaryEn || prev.summaryEn,
+          summaryUr: d.summaryUr || prev.summaryUr,
+        }));
+        if (d.telemetry) setComposerTelemetry(d.telemetry);
+        notify('Generated concise bilingual EN + UR summaries.');
+      } else {
+        notify(d.error || 'AI summarizer failed or unconfigured.', 'error');
+      }
+    } catch {
+      notify('Network error contacting AI summarizer.', 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const handleUploadImageFile = async (
+    file: File,
+    target: 'hero' | 'featured' | 'social' | 'campaign' | 'library'
+  ) => {
+    setUploadingImageSlot(target);
+    try {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Failed reading image file'));
+        reader.readAsDataURL(file);
+      });
+
+      const dims = await new Promise<{ width?: number; height?: number }>(resolve => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => resolve({});
+        img.src = base64Data;
+      });
+
+      const res = await authorizedFetch('/api/admin/media/upload', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          base64Data,
+          category: target === 'campaign' ? 'advertising' : formData.category || 'editorial',
+          altTextEn: target === 'featured' ? formData.featuredImageMeta?.altTextEn : formData.heroImageMeta?.altTextEn,
+          altTextUr: target === 'featured' ? formData.featuredImageMeta?.altTextUr : formData.heroImageMeta?.altTextUr,
+          captionEn: formData.imageCaptionEn,
+          captionUr: formData.imageCaptionUr,
+          width: dims.width,
+          height: dims.height,
+        }),
+      });
+      const { data: d } = await safeParseResponse(res);
+      if (!res.ok || !d.success || !d.asset) {
+        notify(d.error || 'Image upload rejected.', 'error');
+        return;
+      }
+
+      const asset: MediaAsset = d.asset;
+      setMediaAssets(prev => [asset, ...prev]);
+
+      if (target === 'hero') {
+        setFormData(prev => ({
+          ...prev,
+          heroImage: asset.url,
+          ...(prev.useHeroAsFeatured ? { featuredImage: asset.url } : {}),
+          heroImageMeta: {
+            ...(prev.heroImageMeta || {}),
+            width: asset.width || dims.width,
+            height: asset.height || dims.height,
+            fileSize: asset.sizeBytes,
+            mimeType: asset.mimeType,
+          },
+        }));
+      } else if (target === 'featured') {
+        setFormData(prev => ({
+          ...prev,
+          featuredImage: asset.url,
+          useHeroAsFeatured: false,
+          featuredImageMeta: {
+            ...(prev.featuredImageMeta || {}),
+            width: asset.width || dims.width,
+            height: asset.height || dims.height,
+            fileSize: asset.sizeBytes,
+            mimeType: asset.mimeType,
+          },
+        }));
+      } else if (target === 'social') {
+        setFormData(prev => ({ ...prev, socialImageUrl: asset.url }));
+      } else if (target === 'campaign') {
+        setNewCampaign(prev => ({ ...prev, bannerUrl: asset.url }));
+      }
+      notify(`Uploaded image to ${d.storageTarget === 'supabase_storage' ? 'Supabase Storage' : 'Server Media Storage'}.`);
+    } catch (err: any) {
+      notify(err?.message || 'Error uploading image.', 'error');
+    } finally {
+      setUploadingImageSlot(null);
+    }
+  };
+
   // AI Content Studio execution
   const handleRunStudioTask = async () => {
     if (!studioTopic.trim() && !studioInputText.trim()) {
@@ -738,21 +902,67 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   };
 
   // Advertising, Media, Audience, Staff handlers
+  const openCreateCampaignModal = () => {
+    setNewCampaign({
+      campaignName: '',
+      advertiserName: '',
+      budgetPkr: 250000,
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      bannerUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80',
+      destinationUrl: 'https://',
+      placementSlotIds: ['slot-1'],
+      status: 'active',
+      priority: 10,
+      notes: '',
+    });
+    setNewCampaignModal(true);
+  };
+
+  const openEditCampaignModal = (camp: AdCampaign) => {
+    setNewCampaign({ ...camp });
+    setNewCampaignModal(true);
+  };
+
   const handleSaveCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await authorizedFetch('/api/admin/ads/campaigns', {
-      method: 'POST',
+    if (savingCampaign) return;
+    setSavingCampaign(true);
+    try {
+      const res = await authorizedFetch('/api/admin/ads/campaigns', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCampaign),
+      });
+      const { data } = await safeParseResponse(res);
+      if (res.ok && data.success) {
+        notify(newCampaign.id ? 'Campaign updated & persisted!' : 'Campaign created & persisted!');
+        setNewCampaignModal(false);
+        await loadModuleData('ads');
+      } else {
+        notify(data.error || 'Failed to save campaign', 'error');
+      }
+    } catch {
+      notify('Network error saving campaign.', 'error');
+    } finally {
+      setSavingCampaign(false);
+    }
+  };
+
+  const handleCampaignStatusChange = async (id: string, status: 'draft' | 'active' | 'paused' | 'archived') => {
+    const res = await authorizedFetch(`/api/admin/ads/campaigns/${id}/status`, {
+      method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCampaign),
+      body: JSON.stringify({ status }),
     });
-    const { data } = await safeParseResponse(res);
-    if (res.ok && data.success) {
-      notify('Campaign created!');
-      setNewCampaignModal(false);
-      loadModuleData('ads');
+    const { data: d } = await safeParseResponse(res);
+    if (res.ok && d.success) {
+      notify(`Campaign status updated to "${status}".`);
+      await loadModuleData('ads');
     } else {
-      notify(data.error || 'Failed to create campaign', 'error');
+      notify(d.error || 'Failed updating campaign status.', 'error');
     }
   };
 
@@ -765,7 +975,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
           notify('Campaign removed.');
-          loadModuleData('ads');
+          await loadModuleData('ads');
+        } else {
+          notify(d.error || 'Failed removing campaign.', 'error');
         }
       },
     });
@@ -841,6 +1053,65 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     } else {
       notify(d.error || 'Broadcast dispatch failed', 'error');
     }
+  };
+
+  const handleAddSubscriberManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (addingSub || !newSubEmail.trim()) return;
+    setAddingSub(true);
+    try {
+      const res = await authorizedFetch('/api/admin/audience/subscribers', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newSubEmail.trim(), language: newSubLang, frequency: newSubFreq }),
+      });
+      const { data: d } = await safeParseResponse(res);
+      if (res.ok && d.success) {
+        notify(d.added ? 'Subscriber added.' : 'Subscriber already active.');
+        setNewSubEmail('');
+        await loadModuleData('audience');
+      } else {
+        notify(d.error || 'Could not add subscriber.', 'error');
+      }
+    } finally {
+      setAddingSub(false);
+    }
+  };
+
+  const handleSubscriberStatusToggle = async (sub: NewsletterSubscriber) => {
+    const nextStatus = sub.status === 'active' ? 'unsubscribed' : 'active';
+    const res = await authorizedFetch(`/api/admin/audience/subscribers/${sub.id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    const { data: d } = await safeParseResponse(res);
+    if (res.ok && d.success) {
+      notify(`Subscriber ${sub.email} marked ${nextStatus}.`);
+      await loadModuleData('audience');
+    } else {
+      notify(d.error || 'Status update failed.', 'error');
+    }
+  };
+
+  const handleDeleteSubscriber = (id: string) => {
+    setConfirmState({
+      title: 'Delete Subscriber',
+      message: 'Remove this subscriber from newsletter records?',
+      onConfirm: async () => {
+        const res = await authorizedFetch(`/api/admin/audience/subscribers/${id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        const { data: d } = await safeParseResponse(res);
+        if (res.ok && d.success) {
+          notify('Subscriber removed.');
+          await loadModuleData('audience');
+        }
+      },
+    });
   };
 
   const handleSetStaffPassword = async (e: React.FormEvent) => {
@@ -1362,6 +1633,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                 <button
                   type="button"
                   disabled={aiBusy || aiProviders.filter(p => p.enabled).length === 0}
+                  onClick={handleSummarizeComposer}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
+                >
+                  AI Summarize
+                </button>
+                <button
+                  type="button"
+                  disabled={aiBusy || aiProviders.filter(p => p.enabled).length === 0}
                   onClick={handleGenerateSeoTags}
                   className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold disabled:opacity-50"
                 >
@@ -1552,15 +1831,263 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                   className="w-full p-2 bg-white border border-gray-300 rounded-lg"
                 />
               </div>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Hero Image URL</label>
-                <input
-                  type="text"
-                  value={formData.heroImage || ''}
-                  onChange={e => setFormData({ ...formData, heroImage: e.target.value })}
-                  className="w-full p-2 bg-white border border-gray-300 rounded-lg font-mono"
-                />
+              {/* Dual Hero + Featured Image Upload, Media Picker & Side-by-Side Preview */}
+              <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-gray-800 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Hero &amp; Featured Images</span>
+                  </span>
+                  {formData.slug && (
+                    <a
+                      href={`/en/news/${encodeURIComponent(formData.slug)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] font-bold text-emerald-700 hover:underline inline-flex items-center gap-0.5"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>View Live</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Side-by-Side Live Preview */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="border rounded-lg overflow-hidden bg-gray-100">
+                    <div className="text-[10px] font-bold px-2 py-1 bg-gray-200 text-gray-700">Hero Image Preview</div>
+                    {formData.heroImage ? (
+                      <img src={formData.heroImage} alt="Hero preview" className="w-full h-24 object-cover" />
+                    ) : (
+                      <div className="h-24 flex items-center justify-center text-[10px] text-gray-400">No Hero Image</div>
+                    )}
+                    {formData.heroImageMeta?.width && (
+                      <div className="px-2 py-0.5 text-[9px] font-mono text-gray-500 bg-white">
+                        {formData.heroImageMeta.width}×{formData.heroImageMeta.height}px
+                        {formData.heroImageMeta.fileSize ? ` • ${Math.round(formData.heroImageMeta.fileSize / 1024)}KB` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <div className="border rounded-lg overflow-hidden bg-gray-100">
+                    <div className="text-[10px] font-bold px-2 py-1 bg-gray-200 text-gray-700">Featured Card Preview</div>
+                    {(formData.useHeroAsFeatured ? formData.heroImage : formData.featuredImage || formData.heroImage) ? (
+                      <img
+                        src={formData.useHeroAsFeatured ? formData.heroImage : formData.featuredImage || formData.heroImage}
+                        alt="Featured preview"
+                        className="w-full h-24 object-cover"
+                      />
+                    ) : (
+                      <div className="h-24 flex items-center justify-center text-[10px] text-gray-400">No Featured Image</div>
+                    )}
+                    {formData.featuredImageMeta?.width && (
+                      <div className="px-2 py-0.5 text-[9px] font-mono text-gray-500 bg-white">
+                        {formData.featuredImageMeta.width}×{formData.featuredImageMeta.height}px
+                        {formData.featuredImageMeta.fileSize ? ` • ${Math.round(formData.featuredImageMeta.fileSize / 1024)}KB` : ''}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Hero Controls */}
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-gray-700">Hero Image URL</label>
+                  <input
+                    type="text"
+                    value={formData.heroImage || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImage: e.target.value,
+                        ...(prev.useHeroAsFeatured ? { featuredImage: e.target.value } : {}),
+                      }))
+                    }
+                    className="w-full p-1.5 bg-white border border-gray-300 rounded-lg font-mono text-[11px]"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    <label className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded font-bold cursor-pointer inline-flex items-center gap-1 text-[10px]">
+                      <Upload className="w-3 h-3" />
+                      <span>{uploadingImageSlot === 'hero' ? 'Uploading...' : 'Upload Hero'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/avif"
+                        className="hidden"
+                        onChange={e => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleUploadImageFile(f, 'hero');
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setMediaPickerTarget('hero')}
+                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px]"
+                    >
+                      Pick Library
+                    </button>
+                    {formData.heroImage && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, heroImage: '' })}
+                        className="px-2 py-1 text-rose-600 font-bold text-[10px]"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 font-bold text-[11px] bg-gray-50 p-2 rounded-lg border">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.useHeroAsFeatured)}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        useHeroAsFeatured: e.target.checked,
+                        ...(e.target.checked ? { featuredImage: prev.heroImage } : {}),
+                      }))
+                    }
+                  />
+                  <span>Use Hero Image as Featured Thumbnail</span>
+                </label>
+
+                {!formData.useHeroAsFeatured && (
+                  <div className="space-y-1.5">
+                    <label className="block font-bold text-gray-700">Featured / Thumbnail Image URL</label>
+                    <input
+                      type="text"
+                      value={formData.featuredImage || ''}
+                      onChange={e => setFormData({ ...formData, featuredImage: e.target.value })}
+                      placeholder="Optional dedicated card thumbnail URL"
+                      className="w-full p-1.5 bg-white border border-gray-300 rounded-lg font-mono text-[11px]"
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      <label className="px-2.5 py-1 bg-slate-800 hover:bg-black text-white rounded font-bold cursor-pointer inline-flex items-center gap-1 text-[10px]">
+                        <Upload className="w-3 h-3" />
+                        <span>{uploadingImageSlot === 'featured' ? 'Uploading...' : 'Upload Featured'}</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/avif"
+                          className="hidden"
+                          onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (f) void handleUploadImageFile(f, 'featured');
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setMediaPickerTarget('featured')}
+                        className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px]"
+                      >
+                        Pick Library
+                      </button>
+                      {formData.featuredImage && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, featuredImage: '' })}
+                          className="px-2 py-1 text-rose-600 font-bold text-[10px]"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Alt Text (EN)"
+                    value={formData.heroImageMeta?.altTextEn || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImageMeta: { ...(prev.heroImageMeta || {}), altTextEn: e.target.value },
+                      }))
+                    }
+                    className="p-1.5 border border-gray-300 rounded-lg text-[11px]"
+                  />
+                  <input
+                    type="text"
+                    dir="rtl"
+                    placeholder="تصویر تفصیل (UR)"
+                    value={formData.heroImageMeta?.altTextUr || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImageMeta: { ...(prev.heroImageMeta || {}), altTextUr: e.target.value },
+                      }))
+                    }
+                    className="p-1.5 border border-gray-300 rounded-lg font-urdu text-[11px]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Caption (EN)"
+                    value={formData.imageCaptionEn || ''}
+                    onChange={e => setFormData({ ...formData, imageCaptionEn: e.target.value })}
+                    className="p-1.5 border border-gray-300 rounded-lg text-[11px]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Photo Credit / Source"
+                    value={formData.heroImageMeta?.credit || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImageMeta: { ...(prev.heroImageMeta || {}), credit: e.target.value },
+                      }))
+                    }
+                    className="p-1.5 border border-gray-300 rounded-lg text-[11px]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Source Agency / Link"
+                    value={formData.heroImageMeta?.source || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImageMeta: { ...(prev.heroImageMeta || {}), source: e.target.value },
+                      }))
+                    }
+                    className="p-1.5 border border-gray-300 rounded-lg text-[11px]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="License (e.g. Editorial / CC)"
+                    value={formData.heroImageMeta?.license || ''}
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        heroImageMeta: { ...(prev.heroImageMeta || {}), license: e.target.value },
+                      }))
+                    }
+                    className="p-1.5 border border-gray-300 rounded-lg text-[11px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1 text-[11px]">Social OG Share Image Override</label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={formData.socialImageUrl || ''}
+                      onChange={e => setFormData({ ...formData, socialImageUrl: e.target.value })}
+                      placeholder="Defaults to Hero/Featured Image"
+                      className="flex-1 p-1.5 border border-gray-300 rounded-lg font-mono text-[11px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMediaPickerTarget('social')}
+                      className="px-2 py-1 bg-gray-100 rounded font-bold text-[10px]"
+                    >
+                      Pick
+                    </button>
+                  </div>
+                </div>
               </div>
+
               <label className="flex items-center gap-2 font-bold">
                 <input
                   type="checkbox"
@@ -1580,10 +2107,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
               <div className="pt-3 border-t space-y-2">
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg inline-flex items-center justify-center gap-1.5"
+                  disabled={savingArticle}
+                  className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg inline-flex items-center justify-center gap-1.5"
                 >
                   <Save className="w-4 h-4" />
-                  <span>{editingArticleId ? 'Save Changes' : 'Save & Publish'}</span>
+                  <span>{savingArticle ? 'Saving to Database...' : editingArticleId ? 'Save Changes' : 'Save & Publish'}</span>
                 </button>
                 <button
                   type="button"
@@ -1899,20 +2427,48 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       {/* MODULE: ADVERTISING */}
       {activeModule === 'ads' && (
         <div className="space-y-4 text-xs">
-          <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between">
+          <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-black text-gray-900">Advertising & Monetization Manager</h2>
-              <p className="text-gray-500">Direct sponsorship campaigns & slot placements.</p>
+              <p className="text-gray-500">Direct sponsorship campaigns, slot placements &amp; AdSense readiness diagnostics.</p>
             </div>
             <button
               type="button"
-              onClick={() => setNewCampaignModal(true)}
-              className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1"
+              onClick={openCreateCampaignModal}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg inline-flex items-center gap-1"
             >
               <Plus className="w-4 h-4" />
               <span>Create Campaign</span>
             </button>
           </div>
+
+          {adsenseReadiness && (
+            <div className="bg-white border border-gray-200 rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-2.5 bg-gray-50 border rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">AdSense Publisher ID</div>
+                <div className={`font-mono font-bold mt-0.5 ${adsenseReadiness.publisherConfigured ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {adsenseReadiness.publisherConfigured ? adsenseReadiness.publisherIdMasked : 'Not Configured'}
+                </div>
+              </div>
+              <div className="p-2.5 bg-gray-50 border rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">/ads.txt Endpoint</div>
+                <div className={`font-bold mt-0.5 ${adsenseReadiness.adsTxtLive ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {adsenseReadiness.adsTxtLive ? 'Live & Valid' : 'Pending Publisher ID'}
+                </div>
+              </div>
+              <div className="p-2.5 bg-gray-50 border rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">Policy / Legal Pages</div>
+                <div className="font-mono font-bold mt-0.5 text-gray-800">{adsenseReadiness.legalPagesCount} verified routes</div>
+              </div>
+              <div className="p-2.5 bg-gray-50 border rounded-lg">
+                <div className="text-[10px] font-bold uppercase text-gray-500">Consent Banner</div>
+                <div className="font-bold mt-0.5 text-gray-800">
+                  {adsenseReadiness.consentBannerActive ? 'Enabled' : 'Disabled'}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -1939,27 +2495,80 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                 <thead className="bg-gray-50 border-b font-bold text-gray-600">
                   <tr>
                     <th className="p-3">Campaign</th>
+                    <th className="p-3">Status &amp; Priority</th>
                     <th className="p-3">Budget (PKR)</th>
-                    <th className="p-3">Impressions</th>
-                    <th className="p-3">Clicks</th>
-                    <th className="p-3 text-right">Action</th>
+                    <th className="p-3">Impr / Clicks</th>
+                    <th className="p-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {adCampaigns.map(c => (
-                    <tr key={c.id}>
+                    <tr key={c.id} className="hover:bg-gray-50">
                       <td className="p-3">
-                        <div className="font-bold">{c.campaignName}</div>
-                        <div className="text-gray-500 text-[11px]">{c.advertiserName}</div>
+                        <div className="font-bold text-gray-900">{c.campaignName}</div>
+                        <div className="text-gray-500 text-[11px]">{c.advertiserName} • {c.startDate} → {c.endDate}</div>
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${
+                            c.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : c.status === 'paused'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-gray-200 text-gray-700'
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                        <span className="ml-2 font-mono text-[10px] text-gray-500">P{c.priority ?? 10}</span>
                       </td>
                       <td className="p-3 font-mono">Rs. {c.budgetPkr?.toLocaleString()}</td>
-                      <td className="p-3 font-mono">{c.impressions?.toLocaleString()}</td>
-                      <td className="p-3 font-mono">{c.clicks?.toLocaleString()}</td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 font-mono">
+                        {c.impressions?.toLocaleString()} / {c.clicks?.toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right whitespace-nowrap space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditCampaignModal(c)}
+                          className="p-1.5 bg-gray-100 hover:bg-emerald-100 text-emerald-800 rounded"
+                          title="Edit Campaign"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        {c.status === 'active' ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleCampaignStatusChange(c.id, 'paused')}
+                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded"
+                            title="Pause Campaign"
+                          >
+                            <Pause className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleCampaignStatusChange(c.id, 'active')}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded"
+                            title="Activate / Resume Campaign"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {c.status !== 'archived' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleCampaignStatusChange(c.id, 'archived')}
+                            className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded"
+                            title="Archive Campaign"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleDeleteCampaign(c.id)}
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"
+                          title="Delete Campaign"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1986,6 +2595,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                     </button>
                   </div>
                   <div className="font-bold text-sm">{slot.name}</div>
+                  <div className="text-[11px] font-mono text-gray-500">
+                    Slot ID: {slot.slotId} • Impr: {slot.impressions} • Clicks: {slot.clicks}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2101,70 +2713,166 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
       {/* MODULE: AUDIENCE */}
       {activeModule === 'audience' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-            <h3 className="font-black text-sm">Send Push / Newsletter Broadcast</h3>
-            <form onSubmit={handleSendBroadcast} className="space-y-3">
-              <input
-                type="text"
-                required
-                placeholder="Headline (EN)"
-                value={newNotification.titleEn || ''}
-                onChange={e => setNewNotification({ ...newNotification, titleEn: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="text"
-                dir="rtl"
-                placeholder="سرخی (اردو)"
-                value={newNotification.titleUr || ''}
-                onChange={e => setNewNotification({ ...newNotification, titleUr: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded-lg font-urdu"
-              />
-              <textarea
-                rows={3}
-                required
-                placeholder="Broadcast message body..."
-                value={newNotification.bodyEn || ''}
-                onChange={e => setNewNotification({ ...newNotification, bodyEn: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded-lg"
-              />
-              <button
-                type="submit"
-                className="w-full py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center justify-center gap-1.5"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Send Broadcast</span>
-              </button>
-            </form>
-          </div>
-          <div className="md:col-span-2 bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-            <h3 className="font-black text-sm">
-              Newsletter Subscribers ({subscribers.length}) & Sent Alerts ({notificationsList.length})
-            </h3>
-            <div className="overflow-x-auto max-h-96 overflow-y-auto">
-              <table className="w-full text-left">
-                <thead className="border-b text-gray-500">
-                  <tr>
-                    <th className="py-2">Email</th>
-                    <th className="py-2">Lang</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {subscribers.map(s => (
-                    <tr key={s.id}>
-                      <td className="py-2 font-mono">{s.email}</td>
-                      <td className="py-2 uppercase">{s.language}</td>
-                      <td className="py-2">{s.status}</td>
-                      <td className="py-2 font-mono text-gray-500">
-                        {new Date(s.subscribedAt).toLocaleDateString()}
-                      </td>
+        <div className="space-y-5 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+              <h3 className="font-black text-sm">Send Push / Newsletter Broadcast</h3>
+              <form onSubmit={handleSendBroadcast} className="space-y-3">
+                <input
+                  type="text"
+                  required
+                  placeholder="Headline (EN)"
+                  value={newNotification.titleEn || ''}
+                  onChange={e => setNewNotification({ ...newNotification, titleEn: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg"
+                />
+                <input
+                  type="text"
+                  dir="rtl"
+                  placeholder="سرخی (اردو)"
+                  value={newNotification.titleUr || ''}
+                  onChange={e => setNewNotification({ ...newNotification, titleUr: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg font-urdu"
+                />
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Broadcast message body..."
+                  value={newNotification.bodyEn || ''}
+                  onChange={e => setNewNotification({ ...newNotification, bodyEn: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg inline-flex items-center justify-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Broadcast</span>
+                </button>
+              </form>
+
+              <div className="border-t pt-4 space-y-2.5">
+                <h4 className="font-black text-gray-800">Add Subscriber Manually</h4>
+                <form onSubmit={handleAddSubscriberManual} className="space-y-2">
+                  <input
+                    type="email"
+                    required
+                    placeholder="subscriber@example.com"
+                    value={newSubEmail}
+                    onChange={e => setNewSubEmail(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg font-mono"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={newSubLang}
+                      onChange={e => setNewSubLang(e.target.value as any)}
+                      className="p-2 border border-gray-300 rounded-lg bg-white"
+                    >
+                      <option value="both">EN + UR</option>
+                      <option value="en">English</option>
+                      <option value="ur">Urdu</option>
+                    </select>
+                    <select
+                      value={newSubFreq}
+                      onChange={e => setNewSubFreq(e.target.value as any)}
+                      className="p-2 border border-gray-300 rounded-lg bg-white"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="breaking">Breaking</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={addingSub}
+                    className="w-full py-2 bg-gray-900 hover:bg-black text-white font-bold rounded-lg disabled:opacity-50"
+                  >
+                    {addingSub ? 'Adding...' : 'Add Subscriber'}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <div className="md:col-span-2 bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-black text-sm">
+                  Newsletter Subscribers ({subscribers.length}) &amp; Sent Alerts ({notificationsList.length})
+                </h3>
+                <a
+                  href="/api/admin/audience/subscribers/export"
+                  download
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </a>
+              </div>
+              <div className="overflow-x-auto max-h-72 overflow-y-auto border rounded-lg">
+                <table className="w-full text-left">
+                  <thead className="border-b bg-gray-50 text-gray-600 font-bold">
+                    <tr>
+                      <th className="p-2.5">Email</th>
+                      <th className="p-2.5">Lang / Freq</th>
+                      <th className="p-2.5">Consent &amp; Status</th>
+                      <th className="p-2.5">Subscribed</th>
+                      <th className="p-2.5 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {subscribers.map(s => (
+                      <tr key={s.id} className="hover:bg-gray-50">
+                        <td className="p-2.5 font-mono">{s.email}</td>
+                        <td className="p-2.5 uppercase">{s.language} • {s.frequency}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${s.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'}`}>
+                            {s.status}
+                          </span>
+                          <span className="ml-1.5 text-[10px] text-gray-400 font-mono">{s.consentSource || 'web_form'}</span>
+                        </td>
+                        <td className="p-2.5 font-mono text-gray-500">
+                          {new Date(s.subscribedAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-2.5 text-right space-x-1 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => void handleSubscriberStatusToggle(s)}
+                            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded font-bold text-[10px]"
+                          >
+                            {s.status === 'active' ? 'Unsubscribe' : 'Reactivate'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubscriber(s.id)}
+                            className="p-1 text-rose-600 hover:bg-rose-50 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-gray-800 mb-2">Recent Alert Broadcast Logs</h4>
+                <div className="border rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                  {notificationsList.length === 0 ? (
+                    <div className="p-4 text-center text-gray-400">No broadcasts sent yet.</div>
+                  ) : (
+                    notificationsList.map(n => (
+                      <div key={n.id} className="p-2.5 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-gray-900">{n.titleEn}</div>
+                          {n.errorSummary && <div className="text-[10px] text-rose-600">{n.errorSummary}</div>}
+                        </div>
+                        <div className="font-mono text-[10px] text-gray-600">
+                          {n.status || 'sent'} • Delivered: {n.deliveredCount ?? n.recipientsCount ?? 0} • Failed: {n.failedCount ?? 0}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2429,40 +3137,240 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       {/* CAMPAIGN / MEDIA / STAFF MODALS */}
       {newCampaignModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleSaveCampaign} className="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 text-xs">
+          <form onSubmit={handleSaveCampaign} className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-3 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-black text-sm">New Ad Campaign</h3>
+              <h3 className="font-black text-sm">{newCampaign.id ? 'Edit Ad Campaign' : 'New Ad Campaign'}</h3>
               <button type="button" onClick={() => setNewCampaignModal(false)}>
                 <X className="w-4 h-4" />
               </button>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Campaign Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newCampaign.campaignName || ''}
+                  onChange={e => setNewCampaign({ ...newCampaign, campaignName: e.target.value })}
+                  className="w-full p-2 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Advertiser Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newCampaign.advertiserName || ''}
+                  onChange={e => setNewCampaign({ ...newCampaign, advertiserName: e.target.value })}
+                  className="w-full p-2 border rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Budget (PKR)</label>
+                <input
+                  type="number"
+                  value={newCampaign.budgetPkr ?? 0}
+                  onChange={e => setNewCampaign({ ...newCampaign, budgetPkr: parseInt(e.target.value, 10) || 0 })}
+                  className="w-full p-2 border rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Status</label>
+                <select
+                  value={newCampaign.status || 'active'}
+                  onChange={e => setNewCampaign({ ...newCampaign, status: e.target.value as any })}
+                  className="w-full p-2 border rounded-lg bg-white font-bold"
+                >
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Priority</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={newCampaign.priority ?? 10}
+                  onChange={e => setNewCampaign({ ...newCampaign, priority: parseInt(e.target.value, 10) || 10 })}
+                  className="w-full p-2 border rounded-lg font-mono"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={newCampaign.startDate || ''}
+                  onChange={e => setNewCampaign({ ...newCampaign, startDate: e.target.value })}
+                  className="w-full p-2 border rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={newCampaign.endDate || ''}
+                  onChange={e => setNewCampaign({ ...newCampaign, endDate: e.target.value })}
+                  className="w-full p-2 border rounded-lg font-mono"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Banner Creative URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  value={newCampaign.bannerUrl || ''}
+                  onChange={e => setNewCampaign({ ...newCampaign, bannerUrl: e.target.value })}
+                  className="flex-1 p-2 border rounded-lg font-mono"
+                />
+                <label className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-bold cursor-pointer">
+                  <span>{uploadingImageSlot === 'campaign' ? '...' : 'Upload'}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleUploadImageFile(f, 'campaign');
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Destination URL</label>
+              <input
+                type="url"
+                required
+                value={newCampaign.destinationUrl || ''}
+                onChange={e => setNewCampaign({ ...newCampaign, destinationUrl: e.target.value })}
+                className="w-full p-2 border rounded-lg font-mono"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Target Placement Slots</label>
+              <div className="flex flex-wrap gap-2">
+                {(adPlacements.length > 0
+                  ? adPlacements.map(p => ({ id: p.slotId || p.id, label: p.name }))
+                  : [
+                      { id: 'slot-1', label: 'Leaderboard' },
+                      { id: 'leaderboard', label: 'Top Leaderboard' },
+                      { id: 'in-content', label: 'In-Content' },
+                      { id: 'sidebar', label: 'Sidebar' },
+                    ]
+                ).map(slot => {
+                  const selected = (newCampaign.placementSlotIds || []).includes(slot.id);
+                  return (
+                    <label key={slot.id} className="inline-flex items-center gap-1.5 bg-gray-50 border px-2 py-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={e => {
+                          const cur = new Set(newCampaign.placementSlotIds || []);
+                          if (e.target.checked) cur.add(slot.id);
+                          else cur.delete(slot.id);
+                          setNewCampaign({ ...newCampaign, placementSlotIds: Array.from(cur) });
+                        }}
+                      />
+                      <span>{slot.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
             <input
               type="text"
-              required
-              placeholder="Campaign Name"
-              value={newCampaign.campaignName}
-              onChange={e => setNewCampaign({ ...newCampaign, campaignName: e.target.value })}
+              placeholder="Internal notes / billing ref"
+              value={newCampaign.notes || ''}
+              onChange={e => setNewCampaign({ ...newCampaign, notes: e.target.value })}
               className="w-full p-2 border rounded-lg"
             />
-            <input
-              type="text"
-              required
-              placeholder="Advertiser"
-              value={newCampaign.advertiserName}
-              onChange={e => setNewCampaign({ ...newCampaign, advertiserName: e.target.value })}
-              className="w-full p-2 border rounded-lg"
-            />
-            <input
-              type="number"
-              placeholder="Budget PKR"
-              value={newCampaign.budgetPkr}
-              onChange={e => setNewCampaign({ ...newCampaign, budgetPkr: parseInt(e.target.value) || 0 })}
-              className="w-full p-2 border rounded-lg font-mono"
-            />
-            <button type="submit" className="w-full py-2 bg-emerald-700 text-white font-bold rounded-lg">
-              Create Campaign
+            <button
+              type="submit"
+              disabled={savingCampaign}
+              className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg"
+            >
+              {savingCampaign ? 'Saving Campaign...' : newCampaign.id ? 'Save Campaign Changes' : 'Create Campaign'}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* MEDIA LIBRARY PICKER MODAL FOR COMPOSER & ADS */}
+      {mediaPickerTarget && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 text-xs max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-black text-sm">Select Existing Image from Media Library ({mediaPickerTarget})</h3>
+              <button type="button" onClick={() => setMediaPickerTarget(null)}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {mediaAssets.length === 0 ? (
+              <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-xl">
+                No uploaded assets in media library yet. Use Upload above to add an image.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {mediaAssets.map(asset => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onClick={() => {
+                      if (mediaPickerTarget === 'hero') {
+                        setFormData(prev => ({
+                          ...prev,
+                          heroImage: asset.url,
+                          ...(prev.useHeroAsFeatured ? { featuredImage: asset.url } : {}),
+                          heroImageMeta: {
+                            ...(prev.heroImageMeta || {}),
+                            altTextEn: asset.altTextEn || prev.heroImageMeta?.altTextEn,
+                            altTextUr: asset.altTextUr || prev.heroImageMeta?.altTextUr,
+                            credit: asset.credit || prev.heroImageMeta?.credit,
+                            width: asset.width,
+                            height: asset.height,
+                            fileSize: asset.sizeBytes,
+                          },
+                        }));
+                      } else if (mediaPickerTarget === 'featured') {
+                        setFormData(prev => ({
+                          ...prev,
+                          featuredImage: asset.url,
+                          useHeroAsFeatured: false,
+                          featuredImageMeta: {
+                            ...(prev.featuredImageMeta || {}),
+                            altTextEn: asset.altTextEn || prev.featuredImageMeta?.altTextEn,
+                            altTextUr: asset.altTextUr || prev.featuredImageMeta?.altTextUr,
+                            width: asset.width,
+                            height: asset.height,
+                            fileSize: asset.sizeBytes,
+                          },
+                        }));
+                      } else if (mediaPickerTarget === 'social') {
+                        setFormData(prev => ({ ...prev, socialImageUrl: asset.url }));
+                      } else if (mediaPickerTarget === 'campaign') {
+                        setNewCampaign(prev => ({ ...prev, bannerUrl: asset.url }));
+                      }
+                      setMediaPickerTarget(null);
+                    }}
+                    className="border border-gray-200 hover:border-emerald-600 rounded-xl overflow-hidden text-left bg-gray-50"
+                  >
+                    <img src={asset.url} alt={asset.altTextEn || asset.filename} className="w-full h-24 object-cover" />
+                    <div className="p-2 truncate font-bold text-gray-800">{asset.captionEn || asset.filename}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -1051,6 +1051,7 @@ var defaultSiteSettings = {
   siteNameUr: "360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1",
   taglineEn: "360Khabarnama - News, Results, Finance & Everyday Utilities",
   taglineUr: "360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1 - \u067E\u0627\u06A9\u0633\u062A\u0627\u0646 \u06A9\u0627 \u0645\u0633\u062A\u0646\u062F \u067E\u0648\u0631\u0679\u0644: \u062E\u0628\u0631\u06CC\u06BA\u060C \u0646\u062A\u0627\u0626\u062C \u0627\u0648\u0631 \u0633\u06C1\u0648\u0644\u06CC\u0627\u062A",
+  siteUrl: "https://www.360khabarnama.com",
   primaryColor: "#059669",
   // Emerald Green (Pakistan color)
   breakingNewsEnabled: true,
@@ -1059,7 +1060,21 @@ var defaultSiteSettings = {
   adManagerEnabled: true,
   googleAnalyticsId: "G-KHABAR360",
   leaderboardAdUrl: "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80",
-  sidebarAdUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80"
+  sidebarAdUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80",
+  latestNewsCount: 15,
+  dateFormat: "DD MMM YYYY",
+  consentBannerEnabled: true,
+  islamicSettings: {
+    defaultCity: "Islamabad",
+    calculationMethod: 1
+  },
+  runtimeDiagnostics: {
+    aiValidationTimeoutMs: 15e3,
+    aiGenerationTimeoutMs: 45e3,
+    healthCheckIntervalMinutes: 30,
+    logRetentionDays: 30,
+    automationRetryLimit: 3
+  }
 };
 var defaultDataProviders = [
   {
@@ -1674,14 +1689,29 @@ var defaultHomepageConfig = {
       displayMode: "current_lang"
     },
     {
+      id: "latest_news_feed",
+      type: "latest_news_feed",
+      nameEn: "Latest Published News Feed (15 Stories)",
+      nameUr: "\u062A\u0627\u0632\u06C1 \u062A\u0631\u06CC\u0646 \u062E\u0628\u0631\u06CC\u06BA (15 \u062A\u0627\u0632\u06C1 \u062E\u0628\u0631\u06CC\u06BA)",
+      description: "Chronological latest published news feed sorted by published_at DESC with pagination.",
+      enabled: true,
+      order: 3,
+      mobileOrder: 3,
+      width: "contained",
+      template: "cards",
+      articleSource: "latest",
+      itemLimit: 15,
+      displayMode: "current_lang"
+    },
+    {
       id: "ad_leaderboard_home",
       type: "ad_banner",
       nameEn: "Homepage Mid Leaderboard Ad Slot",
       nameUr: "\u0645\u0631\u06A9\u0632\u06CC \u0627\u0634\u062A\u06C1\u0627\u0631\u06CC \u0628\u06CC\u0646\u0631",
       description: "Monetization placement between main hero coverage and Islamic daily digest.",
       enabled: true,
-      order: 3,
-      mobileOrder: 3,
+      order: 4,
+      mobileOrder: 4,
       width: "contained",
       adSlot: "leaderboard"
     },
@@ -1692,8 +1722,8 @@ var defaultHomepageConfig = {
       nameUr: "\u0627\u0633\u0644\u0627\u0645\u06CC \u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0648 \u0627\u0648\u0642\u0627\u062A\u0650 \u0646\u0645\u0627\u0632",
       description: "Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.",
       enabled: true,
-      order: 4,
-      mobileOrder: 4,
+      order: 5,
+      mobileOrder: 5,
       width: "contained",
       template: "cards"
     },
@@ -1704,8 +1734,8 @@ var defaultHomepageConfig = {
       nameUr: "\u067E\u0627\u06A9\u0633\u062A\u0627\u0646 \u0688\u06CC\u062C\u06CC\u0679\u0644 \u0633\u0631\u0648\u0633\u0632 \u0648 \u0622\u0646 \u0644\u0627\u0626\u0646 \u0679\u0648\u0644\u0632",
       description: "Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.",
       enabled: true,
-      order: 5,
-      mobileOrder: 5,
+      order: 6,
+      mobileOrder: 6,
       width: "contained",
       template: "grid",
       itemLimit: 6
@@ -1802,7 +1832,25 @@ var DatabaseManager = class {
         if (!("aiHealthStatus" in parsed)) parsed.aiHealthStatus = null;
         if (!parsed.aiEnvSuppressed) parsed.aiEnvSuppressed = { gemini: false, grok: false };
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
+        if (!parsed.saveDiagnostics) parsed.saveDiagnostics = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
+        if (parsed.homepageConfig?.sections && !parsed.homepageConfig.sections.some((s) => s.type === "latest_news_feed")) {
+          parsed.homepageConfig.sections.splice(2, 0, {
+            id: "latest_news_feed",
+            type: "latest_news_feed",
+            nameEn: "Latest Published News Feed (15 Stories)",
+            nameUr: "\u062A\u0627\u0632\u06C1 \u062A\u0631\u06CC\u0646 \u062E\u0628\u0631\u06CC\u06BA (15 \u062A\u0627\u0632\u06C1 \u062E\u0628\u0631\u06CC\u06BA)",
+            description: "Chronological latest published news feed sorted by published_at DESC with pagination.",
+            enabled: true,
+            order: 3,
+            mobileOrder: 3,
+            width: "contained",
+            template: "cards",
+            articleSource: "latest",
+            itemLimit: 15,
+            displayMode: "current_lang"
+          });
+        }
         let migrated = false;
         if ("epaperPages" in parsed) {
           delete parsed.epaperPages;
@@ -1886,6 +1934,7 @@ var DatabaseManager = class {
       aiHealthStatus: null,
       aiEnvSuppressed: { gemini: false, grok: false },
       editorialDrafts: [],
+      saveDiagnostics: [],
       cronLocks: {}
     };
     this.saveDatabase(initial);
@@ -2004,6 +2053,27 @@ var DatabaseManager = class {
   }
   getPublicationLogs(limit = 50) {
     return (this.data.publicationLogs || []).slice(0, limit);
+  }
+  recordSaveDiagnostic(entry) {
+    if (!this.data.saveDiagnostics) this.data.saveDiagnostics = [];
+    const full = {
+      ...entry,
+      id: `sdiag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.saveDiagnostics.unshift(full);
+    if (this.data.saveDiagnostics.length > 250) {
+      this.data.saveDiagnostics = this.data.saveDiagnostics.slice(0, 250);
+    }
+    this.saveDatabase(this.data);
+    return full;
+  }
+  getSaveDiagnostics(limit = 80, moduleFilter) {
+    let list = this.data.saveDiagnostics || [];
+    if (moduleFilter && moduleFilter !== "all") {
+      list = list.filter((item) => item.module === moduleFilter);
+    }
+    return list.slice(0, limit);
   }
   upsertArticle(articleInput, actor = "Editor", opts) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2492,23 +2562,26 @@ var DatabaseManager = class {
   upsertAdCampaign(campaign, actor = "Ad Manager") {
     if (!this.data.adCampaigns) this.data.adCampaigns = [];
     const idx = this.data.adCampaigns.findIndex((c) => c.id === campaign.id);
+    let saved;
     if (idx >= 0) {
-      this.data.adCampaigns[idx] = { ...this.data.adCampaigns[idx], ...campaign };
-      this.logAudit(actor, "Ad Campaign Updated", `Updated campaign: ${campaign.campaignName}`);
+      saved = { ...this.data.adCampaigns[idx], ...campaign };
+      this.data.adCampaigns[idx] = saved;
+      this.logAudit(actor, "Ad Campaign Updated", `Updated campaign: ${saved.campaignName}`);
     } else {
-      const newCamp = {
+      saved = {
         ...campaign,
         id: campaign.id || `camp-${Date.now()}`,
         impressions: campaign.impressions || 0,
         clicks: campaign.clicks || 0,
         ctr: campaign.ctr || 0,
-        status: campaign.status || "active"
+        status: campaign.status || "active",
+        priority: campaign.priority ?? 10
       };
-      this.data.adCampaigns.unshift(newCamp);
-      this.logAudit(actor, "Ad Campaign Created", `Created campaign: ${campaign.campaignName}`);
+      this.data.adCampaigns.unshift(saved);
+      this.logAudit(actor, "Ad Campaign Created", `Created campaign: ${saved.campaignName}`);
     }
     this.saveDatabase(this.data);
-    return campaign;
+    return saved;
   }
   deleteAdCampaign(id, actor = "Ad Manager") {
     if (!this.data.adCampaigns) return false;
@@ -2522,26 +2595,38 @@ var DatabaseManager = class {
     return false;
   }
   recordAdImpression(slotId, campaignId) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find((s) => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.impressions = (slot.impressions || 0) + 1;
+    if (slot) {
+      slot.impressions = (slot.impressions || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find((c) => c.id === campaignId);
       if (camp) {
         camp.impressions = (camp.impressions || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat((camp.clicks / camp.impressions * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
   recordAdClick(slotId, campaignId) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find((s) => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.clicks = (slot.clicks || 0) + 1;
+    if (slot) {
+      slot.clicks = (slot.clicks || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find((c) => c.id === campaignId);
       if (camp) {
         camp.clicks = (camp.clicks || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat((camp.clicks / camp.impressions * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
   // --- SEO & Search Console ---
   getSeoPages() {
@@ -2576,20 +2661,23 @@ var DatabaseManager = class {
   upsertRedirectRule(rule, actor = "SEO Specialist") {
     if (!this.data.redirectRules) this.data.redirectRules = [];
     const idx = this.data.redirectRules.findIndex((r) => r.id === rule.id || r.sourcePath === rule.sourcePath);
+    let saved;
     if (idx >= 0) {
-      this.data.redirectRules[idx] = { ...this.data.redirectRules[idx], ...rule };
+      saved = { ...this.data.redirectRules[idx], ...rule };
+      this.data.redirectRules[idx] = saved;
     } else {
-      this.data.redirectRules.unshift({
+      saved = {
         ...rule,
         id: rule.id || `red-${Date.now()}`,
         hits: 0,
-        active: true,
+        active: rule.active ?? true,
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      });
+      };
+      this.data.redirectRules.unshift(saved);
     }
-    this.logAudit(actor, "Redirect Rule Saved", `Rule ${rule.sourcePath} -> ${rule.targetPath} (${rule.statusCode})`);
+    this.logAudit(actor, "Redirect Rule Saved", `Rule ${saved.sourcePath} -> ${saved.targetPath} (${saved.statusCode})`);
     this.saveDatabase(this.data);
-    return rule;
+    return saved;
   }
   deleteRedirectRule(id, actor = "SEO Specialist") {
     if (!this.data.redirectRules) return false;
@@ -2617,32 +2705,60 @@ var DatabaseManager = class {
   getSubscribers() {
     return this.data.subscribers || [];
   }
-  addSubscriber(email, language = "both", frequency = "daily") {
+  addSubscriber(email, language = "both", frequency = "daily", consentSource = "website") {
     if (!this.data.subscribers) this.data.subscribers = [];
     const cleanEmail = email.trim().toLowerCase();
-    if (this.data.subscribers.some((s) => s.email === cleanEmail && s.status === "active")) {
+    const existing = this.data.subscribers.find((s) => s.email === cleanEmail);
+    if (existing && existing.status === "active") {
       return false;
     }
-    this.data.subscribers.unshift({
-      id: `sub-${Date.now()}`,
-      email: cleanEmail,
-      language,
-      frequency,
-      subscribedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "active"
-    });
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    if (existing) {
+      existing.status = "active";
+      existing.language = language;
+      existing.frequency = frequency;
+      existing.consentSource = consentSource;
+      existing.consentTimestamp = now;
+    } else {
+      this.data.subscribers.unshift({
+        id: `sub-${Date.now()}`,
+        email: cleanEmail,
+        language,
+        frequency,
+        subscribedAt: now,
+        consentSource,
+        consentTimestamp: now,
+        status: "active"
+      });
+    }
     this.saveDatabase(this.data);
     return true;
   }
-  removeSubscriber(email) {
-    if (!this.data.subscribers) return false;
-    const sub = this.data.subscribers.find((s) => s.email.toLowerCase() === email.trim().toLowerCase());
+  updateSubscriberStatus(idOrEmail, status) {
+    if (!this.data.subscribers) return null;
+    const sub = this.data.subscribers.find(
+      (s) => s.id === idOrEmail || s.email.toLowerCase() === idOrEmail.trim().toLowerCase()
+    );
     if (sub) {
-      sub.status = "unsubscribed";
+      sub.status = status;
+      this.saveDatabase(this.data);
+      return sub;
+    }
+    return null;
+  }
+  deleteSubscriber(id, actor = "Audience Manager") {
+    if (!this.data.subscribers) return false;
+    const prev = this.data.subscribers.length;
+    this.data.subscribers = this.data.subscribers.filter((s) => s.id !== id);
+    if (this.data.subscribers.length < prev) {
+      this.logAudit(actor, "Subscriber Deleted", `Removed subscriber ID: ${id}`);
       this.saveDatabase(this.data);
       return true;
     }
     return false;
+  }
+  removeSubscriber(email) {
+    return Boolean(this.updateSubscriberStatus(email, "unsubscribed"));
   }
   getNotifications() {
     return this.data.notifications || [];
@@ -2650,17 +2766,46 @@ var DatabaseManager = class {
   sendAudienceNotification(notif, actor = "Editor") {
     if (!this.data.notifications) this.data.notifications = [];
     const activeSubscribers = (this.data.subscribers || []).filter((s) => s.status === "active").length;
+    const targetCount = activeSubscribers;
     const newNotif = {
       ...notif,
       id: notif.id || `notif-${Date.now()}`,
       sentAt: (/* @__PURE__ */ new Date()).toISOString(),
-      recipientsCount: activeSubscribers > 0 ? activeSubscribers : 42e3,
-      status: "sent"
+      recipientsCount: targetCount,
+      deliveredCount: notif.deliveredCount ?? targetCount,
+      failedCount: notif.failedCount ?? 0,
+      status: notif.status || "sent"
     };
     this.data.notifications.unshift(newNotif);
-    this.logAudit(actor, "Broadcast Dispatched", `Broadcast: ${notif.titleEn}`);
+    this.logAudit(actor, "Broadcast Dispatched", `Broadcast: ${notif.titleEn} (${targetCount} subscribers)`);
     this.saveDatabase(this.data);
     return newNotif;
+  }
+  restoreBackupSnapshot(snapshot, actor = "Super Admin") {
+    const allowedKeys = [
+      "siteSettings",
+      "categories",
+      "categoryPages",
+      "homepageConfig",
+      "homepageDraft",
+      "customBlocks",
+      "seoPages",
+      "redirectRules",
+      "adPlacements",
+      "adCampaigns",
+      "robotsTxt",
+      "sitemapConfig"
+    ];
+    const restoredKeys = [];
+    for (const k of allowedKeys) {
+      if (snapshot[k] !== void 0) {
+        this.data[k] = snapshot[k];
+        restoredKeys.push(String(k));
+      }
+    }
+    this.logAudit(actor, "Backup Restored", `Restored configuration snapshot sections: ${restoredKeys.join(", ") || "none"}`);
+    this.saveDatabase(this.data);
+    return { restoredKeys };
   }
   // --- Web Push Subscriptions ---
   getPushSubscriptions(status) {
@@ -4203,17 +4348,43 @@ import { GoogleGenAI } from "@google/genai";
 // services/ai/AIConnectionValidator.ts
 import crypto3 from "crypto";
 import dns from "dns/promises";
+var runtimeAiTimeouts = {};
+async function safeReadResponseText(res) {
+  try {
+    if (res.bodyUsed) return "";
+    return await res.text();
+  } catch (err) {
+    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
+      throw err;
+    }
+    try {
+      const buf = await res.arrayBuffer();
+      return Buffer.from(buf).toString("utf8");
+    } catch {
+      return "";
+    }
+  }
+}
 function getDiscoveryTimeoutMs() {
+  if (typeof runtimeAiTimeouts.discoveryMs === "number") {
+    return runtimeAiTimeouts.discoveryMs;
+  }
   const raw = Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12e3);
   if (!Number.isFinite(raw)) return 12e3;
   return Math.max(5e3, Math.min(25e3, Math.round(raw)));
 }
 function getGenerationTimeoutMs() {
+  if (typeof runtimeAiTimeouts.generationMs === "number") {
+    return runtimeAiTimeouts.generationMs;
+  }
   const raw = Number(process.env.AI_GENERATION_TIMEOUT_MS || 45e3);
   if (!Number.isFinite(raw)) return 45e3;
   return Math.max(15e3, Math.min(6e4, Math.round(raw)));
 }
 function getInferenceTimeoutMs() {
+  if (typeof runtimeAiTimeouts.inferenceMs === "number") {
+    return runtimeAiTimeouts.inferenceMs;
+  }
   const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 5e4);
   if (!Number.isFinite(raw)) return 5e4;
   return Math.max(15e3, Math.min(6e4, Math.round(raw)));
@@ -4713,7 +4884,7 @@ var AIModelDiscovery = class {
           },
           getDiscoveryTimeoutMs()
         );
-        const rawText = await res.text();
+        const rawText = await safeReadResponseText(res);
         let parsed = null;
         try {
           parsed = rawText ? JSON.parse(rawText) : {};
@@ -4818,7 +4989,7 @@ var AIModelDiscovery = class {
         },
         getDiscoveryTimeoutMs()
       );
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -5075,7 +5246,7 @@ var GeminiProvider = class {
         },
         attemptTimeoutMs
       );
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -5456,7 +5627,7 @@ Respond strictly with valid JSON only (no markdown fences).` : opts.prompt;
         },
         opts.timeoutMs || getInferenceTimeoutMs()
       );
-      const rawText = await response.text();
+      const rawText = await safeReadResponseText(response);
       let parsed = {};
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -5856,6 +6027,12 @@ function mapRowToArticle(row) {
     isFeatured: Boolean(row.is_featured),
     isTrending: Boolean(row.is_trending),
     heroImage: String(row.hero_image || "") || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80",
+    featuredImage: row.featured_image ? String(row.featured_image) : void 0,
+    heroImageMeta: typeof row.hero_image_meta_json === "object" && row.hero_image_meta_json ? row.hero_image_meta_json : void 0,
+    featuredImageMeta: typeof row.featured_image_meta_json === "object" && row.featured_image_meta_json ? row.featured_image_meta_json : void 0,
+    socialImageUrl: row.social_image_url ? String(row.social_image_url) : void 0,
+    useHeroAsFeatured: typeof row.use_hero_as_featured === "boolean" ? row.use_hero_as_featured : true,
+    homepageSlot: row.homepage_slot ? String(row.homepage_slot) : void 0,
     imageCaptionEn: String(row.image_caption_en || ""),
     imageCaptionUr: String(row.image_caption_ur || ""),
     readingTimeMin: Number(row.reading_time_min || 3) || 3,
@@ -5897,6 +6074,12 @@ function buildArticleRow(article, actor) {
     is_featured: Boolean(article.isFeatured),
     is_trending: Boolean(article.isTrending),
     hero_image: article.heroImage || "",
+    featured_image: article.featuredImage || null,
+    hero_image_meta_json: article.heroImageMeta || null,
+    featured_image_meta_json: article.featuredImageMeta || null,
+    social_image_url: article.socialImageUrl || null,
+    use_hero_as_featured: article.useHeroAsFeatured ?? true,
+    homepage_slot: article.homepageSlot || null,
     image_caption_en: article.imageCaptionEn || "",
     image_caption_ur: article.imageCaptionUr || "",
     reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),
@@ -8119,6 +8302,40 @@ STRICT EDITORIAL RULES:
 }
 
 // services/automation/ProviderRegistry.ts
+function isPrivateOrBlockedHostname(hostname) {
+  const lower = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!lower) return true;
+  if (lower === "localhost" || lower === "0.0.0.0" || lower === "::1" || lower.endsWith(".localhost") || lower.endsWith(".local") || lower.endsWith(".internal")) {
+    return true;
+  }
+  const ipv4Match = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [a, b] = [Number(ipv4Match[1]), Number(ipv4Match[2])];
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+  }
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:")) {
+    return true;
+  }
+  return false;
+}
+function validateSafeExternalUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL((rawUrl || "").trim());
+  } catch {
+    throw new Error("Invalid endpoint URL format.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http:// and https:// endpoints are allowed.");
+  }
+  if (isPrivateOrBlockedHostname(parsed.hostname)) {
+    throw new Error("SSRF protection: private, loopback, or internal network hostnames are blocked.");
+  }
+  return parsed;
+}
 var ProviderRegistry = class {
   static getAllSanitized() {
     return db.getDataProviders().map((p) => ({
@@ -8130,6 +8347,7 @@ var ProviderRegistry = class {
     if (!input.name?.trim() || !input.endpoint?.trim()) {
       throw new Error("Provider name and endpoint URL are required.");
     }
+    validateSafeExternalUrl(input.endpoint.trim());
     const existing = input.id ? db.getDataProvider(input.id) : void 0;
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const id = existing?.id || `prov-${input.category || "custom"}-${Date.now()}`;
@@ -8180,6 +8398,7 @@ var ProviderRegistry = class {
     if (!provider) {
       throw new Error("Provider not found.");
     }
+    validateSafeExternalUrl(provider.endpoint);
     const start = Date.now();
     const headers = {
       Accept: "application/json, application/xml, text/xml, */*",
@@ -8298,6 +8517,7 @@ var ProviderRegistry = class {
           if (!provider) {
             throw new Error(`Unknown provider ID: ${providerId}`);
           }
+          validateSafeExternalUrl(provider.endpoint);
           const headers = {
             Accept: "application/json, application/xml, text/xml, */*",
             "User-Agent": "360Khabarnama-SyncBot/2.0"
@@ -9102,6 +9322,78 @@ async function checkFirestoreHealth(bearerToken) {
   }
 }
 
+// src/server/supabaseRepositories.ts
+var MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+async function upsertAndVerifyRow(table, row, primaryKeyCol = "id") {
+  const started = Date.now();
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      ok: true,
+      storageEngine: "json_fallback",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started,
+      data: row
+    };
+  }
+  try {
+    const { data, error } = await client.from(table).upsert(row, { onConflict: primaryKeyCol }).select("*").single();
+    if (error || !data) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: error?.code || "SUPABASE_UPSERT_FAILED",
+        error: `${table} upsert failed: ${error?.message || "No row returned"}`
+      };
+    }
+    const pkVal = data[primaryKeyCol] ?? row[primaryKeyCol];
+    const verify = await client.from(table).select("*").eq(primaryKeyCol, pkVal).single();
+    if (verify.error || !verify.data) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: verify.error?.code || "SUPABASE_READ_AFTER_WRITE_FAILED",
+        error: `${table} saved but read-after-write verification failed: ${verify.error?.message || "Missing row"}`
+      };
+    }
+    return {
+      ok: true,
+      storageEngine: "supabase",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started,
+      data: verify.data
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      storageEngine: "supabase",
+      verifiedReadBack: false,
+      latencyMs: Date.now() - started,
+      code: "SUPABASE_EXCEPTION",
+      error: err?.message || `Unexpected Supabase error writing to ${table}`
+    };
+  }
+}
+async function recordSaveDiagnosticToSupabase(entry) {
+  return upsertAndVerifyRow("admin_save_diagnostics", {
+    id: entry.id,
+    module: entry.module,
+    action: entry.action,
+    record_id: entry.recordId || null,
+    storage_engine: entry.storageEngine,
+    success: Boolean(entry.success),
+    verified_read_back: Boolean(entry.verifiedReadBack),
+    latency_ms: Number(entry.latencyMs || 0),
+    actor: entry.actor || null,
+    error_message: entry.errorMessage || null,
+    created_at: entry.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+
 // src/server/databaseHealth.ts
 function sanitizeSupabaseDiagnosticText(raw) {
   if (!raw) return "";
@@ -9285,7 +9577,20 @@ function mergeArticleLists(remoteList, localList, statusFilter) {
   }
   let merged = Array.from(map.values());
   if (statusFilter && statusFilter !== "all") {
-    merged = merged.filter((a) => a.status === statusFilter);
+    const nowMs = Date.now();
+    merged = merged.filter((a) => {
+      if (a.status !== statusFilter) return false;
+      if (statusFilter === "published") {
+        const sched = a.scheduledAt || a.scheduledFor;
+        if (sched) {
+          const schedMs = new Date(sched).getTime();
+          if (Number.isFinite(schedMs) && schedMs > nowMs) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
   }
   merged.sort((a, b) => {
     const ta = new Date(a.publishedAt || a.updatedAt || 0).getTime();
@@ -9445,8 +9750,22 @@ var ArticleService = class {
     let verifiedReadBack = true;
     let firestoreWarning;
     if (supabaseActive) {
+      const t0 = Date.now();
       const sbWrite = await upsertSupabaseArticle(savedLocal, actor);
       if (!sbWrite.ok || !sbWrite.article) {
+        const errDiag = db.recordSaveDiagnostic({
+          module: "articles",
+          action: input.id ? "update" : "create",
+          recordId: savedLocal.id,
+          storageEngine: "supabase",
+          success: false,
+          verifiedReadBack: false,
+          latencyMs: Date.now() - t0,
+          actor,
+          errorMessage: sbWrite.error || "Supabase write failed"
+        });
+        recordSaveDiagnosticToSupabase(errDiag).catch(() => {
+        });
         const err = new Error(
           `Supabase PostgreSQL save failed [${sbWrite.code || "WRITE_ERROR"}]: ${sbWrite.error || "Unable to commit row."}`
         );
@@ -9458,6 +9777,18 @@ var ArticleService = class {
       finalArticle = sbWrite.article;
       storageEngine = "supabase";
       verifiedReadBack = true;
+      const okDiag = db.recordSaveDiagnostic({
+        module: "articles",
+        action: input.id ? "update" : "create",
+        recordId: finalArticle.id,
+        storageEngine: "supabase",
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: Date.now() - t0,
+        actor
+      });
+      recordSaveDiagnosticToSupabase(okDiag).catch(() => {
+      });
       if (hasFirestoreWriteAuth) {
         await upsertFirestoreArticle(finalArticle, authCtx).catch(() => {
         });
@@ -9477,6 +9808,16 @@ var ArticleService = class {
       storageEngine = "firestore";
       verifiedReadBack = true;
     } else {
+      db.recordSaveDiagnostic({
+        module: "articles",
+        action: input.id ? "update" : "create",
+        recordId: savedLocal.id,
+        storageEngine: "json_fallback",
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: 1,
+        actor
+      });
       firestoreWarning = "Saved in local workspace persistence only \u2014 configure SUPABASE_URL + SUPABASE_SECRET_KEY (or Firebase Admin credentials) for external database sync.";
       recordServerError({
         source: "publishing",
@@ -9943,6 +10284,12 @@ export {
  *   1. Service Account OAuth2 JWT token (when FIREBASE_SERVICE_ACCOUNT_JSON / BASE64 / GOOGLE_APPLICATION_CREDENTIALS is set)
  *   2. Verified Admin Firebase ID Token (forwarded from authenticated admin request)
  *   3. Public Web API Key (for public queries on status == 'published' & /test/connection)
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Unified Supabase PostgreSQL Repositories,
+ * Read-After-Write Verification, Editorial Media Upload & Storage Health
  */
 /**
  * @license

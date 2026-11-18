@@ -124,6 +124,19 @@ function mapRowToArticle(row: any): Article {
     heroImage:
       String(row.hero_image || '') ||
       'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
+    featuredImage: row.featured_image ? String(row.featured_image) : undefined,
+    heroImageMeta:
+      typeof row.hero_image_meta_json === 'object' && row.hero_image_meta_json
+        ? row.hero_image_meta_json
+        : undefined,
+    featuredImageMeta:
+      typeof row.featured_image_meta_json === 'object' && row.featured_image_meta_json
+        ? row.featured_image_meta_json
+        : undefined,
+    socialImageUrl: row.social_image_url ? String(row.social_image_url) : undefined,
+    useHeroAsFeatured:
+      typeof row.use_hero_as_featured === 'boolean' ? row.use_hero_as_featured : true,
+    homepageSlot: row.homepage_slot ? (String(row.homepage_slot) as Article['homepageSlot']) : undefined,
     imageCaptionEn: String(row.image_caption_en || ''),
     imageCaptionUr: String(row.image_caption_ur || ''),
     readingTimeMin: Number(row.reading_time_min || 3) || 3,
@@ -166,6 +179,12 @@ function buildArticleRow(article: Article, actor: string) {
     is_featured: Boolean(article.isFeatured),
     is_trending: Boolean(article.isTrending),
     hero_image: article.heroImage || '',
+    featured_image: article.featuredImage || null,
+    hero_image_meta_json: article.heroImageMeta || null,
+    featured_image_meta_json: article.featuredImageMeta || null,
+    social_image_url: article.socialImageUrl || null,
+    use_hero_as_featured: article.useHeroAsFeatured ?? true,
+    homepage_slot: article.homepageSlot || null,
     image_caption_en: article.imageCaptionEn || '',
     image_caption_ur: article.imageCaptionUr || '',
     reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),

@@ -13,6 +13,7 @@ import {
   getGenerationTimeoutMs,
   getInferenceTimeoutMs,
   ProviderExecutionError,
+  safeReadResponseText,
   sleepWithAbort,
 } from './AIConnectionValidator.ts';
 import { AIModelDiscovery } from './AIModelDiscovery.ts';
@@ -261,7 +262,7 @@ export class GeminiProvider {
         attemptTimeoutMs
       );
 
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed: any = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};

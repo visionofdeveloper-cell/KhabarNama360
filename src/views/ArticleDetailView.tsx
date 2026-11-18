@@ -263,14 +263,19 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
       <div className="space-y-2">
         <div className="aspect-16/9 rounded-3xl overflow-hidden bg-gray-100 shadow-md">
           <img
-            src={article.heroImage}
-            alt={resolvedTitle}
+            src={article.heroImage || article.featuredImage}
+            alt={isUrdu ? article.heroImageMeta?.altTextUr || resolvedTitle : article.heroImageMeta?.altTextEn || resolvedTitle}
+            width={1200}
+            height={675}
+            fetchPriority="high"
+            decoding="async"
             className="w-full h-full object-cover"
           />
         </div>
-        {resolvedCaption && (
+        {(resolvedCaption || article.heroImageMeta?.credit) && (
           <p className="text-xs text-gray-500 italic text-center">
             {resolvedCaption}
+            {article.heroImageMeta?.credit ? ` — Photo Credit: ${article.heroImageMeta.credit}` : ''}
           </p>
         )}
       </div>

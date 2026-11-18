@@ -98,6 +98,10 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const [linkSuggestions, setLinkSuggestions] = useState<any[]>([]);
   const [schemaPreview, setSchemaPreview] = useState<any>(null);
   const [aiSeoBusy, setAiSeoBusy] = useState(false);
+  const [indexNowUrls, setIndexNowUrls] = useState('');
+  const [indexNowKeyOverride, setIndexNowKeyOverride] = useState('');
+  const [indexNowBusy, setIndexNowBusy] = useState(false);
+  const [indexNowResult, setIndexNowResult] = useState<any>(null);
 
   const [banner, setBanner] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -253,6 +257,33 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
     });
     if (d.success) setBanner({ ok: true, msg: 'XML Sitemap configuration saved.' });
     else if (d.error) setBanner({ ok: false, msg: d.error });
+  };
+
+  const handleSubmitIndexNow = async () => {
+    setIndexNowBusy(true);
+    setIndexNowResult(null);
+    try {
+      const urls = indexNowUrls
+        .split(/[\n,]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const d = await safeFetchJson('/api/admin/seo/indexnow/submit', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          urls: urls.length > 0 ? urls : undefined,
+          key: indexNowKeyOverride.trim() || undefined,
+        }),
+      });
+      setIndexNowResult(d);
+      setBanner({
+        ok: Boolean(d.success),
+        msg: d.message || d.error || (d.success ? 'IndexNow ping sent.' : 'IndexNow submission error.'),
+      });
+    } finally {
+      setIndexNowBusy(false);
+    }
   };
 
   const handleAddRedirect = async (e: React.FormEvent) => {
@@ -815,76 +846,130 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
         </div>
       )}
 
-      {/* 6. SITEMAPS */}
+      {/* 6. SITEMAPS & INDEXNOW DISCOVERY */}
       {tab === 'sitemaps' && sitemapConfig && (
-        <form onSubmit={handleSaveSitemapConfig} className="bg-white border border-gray-200 rounded-xl p-6 space-y-5 text-xs">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4">
+        <div className="space-y-4">
+          <form onSubmit={handleSaveSitemapConfig} className="bg-white border border-gray-200 rounded-xl p-6 space-y-5 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">XML Sitemaps, RSS Feeds &amp; Discovery Endpoints</h3>
+                <p className="text-gray-500">Live public discovery files synchronized with published English &amp; Urdu content</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { path: '/sitemap-index.xml', label: 'Sitemap Index' },
+                  { path: '/sitemap.xml', label: 'Main Sitemap' },
+                  { path: '/news-sitemap.xml', label: 'News Sitemap' },
+                  { path: '/image-sitemap.xml', label: 'Image Sitemap' },
+                  { path: '/video-sitemap.xml', label: 'Video Sitemap' },
+                  { path: '/en/feed.xml', label: 'RSS (EN)' },
+                  { path: '/ur/feed.xml', label: 'RSS (UR)' },
+                  { path: '/robots.txt', label: 'robots.txt' },
+                  { path: '/ads.txt', label: 'ads.txt' },
+                  { path: '/llms.txt', label: 'llms.txt' },
+                ].map(item => (
+                  <a
+                    key={item.path}
+                    href={item.path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1.5 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-800 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1 font-mono text-[11px]"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>{item.label}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <span className="font-bold text-gray-800">Include Image Sitemap Tags (&lt;image:image&gt;)</span>
+                <input
+                  type="checkbox"
+                  checked={sitemapConfig.includeImages}
+                  onChange={e => setSitemapConfig({ ...sitemapConfig, includeImages: e.target.checked })}
+                />
+              </label>
+              <label className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <span className="font-bold text-gray-800">Include Category Archive Pages</span>
+                <input
+                  type="checkbox"
+                  checked={sitemapConfig.includeCategories}
+                  onChange={e => setSitemapConfig({ ...sitemapConfig, includeCategories: e.target.checked })}
+                />
+              </label>
+            </div>
+
             <div>
-              <h3 className="text-sm font-black text-gray-900">XML Sitemap Generator Controls</h3>
-              <p className="text-gray-500">Inspect and customize /sitemap.xml and /sitemap-news.xml outputs</p>
-            </div>
-            <div className="flex gap-2">
-              <a
-                href="/sitemap.xml"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Inspect /sitemap.xml</span>
-              </a>
-              <a
-                href="/sitemap-news.xml"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Inspect /sitemap-news.xml</span>
-              </a>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <span className="font-bold text-gray-800">Include Image Sitemap Tags (&lt;image:image&gt;)</span>
-              <input
-                type="checkbox"
-                checked={sitemapConfig.includeImages}
-                onChange={e => setSitemapConfig({ ...sitemapConfig, includeImages: e.target.checked })}
+              <label className="block font-bold text-gray-700 mb-1">Excluded Paths (one per line)</label>
+              <textarea
+                rows={3}
+                value={(sitemapConfig.excludedPaths || []).join('\n')}
+                onChange={e =>
+                  setSitemapConfig({
+                    ...sitemapConfig,
+                    excludedPaths: e.target.value.split('\n').map(s => s.trim()).filter(Boolean),
+                  })
+                }
+                className="w-full p-2.5 border border-gray-300 rounded-lg font-mono text-xs"
               />
-            </label>
-            <label className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <span className="font-bold text-gray-800">Include Category Archive Pages</span>
-              <input
-                type="checkbox"
-                checked={sitemapConfig.includeCategories}
-                onChange={e => setSitemapConfig({ ...sitemapConfig, includeCategories: e.target.checked })}
-              />
-            </label>
-          </div>
+            </div>
 
-          <div>
-            <label className="block font-bold text-gray-700 mb-1">Excluded Paths (one per line)</label>
-            <textarea
-              rows={3}
-              value={(sitemapConfig.excludedPaths || []).join('\n')}
-              onChange={e =>
-                setSitemapConfig({
-                  ...sitemapConfig,
-                  excludedPaths: e.target.value.split('\n').map(s => s.trim()).filter(Boolean),
-                })
-              }
-              className="w-full p-2.5 border border-gray-300 rounded-lg font-mono text-xs"
-            />
-          </div>
+            <div className="flex justify-end">
+              <button type="submit" className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg">
+                Save Sitemap Configuration
+              </button>
+            </div>
+          </form>
 
-          <div className="flex justify-end">
-            <button type="submit" className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg">
-              Save Sitemap Configuration
-            </button>
+          {/* IndexNow Submission Panel */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">IndexNow Protocol (Bing / Yandex Notification)</h3>
+                <p className="text-gray-500">
+                  Configure your IndexNow key in Global Settings → Integrations (served automatically at <code>/&lt;key&gt;.txt</code>). Submit updated URLs below (IndexNow notifies engines of updates; it does not guarantee indexing).
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={indexNowBusy}
+                onClick={handleSubmitIndexNow}
+                className="px-4 py-2 bg-slate-900 hover:bg-black disabled:opacity-50 text-white font-bold rounded-lg"
+              >
+                {indexNowBusy ? 'Submitting...' : 'Submit Latest URLs via IndexNow'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2">
+                <label className="block font-bold text-gray-700 mb-1">Optional Custom URLs (one per line, blank = latest 10 published)</label>
+                <textarea
+                  rows={2}
+                  value={indexNowUrls}
+                  onChange={e => setIndexNowUrls(e.target.value)}
+                  placeholder="/en/news/sample-story"
+                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Key Override (optional)</label>
+                <input
+                  type="text"
+                  value={indexNowKeyOverride}
+                  onChange={e => setIndexNowKeyOverride(e.target.value)}
+                  placeholder="Uses SiteSettings.indexNowKey"
+                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
+                />
+              </div>
+            </div>
+            {indexNowResult && (
+              <div className={`p-3 rounded-lg border font-mono text-[11px] ${indexNowResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
+                Status: {indexNowResult.statusCode || '—'} • {indexNowResult.message}
+              </div>
+            )}
           </div>
-        </form>
+        </div>
       )}
 
       {/* 7. ROBOTS.TXT */}

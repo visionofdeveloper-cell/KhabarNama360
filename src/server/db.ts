@@ -50,7 +50,8 @@ import {
   SearchConsoleConnection,
   SitemapSettings,
   SeoAuditLogEntry,
-  PublicationLogEntry
+  PublicationLogEntry,
+  SaveDiagnosticEntry
 } from '../types/index.ts';
 import {
   DataProvider,
@@ -137,6 +138,7 @@ interface DatabaseSchema {
   aiEnvSuppressed?: { gemini?: boolean; grok?: boolean };
   editorialDrafts?: EditorialDraftRecord[];
   publicationLogs?: PublicationLogEntry[];
+  saveDiagnostics?: SaveDiagnosticEntry[];
   newsCacheVersion?: number;
   lastCacheInvalidationAt?: string;
   cronLocks?: Record<string, { lockedAt: string; lockedBy: string; expiresAt: string }>;
@@ -1158,6 +1160,7 @@ const defaultSiteSettings: SiteSettings = {
   siteNameUr: '360 خبرنامہ',
   taglineEn: '360Khabarnama - News, Results, Finance & Everyday Utilities',
   taglineUr: '360 خبرنامہ - پاکستان کا مستند پورٹل: خبریں، نتائج اور سہولیات',
+  siteUrl: 'https://www.360khabarnama.com',
   primaryColor: '#059669', // Emerald Green (Pakistan color)
   breakingNewsEnabled: true,
   contactEmail: 'editor@360khabarnama.com',
@@ -1165,7 +1168,21 @@ const defaultSiteSettings: SiteSettings = {
   adManagerEnabled: true,
   googleAnalyticsId: 'G-KHABAR360',
   leaderboardAdUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80',
-  sidebarAdUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80'
+  sidebarAdUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80',
+  latestNewsCount: 15,
+  dateFormat: 'DD MMM YYYY',
+  consentBannerEnabled: true,
+  islamicSettings: {
+    defaultCity: 'Islamabad',
+    calculationMethod: 1,
+  },
+  runtimeDiagnostics: {
+    aiValidationTimeoutMs: 15000,
+    aiGenerationTimeoutMs: 45000,
+    healthCheckIntervalMinutes: 30,
+    logRetentionDays: 30,
+    automationRetryLimit: 3,
+  },
 };
 
 const defaultDataProviders: DataProvider[] = [
@@ -1796,14 +1813,29 @@ const defaultHomepageConfig: HomepageLayoutConfig = {
       displayMode: 'current_lang',
     },
     {
+      id: 'latest_news_feed',
+      type: 'latest_news_feed',
+      nameEn: 'Latest Published News Feed (15 Stories)',
+      nameUr: 'تازہ ترین خبریں (15 تازہ خبریں)',
+      description: 'Chronological latest published news feed sorted by published_at DESC with pagination.',
+      enabled: true,
+      order: 3,
+      mobileOrder: 3,
+      width: 'contained',
+      template: 'cards',
+      articleSource: 'latest',
+      itemLimit: 15,
+      displayMode: 'current_lang',
+    },
+    {
       id: 'ad_leaderboard_home',
       type: 'ad_banner',
       nameEn: 'Homepage Mid Leaderboard Ad Slot',
       nameUr: 'مرکزی اشتہاری بینر',
       description: 'Monetization placement between main hero coverage and Islamic daily digest.',
       enabled: true,
-      order: 3,
-      mobileOrder: 3,
+      order: 4,
+      mobileOrder: 4,
       width: 'contained',
       adSlot: 'leaderboard',
     },
@@ -1814,8 +1846,8 @@ const defaultHomepageConfig: HomepageLayoutConfig = {
       nameUr: 'اسلامی معلومات و اوقاتِ نماز',
       description: 'Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.',
       enabled: true,
-      order: 4,
-      mobileOrder: 4,
+      order: 5,
+      mobileOrder: 5,
       width: 'contained',
       template: 'cards',
     },
@@ -1826,8 +1858,8 @@ const defaultHomepageConfig: HomepageLayoutConfig = {
       nameUr: 'پاکستان ڈیجیٹل سروسز و آن لائن ٹولز',
       description: 'Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.',
       enabled: true,
-      order: 5,
-      mobileOrder: 5,
+      order: 6,
+      mobileOrder: 6,
       width: 'contained',
       template: 'grid',
       itemLimit: 6,
@@ -1935,7 +1967,25 @@ class DatabaseManager {
         if (!('aiHealthStatus' in parsed)) parsed.aiHealthStatus = null;
         if (!parsed.aiEnvSuppressed) parsed.aiEnvSuppressed = { gemini: false, grok: false };
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
+        if (!parsed.saveDiagnostics) parsed.saveDiagnostics = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
+        if (parsed.homepageConfig?.sections && !parsed.homepageConfig.sections.some((s: any) => s.type === 'latest_news_feed')) {
+          parsed.homepageConfig.sections.splice(2, 0, {
+            id: 'latest_news_feed',
+            type: 'latest_news_feed',
+            nameEn: 'Latest Published News Feed (15 Stories)',
+            nameUr: 'تازہ ترین خبریں (15 تازہ خبریں)',
+            description: 'Chronological latest published news feed sorted by published_at DESC with pagination.',
+            enabled: true,
+            order: 3,
+            mobileOrder: 3,
+            width: 'contained',
+            template: 'cards',
+            articleSource: 'latest',
+            itemLimit: 15,
+            displayMode: 'current_lang',
+          });
+        }
 
         let migrated = false;
         if ('epaperPages' in parsed) {
@@ -2024,6 +2074,7 @@ class DatabaseManager {
       aiHealthStatus: null,
       aiEnvSuppressed: { gemini: false, grok: false },
       editorialDrafts: [],
+      saveDiagnostics: [],
       cronLocks: {},
     };
 
@@ -2167,6 +2218,29 @@ class DatabaseManager {
 
   public getPublicationLogs(limit: number = 50): PublicationLogEntry[] {
     return (this.data.publicationLogs || []).slice(0, limit);
+  }
+
+  public recordSaveDiagnostic(entry: Omit<SaveDiagnosticEntry, 'id' | 'createdAt'>): SaveDiagnosticEntry {
+    if (!this.data.saveDiagnostics) this.data.saveDiagnostics = [];
+    const full: SaveDiagnosticEntry = {
+      ...entry,
+      id: `sdiag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toISOString(),
+    };
+    this.data.saveDiagnostics.unshift(full);
+    if (this.data.saveDiagnostics.length > 250) {
+      this.data.saveDiagnostics = this.data.saveDiagnostics.slice(0, 250);
+    }
+    this.saveDatabase(this.data);
+    return full;
+  }
+
+  public getSaveDiagnostics(limit: number = 80, moduleFilter?: string): SaveDiagnosticEntry[] {
+    let list = this.data.saveDiagnostics || [];
+    if (moduleFilter && moduleFilter !== 'all') {
+      list = list.filter(item => item.module === moduleFilter);
+    }
+    return list.slice(0, limit);
   }
 
   public upsertArticle(
@@ -2747,23 +2821,26 @@ class DatabaseManager {
   public upsertAdCampaign(campaign: AdCampaign, actor: string = 'Ad Manager'): AdCampaign {
     if (!this.data.adCampaigns) this.data.adCampaigns = [];
     const idx = this.data.adCampaigns.findIndex(c => c.id === campaign.id);
+    let saved: AdCampaign;
     if (idx >= 0) {
-      this.data.adCampaigns[idx] = { ...this.data.adCampaigns[idx], ...campaign };
-      this.logAudit(actor, 'Ad Campaign Updated', `Updated campaign: ${campaign.campaignName}`);
+      saved = { ...this.data.adCampaigns[idx], ...campaign };
+      this.data.adCampaigns[idx] = saved;
+      this.logAudit(actor, 'Ad Campaign Updated', `Updated campaign: ${saved.campaignName}`);
     } else {
-      const newCamp: AdCampaign = {
+      saved = {
         ...campaign,
         id: campaign.id || `camp-${Date.now()}`,
         impressions: campaign.impressions || 0,
         clicks: campaign.clicks || 0,
         ctr: campaign.ctr || 0,
         status: campaign.status || 'active',
+        priority: campaign.priority ?? 10,
       };
-      this.data.adCampaigns.unshift(newCamp);
-      this.logAudit(actor, 'Ad Campaign Created', `Created campaign: ${campaign.campaignName}`);
+      this.data.adCampaigns.unshift(saved);
+      this.logAudit(actor, 'Ad Campaign Created', `Created campaign: ${saved.campaignName}`);
     }
     this.saveDatabase(this.data);
-    return campaign;
+    return saved;
   }
 
   public deleteAdCampaign(id: string, actor: string = 'Ad Manager'): boolean {
@@ -2779,27 +2856,39 @@ class DatabaseManager {
   }
 
   public recordAdImpression(slotId: string, campaignId?: string) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find(s => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.impressions = (slot.impressions || 0) + 1;
+    if (slot) {
+      slot.impressions = (slot.impressions || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find(c => c.id === campaignId);
       if (camp) {
         camp.impressions = (camp.impressions || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat(((camp.clicks / camp.impressions) * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
 
   public recordAdClick(slotId: string, campaignId?: string) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find(s => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.clicks = (slot.clicks || 0) + 1;
+    if (slot) {
+      slot.clicks = (slot.clicks || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find(c => c.id === campaignId);
       if (camp) {
         camp.clicks = (camp.clicks || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat(((camp.clicks / camp.impressions) * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
 
   // --- SEO & Search Console ---
@@ -2840,20 +2929,23 @@ class DatabaseManager {
   public upsertRedirectRule(rule: RedirectRule, actor: string = 'SEO Specialist'): RedirectRule {
     if (!this.data.redirectRules) this.data.redirectRules = [];
     const idx = this.data.redirectRules.findIndex(r => r.id === rule.id || r.sourcePath === rule.sourcePath);
+    let saved: RedirectRule;
     if (idx >= 0) {
-      this.data.redirectRules[idx] = { ...this.data.redirectRules[idx], ...rule };
+      saved = { ...this.data.redirectRules[idx], ...rule };
+      this.data.redirectRules[idx] = saved;
     } else {
-      this.data.redirectRules.unshift({
+      saved = {
         ...rule,
         id: rule.id || `red-${Date.now()}`,
         hits: 0,
-        active: true,
+        active: rule.active ?? true,
         createdAt: new Date().toISOString(),
-      });
+      };
+      this.data.redirectRules.unshift(saved);
     }
-    this.logAudit(actor, 'Redirect Rule Saved', `Rule ${rule.sourcePath} -> ${rule.targetPath} (${rule.statusCode})`);
+    this.logAudit(actor, 'Redirect Rule Saved', `Rule ${saved.sourcePath} -> ${saved.targetPath} (${saved.statusCode})`);
     this.saveDatabase(this.data);
-    return rule;
+    return saved;
   }
 
   public deleteRedirectRule(id: string, actor: string = 'SEO Specialist'): boolean {
@@ -2886,33 +2978,68 @@ class DatabaseManager {
     return this.data.subscribers || [];
   }
 
-  public addSubscriber(email: string, language: 'en' | 'ur' | 'both' = 'both', frequency: 'daily' | 'breaking' = 'daily'): boolean {
+  public addSubscriber(
+    email: string,
+    language: 'en' | 'ur' | 'both' = 'both',
+    frequency: 'daily' | 'breaking' = 'daily',
+    consentSource: string = 'website'
+  ): boolean {
     if (!this.data.subscribers) this.data.subscribers = [];
     const cleanEmail = email.trim().toLowerCase();
-    if (this.data.subscribers.some(s => s.email === cleanEmail && s.status === 'active')) {
+    const existing = this.data.subscribers.find(s => s.email === cleanEmail);
+    if (existing && existing.status === 'active') {
       return false; // already active
     }
-    this.data.subscribers.unshift({
-      id: `sub-${Date.now()}`,
-      email: cleanEmail,
-      language,
-      frequency,
-      subscribedAt: new Date().toISOString(),
-      status: 'active',
-    });
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.status = 'active';
+      existing.language = language;
+      existing.frequency = frequency;
+      existing.consentSource = consentSource;
+      existing.consentTimestamp = now;
+    } else {
+      this.data.subscribers.unshift({
+        id: `sub-${Date.now()}`,
+        email: cleanEmail,
+        language,
+        frequency,
+        subscribedAt: now,
+        consentSource,
+        consentTimestamp: now,
+        status: 'active',
+      });
+    }
     this.saveDatabase(this.data);
     return true;
   }
 
-  public removeSubscriber(email: string): boolean {
-    if (!this.data.subscribers) return false;
-    const sub = this.data.subscribers.find(s => s.email.toLowerCase() === email.trim().toLowerCase());
+  public updateSubscriberStatus(idOrEmail: string, status: NewsletterSubscriber['status']): NewsletterSubscriber | null {
+    if (!this.data.subscribers) return null;
+    const sub = this.data.subscribers.find(
+      s => s.id === idOrEmail || s.email.toLowerCase() === idOrEmail.trim().toLowerCase()
+    );
     if (sub) {
-      sub.status = 'unsubscribed';
+      sub.status = status;
+      this.saveDatabase(this.data);
+      return sub;
+    }
+    return null;
+  }
+
+  public deleteSubscriber(id: string, actor: string = 'Audience Manager'): boolean {
+    if (!this.data.subscribers) return false;
+    const prev = this.data.subscribers.length;
+    this.data.subscribers = this.data.subscribers.filter(s => s.id !== id);
+    if (this.data.subscribers.length < prev) {
+      this.logAudit(actor, 'Subscriber Deleted', `Removed subscriber ID: ${id}`);
       this.saveDatabase(this.data);
       return true;
     }
     return false;
+  }
+
+  public removeSubscriber(email: string): boolean {
+    return Boolean(this.updateSubscriberStatus(email, 'unsubscribed'));
   }
 
   public getNotifications(): AudienceNotification[] {
@@ -2922,17 +3049,47 @@ class DatabaseManager {
   public sendAudienceNotification(notif: AudienceNotification, actor: string = 'Editor'): AudienceNotification {
     if (!this.data.notifications) this.data.notifications = [];
     const activeSubscribers = (this.data.subscribers || []).filter(s => s.status === 'active').length;
+    const targetCount = activeSubscribers;
     const newNotif: AudienceNotification = {
       ...notif,
       id: notif.id || `notif-${Date.now()}`,
       sentAt: new Date().toISOString(),
-      recipientsCount: activeSubscribers > 0 ? activeSubscribers : 42000,
-      status: 'sent',
+      recipientsCount: targetCount,
+      deliveredCount: notif.deliveredCount ?? targetCount,
+      failedCount: notif.failedCount ?? 0,
+      status: notif.status || 'sent',
     };
     this.data.notifications.unshift(newNotif);
-    this.logAudit(actor, 'Broadcast Dispatched', `Broadcast: ${notif.titleEn}`);
+    this.logAudit(actor, 'Broadcast Dispatched', `Broadcast: ${notif.titleEn} (${targetCount} subscribers)`);
     this.saveDatabase(this.data);
     return newNotif;
+  }
+
+  public restoreBackupSnapshot(snapshot: Partial<DatabaseSchema>, actor: string = 'Super Admin'): { restoredKeys: string[] } {
+    const allowedKeys: (keyof DatabaseSchema)[] = [
+      'siteSettings',
+      'categories',
+      'categoryPages',
+      'homepageConfig',
+      'homepageDraft',
+      'customBlocks',
+      'seoPages',
+      'redirectRules',
+      'adPlacements',
+      'adCampaigns',
+      'robotsTxt',
+      'sitemapConfig',
+    ];
+    const restoredKeys: string[] = [];
+    for (const k of allowedKeys) {
+      if (snapshot[k] !== undefined) {
+        (this.data as any)[k] = snapshot[k];
+        restoredKeys.push(String(k));
+      }
+    }
+    this.logAudit(actor, 'Backup Restored', `Restored configuration snapshot sections: ${restoredKeys.join(', ') || 'none'}`);
+    this.saveDatabase(this.data);
+    return { restoredKeys };
   }
 
   // --- Web Push Subscriptions ---

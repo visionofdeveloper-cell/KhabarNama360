@@ -44,13 +44,26 @@ export interface InternalLinkSuggestion {
   relevanceReason: string;
 }
 
+import { db } from '../../src/server/db.ts';
+
 export class SEOEngine {
-  private static BASE_URL = process.env.APP_URL || 'https://360khabarnama.com';
+  public static getBaseUrl(): string {
+    try {
+      const configured = db.getData().siteSettings?.siteUrl;
+      if (configured && configured.trim()) {
+        return configured.trim().replace(/\/+$/, '');
+      }
+    } catch {
+      // Fallback during static initialization if db isn't ready
+    }
+    return (process.env.APP_URL || 'https://www.360khabarnama.com').replace(/\/+$/, '');
+  }
 
   /**
    * Generate bilingual metadata for any article or utility page
    */
   public static generateArticleMetadata(article: Article, lang: 'en' | 'ur'): PageMetadata {
+    const baseUrl = this.getBaseUrl();
     const title = lang === 'ur'
       ? (article.seo?.metaTitleUr || `${article.titleUr} | 360 خبرنامہ`)
       : (article.seo?.metaTitleEn || `${article.titleEn} | 360Khabarnama`);
@@ -60,10 +73,18 @@ export class SEOEngine {
       : (article.seo?.metaDescriptionEn || article.summaryEn || article.titleEn);
 
     const slug = article.slug || article.id;
-    const canonicalUrl = article.seo?.canonicalUrl || `${this.BASE_URL}/${lang}/news/${slug}`;
+    const canonicalUrl = article.seo?.canonicalUrl || `${baseUrl}/${lang}/news/${slug}`;
     const robots = article.seo?.noIndex
       ? 'noindex, nofollow'
       : 'index, follow, max-image-preview:large';
+
+    const resolvedOgImage =
+      article.socialImageUrl ||
+      article.seo?.ogImage ||
+      article.heroImage ||
+      article.featuredImage ||
+      `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
+    const fullOgImage = resolvedOgImage.startsWith('/') ? `${baseUrl}${resolvedOgImage}` : resolvedOgImage;
 
     return {
       title: title.slice(0, 70),
@@ -72,11 +93,11 @@ export class SEOEngine {
       robots,
       ogTitle: title,
       ogDescription: description,
-      ogImage: article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
+      ogImage: fullOgImage,
       ogType: 'article',
       locale: lang === 'ur' ? 'ur_PK' : 'en_PK',
-      hreflangEn: `${this.BASE_URL}/en/news/${slug}`,
-      hreflangUr: `${this.BASE_URL}/ur/news/${slug}`,
+      hreflangEn: `${baseUrl}/en/news/${slug}`,
+      hreflangUr: `${baseUrl}/ur/news/${slug}`,
     };
   }
 
@@ -84,8 +105,14 @@ export class SEOEngine {
    * Generate valid NewsArticle JSON-LD matching visible page content
    */
   public static generateNewsArticleSchema(article: Article, lang: 'en' | 'ur'): Record<string, any> {
+    const baseUrl = this.getBaseUrl();
     const slug = article.slug || article.id;
-    const url = `${this.BASE_URL}/${lang}/news/${slug}`;
+    const url = `${baseUrl}/${lang}/news/${slug}`;
+    const rawImages = [article.heroImage, article.featuredImage, article.socialImageUrl].filter(
+      (img): img is string => Boolean(img && img.trim())
+    );
+    const images = Array.from(new Set(rawImages.map(img => (img.startsWith('/') ? `${baseUrl}${img}` : img))));
+
     return {
       '@context': 'https://schema.org',
       '@type': 'NewsArticle',
@@ -95,7 +122,7 @@ export class SEOEngine {
       },
       headline: lang === 'ur' ? article.titleUr : article.titleEn,
       description: lang === 'ur' ? article.summaryUr : article.summaryEn,
-      image: article.heroImage ? [article.heroImage] : [],
+      image: images,
       datePublished: article.publishedAt,
       dateModified: article.updatedAt || article.publishedAt,
       author: {
@@ -107,7 +134,7 @@ export class SEOEngine {
         name: '360Khabarnama',
         logo: {
           '@type': 'ImageObject',
-          url: `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
+          url: `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
         },
       },
       inLanguage: lang === 'ur' ? 'ur-PK' : 'en-PK',

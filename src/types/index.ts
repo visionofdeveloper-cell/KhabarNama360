@@ -31,6 +31,20 @@ export interface ArticleSeo {
   internalLinks?: { title: string; url: string; anchorText: string }[];
 }
 
+export interface ImageMetadata {
+  altTextEn?: string;
+  altTextUr?: string;
+  captionEn?: string;
+  captionUr?: string;
+  credit?: string;
+  source?: string;
+  license?: string;
+  width?: number;
+  height?: number;
+  fileSize?: number;
+  mimeType?: string;
+}
+
 export interface Article {
   id: string;
   slug: string;
@@ -65,6 +79,11 @@ export interface Article {
   updatedBy?: string;
   failureReason?: string;
   heroImage: string;
+  featuredImage?: string;
+  heroImageMeta?: ImageMetadata;
+  featuredImageMeta?: ImageMetadata;
+  socialImageUrl?: string;
+  useHeroAsFeatured?: boolean;
   imageCaptionEn: string;
   imageCaptionUr: string;
   isBreaking: boolean;
@@ -399,6 +418,7 @@ export interface AdminUser {
   bioUr?: string;
   articlesCount: number;
   lastLogin?: string;
+  mfaEnabled?: boolean;
   createdAt: string;
 }
 
@@ -665,6 +685,10 @@ export interface MediaAsset {
   captionUr: string;
   altTextEn: string;
   altTextUr: string;
+  credit?: string;
+  source?: string;
+  license?: string;
+  storagePath?: string;
   width?: number;
   height?: number;
   uploadedBy: string;
@@ -815,11 +839,13 @@ export interface AdCampaign {
   budgetPkr: number;
   startDate: string;
   endDate: string;
-  status: 'active' | 'paused' | 'completed' | 'draft';
+  status: 'active' | 'paused' | 'completed' | 'draft' | 'archived';
   impressions: number;
   clicks: number;
   ctr: number;
   placementSlotIds: string[];
+  priority?: number;
+  notes?: string;
 }
 
 export interface NewsletterSubscriber {
@@ -828,7 +854,9 @@ export interface NewsletterSubscriber {
   language: 'en' | 'ur' | 'both';
   frequency: 'daily' | 'breaking';
   subscribedAt: string;
-  status: 'active' | 'unsubscribed';
+  consentSource?: string;
+  consentTimestamp?: string;
+  status: 'active' | 'unsubscribed' | 'bounced';
 }
 
 export interface NotificationTopics {
@@ -878,8 +906,12 @@ export interface AudienceNotification {
   channel?: 'push' | 'whatsapp' | 'email';
   category?: string;
   sentAt?: string;
+  scheduledFor?: string;
   recipientsCount?: number;
-  status?: 'sent' | 'scheduled' | 'draft';
+  deliveredCount?: number;
+  failedCount?: number;
+  errorSummary?: string;
+  status?: 'sent' | 'scheduled' | 'draft' | 'partial' | 'failed';
 }
 
 // ================= HOMEPAGE BUILDER & UNIVERSAL CATEGORY PAGES =================
@@ -887,6 +919,7 @@ export interface AudienceNotification {
 export type HomepageSectionType =
   | 'live_widgets_bar'
   | 'hero_editorial_grid'
+  | 'latest_news_feed'
   | 'ad_banner'
   | 'islamic_prayer_digest'
   | 'utilities_grid'
@@ -1078,6 +1111,32 @@ export interface SiteSettings {
   maintenanceMode?: boolean;
   maintenanceMessageEn?: string;
   maintenanceMessageUr?: string;
+  siteUrl?: string;
+  latestNewsCount?: number;
+  dateFormat?: string;
+  googleTagManagerId?: string;
+  searchConsoleVerification?: string;
+  bingWebmasterVerification?: string;
+  indexNowKey?: string;
+  adsTxtCustom?: string;
+  consentBannerEnabled?: boolean;
+  islamicSettings?: {
+    defaultCity: string;
+    calculationMethod: number; // e.g., 1 = Univ of Islamic Sciences Karachi, 2 = ISNA, 3 = MWL, 4 = Makkah
+    calculationMethodName?: string;
+    asrJuristic?: 'Hanafi' | 'Shafi';
+  };
+  runtimeDiagnostics?: {
+    aiDiscoveryTimeoutMs?: number;
+    aiValidationTimeoutMs?: number;
+    aiGenerationTimeoutMs?: number;
+    aiInferenceTimeoutMs?: number;
+    syncDefaultIntervalMinutes?: number;
+    healthCheckIntervalMinutes?: number;
+    logRetentionDays?: number;
+    automationRetryLimit?: number;
+    alertEmail?: string;
+  };
   branding?: {
     logoUrl: string;
     faviconUrl: string;
@@ -1113,6 +1172,20 @@ export interface SiteSettings {
     messageEn: string;
     messageUr: string;
   };
+}
+
+export interface SaveDiagnosticEntry {
+  id: string;
+  module: string;
+  action: string;
+  recordId?: string;
+  storageEngine: 'supabase' | 'json_fallback';
+  success: boolean;
+  verifiedReadBack: boolean;
+  latencyMs: number;
+  actor?: string;
+  errorMessage?: string;
+  createdAt: string;
 }
 
 export interface AuditLog {

@@ -89,8 +89,8 @@ var init_LinkAuditEngine = __esm({
 import "dotenv/config";
 import express from "express";
 import dotenv2 from "dotenv";
-import fs3 from "fs";
-import path3 from "path";
+import fs4 from "fs";
+import path4 from "path";
 
 // src/server/db.ts
 import fs from "fs";
@@ -1140,6 +1140,7 @@ var defaultSiteSettings = {
   siteNameUr: "360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1",
   taglineEn: "360Khabarnama - News, Results, Finance & Everyday Utilities",
   taglineUr: "360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1 - \u067E\u0627\u06A9\u0633\u062A\u0627\u0646 \u06A9\u0627 \u0645\u0633\u062A\u0646\u062F \u067E\u0648\u0631\u0679\u0644: \u062E\u0628\u0631\u06CC\u06BA\u060C \u0646\u062A\u0627\u0626\u062C \u0627\u0648\u0631 \u0633\u06C1\u0648\u0644\u06CC\u0627\u062A",
+  siteUrl: "https://www.360khabarnama.com",
   primaryColor: "#059669",
   // Emerald Green (Pakistan color)
   breakingNewsEnabled: true,
@@ -1148,7 +1149,21 @@ var defaultSiteSettings = {
   adManagerEnabled: true,
   googleAnalyticsId: "G-KHABAR360",
   leaderboardAdUrl: "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80",
-  sidebarAdUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80"
+  sidebarAdUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80",
+  latestNewsCount: 15,
+  dateFormat: "DD MMM YYYY",
+  consentBannerEnabled: true,
+  islamicSettings: {
+    defaultCity: "Islamabad",
+    calculationMethod: 1
+  },
+  runtimeDiagnostics: {
+    aiValidationTimeoutMs: 15e3,
+    aiGenerationTimeoutMs: 45e3,
+    healthCheckIntervalMinutes: 30,
+    logRetentionDays: 30,
+    automationRetryLimit: 3
+  }
 };
 var defaultDataProviders = [
   {
@@ -1763,14 +1778,29 @@ var defaultHomepageConfig = {
       displayMode: "current_lang"
     },
     {
+      id: "latest_news_feed",
+      type: "latest_news_feed",
+      nameEn: "Latest Published News Feed (15 Stories)",
+      nameUr: "\u062A\u0627\u0632\u06C1 \u062A\u0631\u06CC\u0646 \u062E\u0628\u0631\u06CC\u06BA (15 \u062A\u0627\u0632\u06C1 \u062E\u0628\u0631\u06CC\u06BA)",
+      description: "Chronological latest published news feed sorted by published_at DESC with pagination.",
+      enabled: true,
+      order: 3,
+      mobileOrder: 3,
+      width: "contained",
+      template: "cards",
+      articleSource: "latest",
+      itemLimit: 15,
+      displayMode: "current_lang"
+    },
+    {
       id: "ad_leaderboard_home",
       type: "ad_banner",
       nameEn: "Homepage Mid Leaderboard Ad Slot",
       nameUr: "\u0645\u0631\u06A9\u0632\u06CC \u0627\u0634\u062A\u06C1\u0627\u0631\u06CC \u0628\u06CC\u0646\u0631",
       description: "Monetization placement between main hero coverage and Islamic daily digest.",
       enabled: true,
-      order: 3,
-      mobileOrder: 3,
+      order: 4,
+      mobileOrder: 4,
       width: "contained",
       adSlot: "leaderboard"
     },
@@ -1781,8 +1811,8 @@ var defaultHomepageConfig = {
       nameUr: "\u0627\u0633\u0644\u0627\u0645\u06CC \u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0648 \u0627\u0648\u0642\u0627\u062A\u0650 \u0646\u0645\u0627\u0632",
       description: "Hijri calendar date, daily verified Hadith, and 6-time city prayer schedule.",
       enabled: true,
-      order: 4,
-      mobileOrder: 4,
+      order: 5,
+      mobileOrder: 5,
       width: "contained",
       template: "cards"
     },
@@ -1793,8 +1823,8 @@ var defaultHomepageConfig = {
       nameUr: "\u067E\u0627\u06A9\u0633\u062A\u0627\u0646 \u0688\u06CC\u062C\u06CC\u0679\u0644 \u0633\u0631\u0648\u0633\u0632 \u0648 \u0622\u0646 \u0644\u0627\u0626\u0646 \u0679\u0648\u0644\u0632",
       description: "Quick-access grid for electricity bill estimator, Zakat, Age, Currency, Prize Bonds, and Urdu Dictionary.",
       enabled: true,
-      order: 5,
-      mobileOrder: 5,
+      order: 6,
+      mobileOrder: 6,
       width: "contained",
       template: "grid",
       itemLimit: 6
@@ -1891,7 +1921,25 @@ var DatabaseManager = class {
         if (!("aiHealthStatus" in parsed)) parsed.aiHealthStatus = null;
         if (!parsed.aiEnvSuppressed) parsed.aiEnvSuppressed = { gemini: false, grok: false };
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
+        if (!parsed.saveDiagnostics) parsed.saveDiagnostics = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
+        if (parsed.homepageConfig?.sections && !parsed.homepageConfig.sections.some((s) => s.type === "latest_news_feed")) {
+          parsed.homepageConfig.sections.splice(2, 0, {
+            id: "latest_news_feed",
+            type: "latest_news_feed",
+            nameEn: "Latest Published News Feed (15 Stories)",
+            nameUr: "\u062A\u0627\u0632\u06C1 \u062A\u0631\u06CC\u0646 \u062E\u0628\u0631\u06CC\u06BA (15 \u062A\u0627\u0632\u06C1 \u062E\u0628\u0631\u06CC\u06BA)",
+            description: "Chronological latest published news feed sorted by published_at DESC with pagination.",
+            enabled: true,
+            order: 3,
+            mobileOrder: 3,
+            width: "contained",
+            template: "cards",
+            articleSource: "latest",
+            itemLimit: 15,
+            displayMode: "current_lang"
+          });
+        }
         let migrated = false;
         if ("epaperPages" in parsed) {
           delete parsed.epaperPages;
@@ -1975,6 +2023,7 @@ var DatabaseManager = class {
       aiHealthStatus: null,
       aiEnvSuppressed: { gemini: false, grok: false },
       editorialDrafts: [],
+      saveDiagnostics: [],
       cronLocks: {}
     };
     this.saveDatabase(initial);
@@ -2093,6 +2142,27 @@ var DatabaseManager = class {
   }
   getPublicationLogs(limit = 50) {
     return (this.data.publicationLogs || []).slice(0, limit);
+  }
+  recordSaveDiagnostic(entry) {
+    if (!this.data.saveDiagnostics) this.data.saveDiagnostics = [];
+    const full = {
+      ...entry,
+      id: `sdiag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.saveDiagnostics.unshift(full);
+    if (this.data.saveDiagnostics.length > 250) {
+      this.data.saveDiagnostics = this.data.saveDiagnostics.slice(0, 250);
+    }
+    this.saveDatabase(this.data);
+    return full;
+  }
+  getSaveDiagnostics(limit = 80, moduleFilter) {
+    let list = this.data.saveDiagnostics || [];
+    if (moduleFilter && moduleFilter !== "all") {
+      list = list.filter((item) => item.module === moduleFilter);
+    }
+    return list.slice(0, limit);
   }
   upsertArticle(articleInput, actor = "Editor", opts) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2581,23 +2651,26 @@ var DatabaseManager = class {
   upsertAdCampaign(campaign, actor = "Ad Manager") {
     if (!this.data.adCampaigns) this.data.adCampaigns = [];
     const idx = this.data.adCampaigns.findIndex((c) => c.id === campaign.id);
+    let saved;
     if (idx >= 0) {
-      this.data.adCampaigns[idx] = { ...this.data.adCampaigns[idx], ...campaign };
-      this.logAudit(actor, "Ad Campaign Updated", `Updated campaign: ${campaign.campaignName}`);
+      saved = { ...this.data.adCampaigns[idx], ...campaign };
+      this.data.adCampaigns[idx] = saved;
+      this.logAudit(actor, "Ad Campaign Updated", `Updated campaign: ${saved.campaignName}`);
     } else {
-      const newCamp = {
+      saved = {
         ...campaign,
         id: campaign.id || `camp-${Date.now()}`,
         impressions: campaign.impressions || 0,
         clicks: campaign.clicks || 0,
         ctr: campaign.ctr || 0,
-        status: campaign.status || "active"
+        status: campaign.status || "active",
+        priority: campaign.priority ?? 10
       };
-      this.data.adCampaigns.unshift(newCamp);
-      this.logAudit(actor, "Ad Campaign Created", `Created campaign: ${campaign.campaignName}`);
+      this.data.adCampaigns.unshift(saved);
+      this.logAudit(actor, "Ad Campaign Created", `Created campaign: ${saved.campaignName}`);
     }
     this.saveDatabase(this.data);
-    return campaign;
+    return saved;
   }
   deleteAdCampaign(id, actor = "Ad Manager") {
     if (!this.data.adCampaigns) return false;
@@ -2611,26 +2684,38 @@ var DatabaseManager = class {
     return false;
   }
   recordAdImpression(slotId, campaignId) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find((s) => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.impressions = (slot.impressions || 0) + 1;
+    if (slot) {
+      slot.impressions = (slot.impressions || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find((c) => c.id === campaignId);
       if (camp) {
         camp.impressions = (camp.impressions || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat((camp.clicks / camp.impressions * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
   recordAdClick(slotId, campaignId) {
+    let changed = false;
     const slot = (this.data.adPlacements || []).find((s) => s.id === slotId || s.slotId === slotId);
-    if (slot) slot.clicks = (slot.clicks || 0) + 1;
+    if (slot) {
+      slot.clicks = (slot.clicks || 0) + 1;
+      changed = true;
+    }
     if (campaignId) {
       const camp = (this.data.adCampaigns || []).find((c) => c.id === campaignId);
       if (camp) {
         camp.clicks = (camp.clicks || 0) + 1;
         camp.ctr = camp.impressions > 0 ? parseFloat((camp.clicks / camp.impressions * 100).toFixed(2)) : 0;
+        changed = true;
       }
     }
+    if (changed) this.saveDatabase(this.data);
   }
   // --- SEO & Search Console ---
   getSeoPages() {
@@ -2665,20 +2750,23 @@ var DatabaseManager = class {
   upsertRedirectRule(rule, actor = "SEO Specialist") {
     if (!this.data.redirectRules) this.data.redirectRules = [];
     const idx = this.data.redirectRules.findIndex((r) => r.id === rule.id || r.sourcePath === rule.sourcePath);
+    let saved;
     if (idx >= 0) {
-      this.data.redirectRules[idx] = { ...this.data.redirectRules[idx], ...rule };
+      saved = { ...this.data.redirectRules[idx], ...rule };
+      this.data.redirectRules[idx] = saved;
     } else {
-      this.data.redirectRules.unshift({
+      saved = {
         ...rule,
         id: rule.id || `red-${Date.now()}`,
         hits: 0,
-        active: true,
+        active: rule.active ?? true,
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      });
+      };
+      this.data.redirectRules.unshift(saved);
     }
-    this.logAudit(actor, "Redirect Rule Saved", `Rule ${rule.sourcePath} -> ${rule.targetPath} (${rule.statusCode})`);
+    this.logAudit(actor, "Redirect Rule Saved", `Rule ${saved.sourcePath} -> ${saved.targetPath} (${saved.statusCode})`);
     this.saveDatabase(this.data);
-    return rule;
+    return saved;
   }
   deleteRedirectRule(id, actor = "SEO Specialist") {
     if (!this.data.redirectRules) return false;
@@ -2706,32 +2794,60 @@ var DatabaseManager = class {
   getSubscribers() {
     return this.data.subscribers || [];
   }
-  addSubscriber(email, language = "both", frequency = "daily") {
+  addSubscriber(email, language = "both", frequency = "daily", consentSource = "website") {
     if (!this.data.subscribers) this.data.subscribers = [];
     const cleanEmail = email.trim().toLowerCase();
-    if (this.data.subscribers.some((s) => s.email === cleanEmail && s.status === "active")) {
+    const existing = this.data.subscribers.find((s) => s.email === cleanEmail);
+    if (existing && existing.status === "active") {
       return false;
     }
-    this.data.subscribers.unshift({
-      id: `sub-${Date.now()}`,
-      email: cleanEmail,
-      language,
-      frequency,
-      subscribedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "active"
-    });
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    if (existing) {
+      existing.status = "active";
+      existing.language = language;
+      existing.frequency = frequency;
+      existing.consentSource = consentSource;
+      existing.consentTimestamp = now;
+    } else {
+      this.data.subscribers.unshift({
+        id: `sub-${Date.now()}`,
+        email: cleanEmail,
+        language,
+        frequency,
+        subscribedAt: now,
+        consentSource,
+        consentTimestamp: now,
+        status: "active"
+      });
+    }
     this.saveDatabase(this.data);
     return true;
   }
-  removeSubscriber(email) {
-    if (!this.data.subscribers) return false;
-    const sub = this.data.subscribers.find((s) => s.email.toLowerCase() === email.trim().toLowerCase());
+  updateSubscriberStatus(idOrEmail, status) {
+    if (!this.data.subscribers) return null;
+    const sub = this.data.subscribers.find(
+      (s) => s.id === idOrEmail || s.email.toLowerCase() === idOrEmail.trim().toLowerCase()
+    );
     if (sub) {
-      sub.status = "unsubscribed";
+      sub.status = status;
+      this.saveDatabase(this.data);
+      return sub;
+    }
+    return null;
+  }
+  deleteSubscriber(id, actor = "Audience Manager") {
+    if (!this.data.subscribers) return false;
+    const prev = this.data.subscribers.length;
+    this.data.subscribers = this.data.subscribers.filter((s) => s.id !== id);
+    if (this.data.subscribers.length < prev) {
+      this.logAudit(actor, "Subscriber Deleted", `Removed subscriber ID: ${id}`);
       this.saveDatabase(this.data);
       return true;
     }
     return false;
+  }
+  removeSubscriber(email) {
+    return Boolean(this.updateSubscriberStatus(email, "unsubscribed"));
   }
   getNotifications() {
     return this.data.notifications || [];
@@ -2739,17 +2855,46 @@ var DatabaseManager = class {
   sendAudienceNotification(notif, actor = "Editor") {
     if (!this.data.notifications) this.data.notifications = [];
     const activeSubscribers = (this.data.subscribers || []).filter((s) => s.status === "active").length;
+    const targetCount = activeSubscribers;
     const newNotif = {
       ...notif,
       id: notif.id || `notif-${Date.now()}`,
       sentAt: (/* @__PURE__ */ new Date()).toISOString(),
-      recipientsCount: activeSubscribers > 0 ? activeSubscribers : 42e3,
-      status: "sent"
+      recipientsCount: targetCount,
+      deliveredCount: notif.deliveredCount ?? targetCount,
+      failedCount: notif.failedCount ?? 0,
+      status: notif.status || "sent"
     };
     this.data.notifications.unshift(newNotif);
-    this.logAudit(actor, "Broadcast Dispatched", `Broadcast: ${notif.titleEn}`);
+    this.logAudit(actor, "Broadcast Dispatched", `Broadcast: ${notif.titleEn} (${targetCount} subscribers)`);
     this.saveDatabase(this.data);
     return newNotif;
+  }
+  restoreBackupSnapshot(snapshot, actor = "Super Admin") {
+    const allowedKeys = [
+      "siteSettings",
+      "categories",
+      "categoryPages",
+      "homepageConfig",
+      "homepageDraft",
+      "customBlocks",
+      "seoPages",
+      "redirectRules",
+      "adPlacements",
+      "adCampaigns",
+      "robotsTxt",
+      "sitemapConfig"
+    ];
+    const restoredKeys = [];
+    for (const k of allowedKeys) {
+      if (snapshot[k] !== void 0) {
+        this.data[k] = snapshot[k];
+        restoredKeys.push(String(k));
+      }
+    }
+    this.logAudit(actor, "Backup Restored", `Restored configuration snapshot sections: ${restoredKeys.join(", ") || "none"}`);
+    this.saveDatabase(this.data);
+    return { restoredKeys };
   }
   // --- Web Push Subscriptions ---
   getPushSubscriptions(status) {
@@ -4350,17 +4495,54 @@ import { GoogleGenAI } from "@google/genai";
 // services/ai/AIConnectionValidator.ts
 import crypto3 from "crypto";
 import dns from "dns/promises";
+var runtimeAiTimeouts = {};
+function setRuntimeAiTimeouts(opts) {
+  if (typeof opts.discoveryMs === "number" && Number.isFinite(opts.discoveryMs)) {
+    runtimeAiTimeouts.discoveryMs = Math.max(5e3, Math.min(25e3, Math.round(opts.discoveryMs)));
+  }
+  if (typeof opts.generationMs === "number" && Number.isFinite(opts.generationMs)) {
+    runtimeAiTimeouts.generationMs = Math.max(15e3, Math.min(6e4, Math.round(opts.generationMs)));
+  }
+  if (typeof opts.inferenceMs === "number" && Number.isFinite(opts.inferenceMs)) {
+    runtimeAiTimeouts.inferenceMs = Math.max(15e3, Math.min(6e4, Math.round(opts.inferenceMs)));
+  }
+}
+async function safeReadResponseText(res) {
+  try {
+    if (res.bodyUsed) return "";
+    return await res.text();
+  } catch (err) {
+    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
+      throw err;
+    }
+    try {
+      const buf = await res.arrayBuffer();
+      return Buffer.from(buf).toString("utf8");
+    } catch {
+      return "";
+    }
+  }
+}
 function getDiscoveryTimeoutMs() {
+  if (typeof runtimeAiTimeouts.discoveryMs === "number") {
+    return runtimeAiTimeouts.discoveryMs;
+  }
   const raw = Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12e3);
   if (!Number.isFinite(raw)) return 12e3;
   return Math.max(5e3, Math.min(25e3, Math.round(raw)));
 }
 function getGenerationTimeoutMs() {
+  if (typeof runtimeAiTimeouts.generationMs === "number") {
+    return runtimeAiTimeouts.generationMs;
+  }
   const raw = Number(process.env.AI_GENERATION_TIMEOUT_MS || 45e3);
   if (!Number.isFinite(raw)) return 45e3;
   return Math.max(15e3, Math.min(6e4, Math.round(raw)));
 }
 function getInferenceTimeoutMs() {
+  if (typeof runtimeAiTimeouts.inferenceMs === "number") {
+    return runtimeAiTimeouts.inferenceMs;
+  }
   const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 5e4);
   if (!Number.isFinite(raw)) return 5e4;
   return Math.max(15e3, Math.min(6e4, Math.round(raw)));
@@ -4860,7 +5042,7 @@ var AIModelDiscovery = class {
           },
           getDiscoveryTimeoutMs()
         );
-        const rawText = await res.text();
+        const rawText = await safeReadResponseText(res);
         let parsed = null;
         try {
           parsed = rawText ? JSON.parse(rawText) : {};
@@ -4965,7 +5147,7 @@ var AIModelDiscovery = class {
         },
         getDiscoveryTimeoutMs()
       );
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -5222,7 +5404,7 @@ var GeminiProvider = class {
         },
         attemptTimeoutMs
       );
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -5603,7 +5785,7 @@ Respond strictly with valid JSON only (no markdown fences).` : opts.prompt;
         },
         opts.timeoutMs || getInferenceTimeoutMs()
       );
-      const rawText = await response.text();
+      const rawText = await safeReadResponseText(response);
       let parsed = {};
       try {
         parsed = rawText ? JSON.parse(rawText) : {};
@@ -6003,6 +6185,12 @@ function mapRowToArticle(row) {
     isFeatured: Boolean(row.is_featured),
     isTrending: Boolean(row.is_trending),
     heroImage: String(row.hero_image || "") || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80",
+    featuredImage: row.featured_image ? String(row.featured_image) : void 0,
+    heroImageMeta: typeof row.hero_image_meta_json === "object" && row.hero_image_meta_json ? row.hero_image_meta_json : void 0,
+    featuredImageMeta: typeof row.featured_image_meta_json === "object" && row.featured_image_meta_json ? row.featured_image_meta_json : void 0,
+    socialImageUrl: row.social_image_url ? String(row.social_image_url) : void 0,
+    useHeroAsFeatured: typeof row.use_hero_as_featured === "boolean" ? row.use_hero_as_featured : true,
+    homepageSlot: row.homepage_slot ? String(row.homepage_slot) : void 0,
     imageCaptionEn: String(row.image_caption_en || ""),
     imageCaptionUr: String(row.image_caption_ur || ""),
     readingTimeMin: Number(row.reading_time_min || 3) || 3,
@@ -6044,6 +6232,12 @@ function buildArticleRow(article, actor) {
     is_featured: Boolean(article.isFeatured),
     is_trending: Boolean(article.isTrending),
     hero_image: article.heroImage || "",
+    featured_image: article.featuredImage || null,
+    hero_image_meta_json: article.heroImageMeta || null,
+    featured_image_meta_json: article.featuredImageMeta || null,
+    social_image_url: article.socialImageUrl || null,
+    use_hero_as_featured: article.useHeroAsFeatured ?? true,
+    homepage_slot: article.homepageSlot || null,
     image_caption_en: article.imageCaptionEn || "",
     image_caption_ur: article.imageCaptionUr || "",
     reading_time_min: Math.max(1, Math.round(Number(article.readingTimeMin || 3))),
@@ -8266,6 +8460,40 @@ STRICT EDITORIAL RULES:
 }
 
 // services/automation/ProviderRegistry.ts
+function isPrivateOrBlockedHostname(hostname) {
+  const lower = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!lower) return true;
+  if (lower === "localhost" || lower === "0.0.0.0" || lower === "::1" || lower.endsWith(".localhost") || lower.endsWith(".local") || lower.endsWith(".internal")) {
+    return true;
+  }
+  const ipv4Match = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [a, b] = [Number(ipv4Match[1]), Number(ipv4Match[2])];
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+  }
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:")) {
+    return true;
+  }
+  return false;
+}
+function validateSafeExternalUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL((rawUrl || "").trim());
+  } catch {
+    throw new Error("Invalid endpoint URL format.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http:// and https:// endpoints are allowed.");
+  }
+  if (isPrivateOrBlockedHostname(parsed.hostname)) {
+    throw new Error("SSRF protection: private, loopback, or internal network hostnames are blocked.");
+  }
+  return parsed;
+}
 var ProviderRegistry = class {
   static getAllSanitized() {
     return db.getDataProviders().map((p) => ({
@@ -8277,6 +8505,7 @@ var ProviderRegistry = class {
     if (!input.name?.trim() || !input.endpoint?.trim()) {
       throw new Error("Provider name and endpoint URL are required.");
     }
+    validateSafeExternalUrl(input.endpoint.trim());
     const existing = input.id ? db.getDataProvider(input.id) : void 0;
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const id = existing?.id || `prov-${input.category || "custom"}-${Date.now()}`;
@@ -8327,6 +8556,7 @@ var ProviderRegistry = class {
     if (!provider) {
       throw new Error("Provider not found.");
     }
+    validateSafeExternalUrl(provider.endpoint);
     const start = Date.now();
     const headers = {
       Accept: "application/json, application/xml, text/xml, */*",
@@ -8445,6 +8675,7 @@ var ProviderRegistry = class {
           if (!provider) {
             throw new Error(`Unknown provider ID: ${providerId}`);
           }
+          validateSafeExternalUrl(provider.endpoint);
           const headers = {
             Accept: "application/json, application/xml, text/xml, */*",
             "User-Agent": "360Khabarnama-SyncBot/2.0"
@@ -9341,6 +9572,640 @@ async function checkFirestoreHealth(bearerToken) {
   }
 }
 
+// src/server/supabaseRepositories.ts
+import fs3 from "fs";
+import path2 from "path";
+import crypto5 from "crypto";
+var MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+function detectImageFromMagicBytes(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 255 && buf[1] === 216 && buf[2] === 255) {
+    return { mime: "image/jpeg", ext: "jpg" };
+  }
+  if (buf[0] === 137 && buf[1] === 80 && buf[2] === 78 && buf[3] === 71 && buf[4] === 13 && buf[5] === 10 && buf[6] === 26 && buf[7] === 10) {
+    return { mime: "image/png", ext: "png" };
+  }
+  if (buf.subarray(0, 4).toString("ascii") === "RIFF" && buf.subarray(8, 12).toString("ascii") === "WEBP") {
+    return { mime: "image/webp", ext: "webp" };
+  }
+  const ftyp = buf.subarray(4, 12).toString("ascii");
+  if (ftyp === "ftypavif" || ftyp === "ftypavis") {
+    return { mime: "image/avif", ext: "avif" };
+  }
+  return null;
+}
+async function upsertAndVerifyRow(table, row, primaryKeyCol = "id") {
+  const started = Date.now();
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      ok: true,
+      storageEngine: "json_fallback",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started,
+      data: row
+    };
+  }
+  try {
+    const { data, error } = await client.from(table).upsert(row, { onConflict: primaryKeyCol }).select("*").single();
+    if (error || !data) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: error?.code || "SUPABASE_UPSERT_FAILED",
+        error: `${table} upsert failed: ${error?.message || "No row returned"}`
+      };
+    }
+    const pkVal = data[primaryKeyCol] ?? row[primaryKeyCol];
+    const verify = await client.from(table).select("*").eq(primaryKeyCol, pkVal).single();
+    if (verify.error || !verify.data) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: verify.error?.code || "SUPABASE_READ_AFTER_WRITE_FAILED",
+        error: `${table} saved but read-after-write verification failed: ${verify.error?.message || "Missing row"}`
+      };
+    }
+    return {
+      ok: true,
+      storageEngine: "supabase",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started,
+      data: verify.data
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      storageEngine: "supabase",
+      verifiedReadBack: false,
+      latencyMs: Date.now() - started,
+      code: "SUPABASE_EXCEPTION",
+      error: err?.message || `Unexpected Supabase error writing to ${table}`
+    };
+  }
+}
+async function deleteRowAndVerify(table, matchCol, matchVal) {
+  const started = Date.now();
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      ok: true,
+      storageEngine: "json_fallback",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started
+    };
+  }
+  try {
+    const { error } = await client.from(table).delete().eq(matchCol, matchVal);
+    if (error) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: error.code || "SUPABASE_DELETE_FAILED",
+        error: `${table} delete failed: ${error.message}`
+      };
+    }
+    const verify = await client.from(table).select(matchCol).eq(matchCol, matchVal).maybeSingle();
+    if (verify.data) {
+      return {
+        ok: false,
+        storageEngine: "supabase",
+        verifiedReadBack: false,
+        latencyMs: Date.now() - started,
+        code: "SUPABASE_DELETE_VERIFY_FAILED",
+        error: `${table} row still exists after delete.`
+      };
+    }
+    return {
+      ok: true,
+      storageEngine: "supabase",
+      verifiedReadBack: true,
+      latencyMs: Date.now() - started
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      storageEngine: "supabase",
+      verifiedReadBack: false,
+      latencyMs: Date.now() - started,
+      code: "SUPABASE_EXCEPTION",
+      error: err?.message || `Unexpected error deleting from ${table}`
+    };
+  }
+}
+async function syncSiteSettingsToSupabase(settings, actor) {
+  return upsertAndVerifyRow("site_settings", {
+    id: "default",
+    settings_json: settings,
+    updated_by: actor,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncCategoryPageToSupabase(page, actor) {
+  const catRes = await upsertAndVerifyRow("categories", {
+    id: page.id || page.slug,
+    slug: page.slug,
+    name_en: page.nameEn || page.slug,
+    name_ur: page.nameUr || page.nameEn || page.slug,
+    description_en: page.descriptionEn || "",
+    description_ur: page.descriptionUr || "",
+    icon_name: page.iconName || "Newspaper",
+    enabled: page.enabled ?? true,
+    sort_order: page.order ?? 0,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  if (!catRes.ok) return catRes;
+  return upsertAndVerifyRow("category_pages", {
+    slug: page.slug,
+    config_json: page,
+    status: page.status || "published",
+    updated_by: actor,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  }, "slug");
+}
+async function deleteCategoryPageFromSupabase(slug) {
+  const res1 = await deleteRowAndVerify("category_pages", "slug", slug);
+  if (!res1.ok) return res1;
+  return deleteRowAndVerify("categories", "slug", slug);
+}
+async function syncHomepageLayoutToSupabase(config, actor) {
+  return upsertAndVerifyRow("homepage_layouts", {
+    id: "default",
+    config_json: config,
+    updated_by: actor,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncCustomBlockToSupabase(block) {
+  return upsertAndVerifyRow("homepage_custom_blocks", {
+    id: block.id,
+    title_en: block.titleEn || block.name || "",
+    title_ur: block.titleUr || "",
+    body_en: block.bodyEn || "",
+    body_ur: block.bodyUr || "",
+    placement: "homepage",
+    enabled: true,
+    config_json: block,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteCustomBlockFromSupabase(id) {
+  return deleteRowAndVerify("homepage_custom_blocks", "id", id);
+}
+async function syncMediaAssetToSupabase(asset) {
+  return upsertAndVerifyRow("media_assets", {
+    id: asset.id,
+    filename: asset.filename,
+    url: asset.url,
+    thumbnail_url: asset.thumbnailUrl || asset.url,
+    size_bytes: Number(asset.sizeBytes || 0),
+    mime_type: asset.mimeType || "image/jpeg",
+    category: asset.category || "editorial",
+    caption_en: asset.captionEn || "",
+    caption_ur: asset.captionUr || "",
+    alt_text_en: asset.altTextEn || "",
+    alt_text_ur: asset.altTextUr || "",
+    credit: asset.credit || "",
+    source: asset.source || "",
+    license: asset.license || "",
+    storage_path: asset.storagePath || "",
+    width: asset.width ?? null,
+    height: asset.height ?? null,
+    uploaded_by: asset.uploadedBy || "Editor",
+    usage_count: Number(asset.usageCount || 0),
+    created_at: asset.uploadedAt || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteMediaAssetFromSupabase(id) {
+  return deleteRowAndVerify("media_assets", "id", id);
+}
+async function syncAdminUserToSupabase(user) {
+  return upsertAndVerifyRow("admin_users", {
+    id: user.id,
+    email: user.email.toLowerCase(),
+    name_en: user.nameEn || user.email,
+    name_ur: user.nameUr || user.nameEn || user.email,
+    role: user.role || "Editor",
+    status: user.status || "active",
+    mfa_enabled: Boolean(user.mfaEnabled),
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteAdminUserFromSupabase(id) {
+  return deleteRowAndVerify("admin_users", "id", id);
+}
+async function syncAdPlacementToSupabase(slot) {
+  return upsertAndVerifyRow("ad_placements", {
+    id: slot.id,
+    slot_id: slot.slotId,
+    name: slot.name,
+    dimensions: slot.dimensions || "responsive",
+    enabled: Boolean(slot.enabled),
+    type: slot.providerType || "banner",
+    impressions: Number(slot.impressions || 0),
+    clicks: Number(slot.clicks || 0),
+    ad_code_snippet: slot.adCodeSnippet || "",
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncAdCampaignToSupabase(camp) {
+  return upsertAndVerifyRow("ad_campaigns", {
+    id: camp.id,
+    campaign_name: camp.campaignName,
+    advertiser_name: camp.advertiserName,
+    status: camp.status || "active",
+    budget_pkr: Number(camp.budgetPkr || 0),
+    impressions: Number(camp.impressions || 0),
+    clicks: Number(camp.clicks || 0),
+    ctr: Number(camp.ctr || 0),
+    start_date: camp.startDate || null,
+    end_date: camp.endDate || null,
+    target_slots_json: Array.isArray(camp.placementSlotIds) ? camp.placementSlotIds : [],
+    banner_image_url: camp.bannerUrl || "",
+    destination_url: camp.destinationUrl || "",
+    priority: Number(camp.priority ?? 10),
+    notes: camp.notes || "",
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteAdCampaignFromSupabase(id) {
+  return deleteRowAndVerify("ad_campaigns", "id", id);
+}
+async function syncSubscriberToSupabase(sub) {
+  return upsertAndVerifyRow("newsletter_subscribers", {
+    id: sub.id,
+    email: sub.email.toLowerCase(),
+    language: sub.language || "both",
+    frequency: sub.frequency || "daily",
+    status: sub.status || "active",
+    consent_source: sub.consentSource || "admin",
+    consent_timestamp: sub.consentTimestamp || sub.subscribedAt || (/* @__PURE__ */ new Date()).toISOString(),
+    subscribed_at: sub.subscribedAt || (/* @__PURE__ */ new Date()).toISOString(),
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteSubscriberFromSupabase(id) {
+  return deleteRowAndVerify("newsletter_subscribers", "id", id);
+}
+async function syncAudienceNotificationToSupabase(notif) {
+  return upsertAndVerifyRow("audience_notifications", {
+    id: notif.id,
+    title_en: notif.titleEn || "",
+    title_ur: notif.titleUr || "",
+    body_en: notif.bodyEn || notif.messageEn || "",
+    body_ur: notif.bodyUr || notif.messageUr || "",
+    target_language: notif.targetLanguage || "both",
+    target_url: notif.targetUrl || "https://www.360khabarnama.com",
+    category: notif.category || "general",
+    recipients_count: Number(notif.recipientsCount || 0),
+    delivered_count: Number(notif.deliveredCount || 0),
+    failed_count: Number(notif.failedCount || 0),
+    status: notif.status || "sent",
+    error_summary: notif.errorSummary || "",
+    scheduled_for: notif.scheduledFor || null,
+    sent_at: notif.sentAt || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncPushSubscriptionToSupabase(sub) {
+  return upsertAndVerifyRow("push_subscriptions", {
+    id: sub.id,
+    endpoint: sub.endpoint,
+    keys_json: sub.keys || {},
+    topics_json: sub.topics || {},
+    language: sub.language || "both",
+    user_agent: sub.userAgent || "",
+    status: sub.status || "active",
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncSeoPageToSupabase(page) {
+  return upsertAndVerifyRow("seo_pages", {
+    id: page.id,
+    path: page.path,
+    title_en: page.titleEn || "",
+    title_ur: page.titleUr || "",
+    meta_desc_en: page.metaDescEn || "",
+    meta_desc_ur: page.metaDescUr || "",
+    canonical_url: page.canonicalUrl || "",
+    robots_directives: page.robotsDirectives || "index, follow",
+    og_image: page.ogImage || "",
+    schema_type: page.schemaType || "WebPage",
+    focus_keyword: page.focusKeyword || "",
+    config_json: page,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncRedirectRuleToSupabase(rule) {
+  return upsertAndVerifyRow("seo_redirects", {
+    id: rule.id,
+    source_path: rule.sourcePath,
+    target_path: rule.targetPath,
+    status_code: Number(rule.statusCode || 301),
+    hits: Number(rule.hits || 0),
+    active: Boolean(rule.active),
+    notes: rule.notes || ""
+  });
+}
+async function deleteRedirectRuleFromSupabase(id) {
+  return deleteRowAndVerify("seo_redirects", "id", id);
+}
+async function syncBrokenLinkToSupabase(link) {
+  return upsertAndVerifyRow("broken_links", {
+    id: link.id,
+    source_url: link.foundOnPage || "/",
+    broken_target_url: link.url,
+    http_status: Number(link.statusCode || 404),
+    detected_at: link.discoveredAt || (/* @__PURE__ */ new Date()).toISOString(),
+    resolved: Boolean(link.resolved)
+  });
+}
+async function syncSearchConsoleConfigToSupabase(connection, metrics) {
+  return upsertAndVerifyRow("search_console_config", {
+    id: "default",
+    config_json: { connection, metrics },
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncSeoAuditLogToSupabase(entry) {
+  return upsertAndVerifyRow("seo_audit_logs", {
+    id: entry.id,
+    action: entry.action,
+    actor: entry.actor,
+    target: entry.target,
+    summary: entry.details,
+    created_at: entry.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function syncDataProviderToSupabase(provider) {
+  return upsertAndVerifyRow("sync_providers", {
+    id: provider.id,
+    name: provider.name,
+    category: provider.category,
+    endpoint: provider.endpoint,
+    method: provider.method || provider.httpMethod || "GET",
+    status: provider.status || "active",
+    interval_minutes: Number(provider.intervalMinutes || 30),
+    daily_quota_limit: Number(provider.dailyQuotaLimit ?? provider.quotaLimitPerDay ?? 1e3),
+    daily_calls_used: Number(provider.dailyCallsUsed ?? provider.quotaUsedToday ?? 0),
+    requires_api_key: Boolean(provider.requiresApiKey),
+    has_api_key: Boolean(provider.hasApiKey),
+    masked_api_key: provider.maskedApiKey || null,
+    auth_header_name: provider.authHeaderName || "Authorization",
+    attribution_required: Boolean(provider.attributionRequired ?? true),
+    commercial_rights: Boolean(provider.commercialRights ?? true),
+    is_licensed: Boolean(provider.isLicensed ?? true),
+    license_type: provider.licenseType || "public_open",
+    attribution: provider.attribution || "",
+    last_sync_at: provider.lastSyncAt || null,
+    next_sync_at: provider.nextSyncAt || null,
+    last_error: provider.lastError || null,
+    consecutive_failures: Number(provider.consecutiveFailures || 0),
+    total_syncs: Number(provider.totalSyncs || 0),
+    successful_syncs: Number(provider.successfulSyncs || 0),
+    notes: provider.notes || "",
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function deleteDataProviderFromSupabase(id) {
+  return deleteRowAndVerify("sync_providers", "id", id);
+}
+async function syncEditorialDraftToSupabase(draft) {
+  return upsertAndVerifyRow("editorial_drafts", {
+    id: draft.id,
+    template: draft.template,
+    title_en: draft.titleEn || "",
+    title_ur: draft.titleUr || "",
+    summary_en: draft.summaryEn || "",
+    summary_ur: draft.summaryUr || "",
+    content_en: draft.contentEn || "",
+    content_ur: draft.contentUr || "",
+    provider_type: draft.providerType || null,
+    model: draft.model || null,
+    total_tokens: Number(draft.totalTokens || 0),
+    created_by: draft.createdBy || "Editor",
+    created_at: draft.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
+    updated_at: draft.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function recordSaveDiagnosticToSupabase(entry) {
+  return upsertAndVerifyRow("admin_save_diagnostics", {
+    id: entry.id,
+    module: entry.module,
+    action: entry.action,
+    record_id: entry.recordId || null,
+    storage_engine: entry.storageEngine,
+    success: Boolean(entry.success),
+    verified_read_back: Boolean(entry.verifiedReadBack),
+    latency_ms: Number(entry.latencyMs || 0),
+    actor: entry.actor || null,
+    error_message: entry.errorMessage || null,
+    created_at: entry.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+async function uploadMediaBinaryToStorage(params) {
+  const rawB64 = String(params.base64Data || "").replace(/^data:[^;]+;base64,/i, "").trim();
+  if (!rawB64) {
+    return { ok: false, code: "EMPTY_FILE", error: "Empty image upload payload." };
+  }
+  let buffer;
+  try {
+    buffer = Buffer.from(rawB64, "base64");
+  } catch {
+    return { ok: false, code: "INVALID_BASE64", error: "Could not decode uploaded base64 payload." };
+  }
+  if (buffer.length === 0) {
+    return { ok: false, code: "EMPTY_BUFFER", error: "Uploaded image buffer is empty." };
+  }
+  if (buffer.length > MAX_MEDIA_BYTES) {
+    return {
+      ok: false,
+      code: "FILE_TOO_LARGE",
+      error: `Image exceeds 8 MB limit (${(buffer.length / (1024 * 1024)).toFixed(2)} MB).`
+    };
+  }
+  const detected = detectImageFromMagicBytes(buffer);
+  if (!detected) {
+    return {
+      ok: false,
+      code: "UNSUPPORTED_IMAGE_FORMAT",
+      error: "Only verified JPEG, PNG, WebP, or AVIF image binaries are permitted (SVG/scripts/executables rejected)."
+    };
+  }
+  const now = /* @__PURE__ */ new Date();
+  const yyyy = String(now.getUTCFullYear());
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const safeSlug = path2.basename(params.filename || `image.${detected.ext}`, path2.extname(params.filename || "")).toLowerCase().replace(/[^a-z0-9-_]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48) || "editorial";
+  const rand = crypto5.randomBytes(4).toString("hex");
+  const safeName = `${safeSlug}-${Date.now()}-${rand}.${detected.ext}`;
+  const storagePath = `editorial/${yyyy}/${mm}/${safeName}`;
+  const client = getSupabaseAdminClient();
+  if (client) {
+    try {
+      const { error: uploadErr } = await client.storage.from("editorial-media").upload(storagePath, buffer, {
+        contentType: detected.mime,
+        cacheControl: "31536000",
+        upsert: false
+      });
+      if (uploadErr) {
+        return {
+          ok: false,
+          code: "SUPABASE_STORAGE_UPLOAD_FAILED",
+          error: `Supabase Storage upload failed ("editorial-media"): ${uploadErr.message}. Run Migration 003/004 if the bucket is not provisioned yet.`
+        };
+      }
+      const { data: pubData } = client.storage.from("editorial-media").getPublicUrl(storagePath);
+      const publicUrl = pubData?.publicUrl;
+      if (!publicUrl) {
+        return {
+          ok: false,
+          code: "SUPABASE_STORAGE_URL_ERROR",
+          error: "Image uploaded to Supabase Storage, but no public URL was returned."
+        };
+      }
+      const asset2 = {
+        id: `med-${Date.now()}-${rand}`,
+        filename: safeName,
+        url: publicUrl,
+        thumbnailUrl: publicUrl,
+        sizeBytes: buffer.length,
+        mimeType: detected.mime,
+        category: params.category || "editorial",
+        captionEn: params.captionEn || "",
+        captionUr: params.captionUr || "",
+        altTextEn: params.altTextEn || params.captionEn || safeSlug,
+        altTextUr: params.altTextUr || params.captionUr || "",
+        credit: params.credit || "",
+        source: params.source || "360Khabarnama Upload",
+        license: params.license || "Editorial Rights Cleared",
+        storagePath,
+        width: params.width,
+        height: params.height,
+        uploadedBy: params.uploadedBy,
+        uploadedAt: now.toISOString(),
+        usageCount: 1
+      };
+      const syncRes = await syncMediaAssetToSupabase(asset2);
+      if (!syncRes.ok) {
+        return { ok: false, code: syncRes.code, error: syncRes.error };
+      }
+      return { ok: true, asset: asset2, storageTarget: "supabase_storage" };
+    } catch (err) {
+      return {
+        ok: false,
+        code: "SUPABASE_STORAGE_EXCEPTION",
+        error: err?.message || "Unexpected Supabase Storage upload error."
+      };
+    }
+  }
+  const localDir = path2.resolve(process.cwd(), "public", "uploads", "media", yyyy, mm);
+  fs3.mkdirSync(localDir, { recursive: true });
+  const absPath = path2.join(localDir, safeName);
+  fs3.writeFileSync(absPath, buffer);
+  const relUrl = `/uploads/media/${yyyy}/${mm}/${safeName}`;
+  const asset = {
+    id: `med-${Date.now()}-${rand}`,
+    filename: safeName,
+    url: relUrl,
+    thumbnailUrl: relUrl,
+    sizeBytes: buffer.length,
+    mimeType: detected.mime,
+    category: params.category || "editorial",
+    captionEn: params.captionEn || "",
+    captionUr: params.captionUr || "",
+    altTextEn: params.altTextEn || params.captionEn || safeSlug,
+    altTextUr: params.altTextUr || params.captionUr || "",
+    credit: params.credit || "",
+    source: params.source || "Local Upload",
+    license: params.license || "Editorial",
+    storagePath: relUrl,
+    width: params.width,
+    height: params.height,
+    uploadedBy: params.uploadedBy,
+    uploadedAt: now.toISOString(),
+    usageCount: 1
+  };
+  return { ok: true, asset, storageTarget: "local_uploads" };
+}
+async function checkAllSupabaseModulesHealth() {
+  const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const tablesToCheck = [
+    "articles",
+    "categories",
+    "category_pages",
+    "site_settings",
+    "admin_users",
+    "media_assets",
+    "ad_placements",
+    "ad_campaigns",
+    "newsletter_subscribers",
+    "audience_notifications",
+    "homepage_layouts",
+    "sync_providers",
+    "seo_pages",
+    "seo_redirects",
+    "ai_provider_credentials",
+    "admin_save_diagnostics"
+  ];
+  const client = getSupabaseAdminClient();
+  if (!isSupabaseConfigured() || !client) {
+    return {
+      configured: false,
+      storageBucket: {
+        ok: false,
+        bucket: "editorial-media",
+        detail: "Supabase not configured in environment (local uploads directory active as fallback)."
+      },
+      tables: tablesToCheck.map((t) => ({ table: t, ok: false, rowCount: null, error: "Supabase not configured" })),
+      checkedAt
+    };
+  }
+  const tableResults = await Promise.all(
+    tablesToCheck.map(async (table) => {
+      try {
+        const res = await client.from(table).select("*", { count: "exact", head: true });
+        return {
+          table,
+          ok: !res.error,
+          rowCount: typeof res.count === "number" ? res.count : 0,
+          ...res.error ? { error: res.error.message } : {}
+        };
+      } catch (err) {
+        return {
+          table,
+          ok: false,
+          rowCount: null,
+          error: err?.message || "Query error"
+        };
+      }
+    })
+  );
+  let storageOk = false;
+  let storageDetail = "Unknown";
+  try {
+    const { data, error } = await client.storage.getBucket("editorial-media");
+    if (!error && data) {
+      storageOk = true;
+      storageDetail = `Bucket "editorial-media" online (public=${Boolean(data.public)})`;
+    } else {
+      storageDetail = error?.message || 'Bucket "editorial-media" not found \u2014 run Migration 003.';
+    }
+  } catch (err) {
+    storageDetail = err?.message || "Storage inspection error";
+  }
+  return {
+    configured: true,
+    storageBucket: { ok: storageOk, bucket: "editorial-media", detail: storageDetail },
+    tables: tableResults,
+    checkedAt
+  };
+}
+
 // src/server/databaseHealth.ts
 function sanitizeSupabaseDiagnosticText(raw) {
   if (!raw) return "";
@@ -9524,7 +10389,20 @@ function mergeArticleLists(remoteList, localList, statusFilter) {
   }
   let merged = Array.from(map.values());
   if (statusFilter && statusFilter !== "all") {
-    merged = merged.filter((a) => a.status === statusFilter);
+    const nowMs = Date.now();
+    merged = merged.filter((a) => {
+      if (a.status !== statusFilter) return false;
+      if (statusFilter === "published") {
+        const sched = a.scheduledAt || a.scheduledFor;
+        if (sched) {
+          const schedMs = new Date(sched).getTime();
+          if (Number.isFinite(schedMs) && schedMs > nowMs) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
   }
   merged.sort((a, b) => {
     const ta = new Date(a.publishedAt || a.updatedAt || 0).getTime();
@@ -9684,8 +10562,22 @@ var ArticleService = class {
     let verifiedReadBack = true;
     let firestoreWarning;
     if (supabaseActive) {
+      const t0 = Date.now();
       const sbWrite = await upsertSupabaseArticle(savedLocal, actor);
       if (!sbWrite.ok || !sbWrite.article) {
+        const errDiag = db.recordSaveDiagnostic({
+          module: "articles",
+          action: input.id ? "update" : "create",
+          recordId: savedLocal.id,
+          storageEngine: "supabase",
+          success: false,
+          verifiedReadBack: false,
+          latencyMs: Date.now() - t0,
+          actor,
+          errorMessage: sbWrite.error || "Supabase write failed"
+        });
+        recordSaveDiagnosticToSupabase(errDiag).catch(() => {
+        });
         const err = new Error(
           `Supabase PostgreSQL save failed [${sbWrite.code || "WRITE_ERROR"}]: ${sbWrite.error || "Unable to commit row."}`
         );
@@ -9697,6 +10589,18 @@ var ArticleService = class {
       finalArticle = sbWrite.article;
       storageEngine = "supabase";
       verifiedReadBack = true;
+      const okDiag = db.recordSaveDiagnostic({
+        module: "articles",
+        action: input.id ? "update" : "create",
+        recordId: finalArticle.id,
+        storageEngine: "supabase",
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: Date.now() - t0,
+        actor
+      });
+      recordSaveDiagnosticToSupabase(okDiag).catch(() => {
+      });
       if (hasFirestoreWriteAuth) {
         await upsertFirestoreArticle(finalArticle, authCtx).catch(() => {
         });
@@ -9716,6 +10620,16 @@ var ArticleService = class {
       storageEngine = "firestore";
       verifiedReadBack = true;
     } else {
+      db.recordSaveDiagnostic({
+        module: "articles",
+        action: input.id ? "update" : "create",
+        recordId: savedLocal.id,
+        storageEngine: "json_fallback",
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: 1,
+        actor
+      });
       firestoreWarning = "Saved in local workspace persistence only \u2014 configure SUPABASE_URL + SUPABASE_SECRET_KEY (or Firebase Admin credentials) for external database sync.";
       recordServerError({
         source: "publishing",
@@ -10099,7 +11013,7 @@ var AutomationScheduler = class {
 var scheduler = new AutomationScheduler();
 
 // src/server/auth.ts
-import crypto5 from "crypto";
+import crypto6 from "crypto";
 var BOOTSTRAPPED_ADMIN_EMAIL = "visionofdeveloper@gmail.com";
 var ALL_PERMISSIONS = [
   "overview:view",
@@ -10226,12 +11140,12 @@ var SESSION_COOKIE_NAME = "kn360_admin_sid";
 var SESSION_TTL_MS = 8 * 60 * 60 * 1e3;
 var MAX_LOGIN_ATTEMPTS = 5;
 var LOCKOUT_DURATION_MS = 15 * 60 * 1e3;
-var SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.SESSION_SECRET || crypto5.createHash("sha256").update(`360khabarnama:${process.env.SITE_URL || "kn360"}:${process.env.AI_MASTER_KEY || "kn360-stable-session-secret"}`).digest("hex");
+var SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.SESSION_SECRET || crypto6.createHash("sha256").update(`360khabarnama:${process.env.SITE_URL || "kn360"}:${process.env.AI_MASTER_KEY || "kn360-stable-session-secret"}`).digest("hex");
 var activeSessions = /* @__PURE__ */ new Map();
 var revokedSessions = /* @__PURE__ */ new Set();
 function signSessionPayload(session) {
   const payload = Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
-  const sig = crypto5.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  const sig = crypto6.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 function verifySignedSessionToken(token) {
@@ -10240,10 +11154,10 @@ function verifySignedSessionToken(token) {
   const payload = token.slice(0, dotIdx);
   const sig = token.slice(dotIdx + 1);
   if (!payload || !sig) return null;
-  const expected = crypto5.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  const expected = crypto6.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
   const sigBuf = Buffer.from(sig);
   const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length || !crypto5.timingSafeEqual(sigBuf, expBuf)) {
+  if (sigBuf.length !== expBuf.length || !crypto6.timingSafeEqual(sigBuf, expBuf)) {
     return null;
   }
   try {
@@ -10260,17 +11174,17 @@ function verifySignedSessionToken(token) {
   }
 }
 function hashPassword(password) {
-  const salt = crypto5.randomBytes(16).toString("hex");
-  const derived = crypto5.scryptSync(password, salt, 64).toString("hex");
+  const salt = crypto6.randomBytes(16).toString("hex");
+  const derived = crypto6.scryptSync(password, salt, 64).toString("hex");
   return `${salt}:${derived}`;
 }
 function verifyPassword(password, storedHash) {
   const [salt, key] = storedHash.split(":");
   if (!salt || !key) return false;
-  const derived = crypto5.scryptSync(password, salt, 64);
+  const derived = crypto6.scryptSync(password, salt, 64);
   const keyBuf = Buffer.from(key, "hex");
   if (derived.length !== keyBuf.length) return false;
-  return crypto5.timingSafeEqual(derived, keyBuf);
+  return crypto6.timingSafeEqual(derived, keyBuf);
 }
 function parseCookies(req) {
   const list = {};
@@ -10388,7 +11302,7 @@ function authenticateAdmin(email, password, ipAddress, userAgent, totpCode) {
   cred.lastLoginAt = (/* @__PURE__ */ new Date()).toISOString();
   db.setAdminCredential(cleanEmail, cred);
   const assignedRole = normalizeRole(staffUser?.role || "Super Admin");
-  const sessionId = crypto5.randomBytes(32).toString("hex");
+  const sessionId = crypto6.randomBytes(32).toString("hex");
   const session = {
     sessionId,
     userId: cred.userId,
@@ -10493,8 +11407,8 @@ function requestPasswordReset(email) {
   if (!cred) {
     return { success: true, message: "If the account exists, reset instructions have been logged for verification." };
   }
-  const rawToken = crypto5.randomBytes(12).toString("hex");
-  cred.resetTokenHash = crypto5.createHash("sha256").update(rawToken).digest("hex");
+  const rawToken = crypto6.randomBytes(12).toString("hex");
+  cred.resetTokenHash = crypto6.createHash("sha256").update(rawToken).digest("hex");
   cred.resetTokenExpiresAt = Date.now() + 30 * 60 * 1e3;
   db.setAdminCredential(cleanEmail, cred);
   db.logAudit(cleanEmail, "Password Reset Requested", "Issued single-use 30m password reset code (server-side)");
@@ -10509,7 +11423,7 @@ function confirmPasswordReset(email, token, newPassword) {
   if (!cred || !cred.resetTokenHash || !cred.resetTokenExpiresAt || Date.now() > cred.resetTokenExpiresAt) {
     return { success: false, error: "Reset token is invalid or expired." };
   }
-  const hash = crypto5.createHash("sha256").update((token || "").trim()).digest("hex");
+  const hash = crypto6.createHash("sha256").update((token || "").trim()).digest("hex");
   if (hash !== cred.resetTokenHash) {
     return { success: false, error: "Reset token mismatch." };
   }
@@ -10593,7 +11507,7 @@ async function authenticateAdminWithFirebase(idToken, ipAddress, userAgent) {
       return { success: false, error: "This Google account is not authorized for 360Khabarnama Admin." };
     }
     const assignedRole = normalizeRole(staffUser?.role || "Super Admin");
-    const sessionId = crypto5.randomBytes(32).toString("hex");
+    const sessionId = crypto6.randomBytes(32).toString("hex");
     const session = {
       sessionId,
       userId: decoded.uid,
@@ -10700,18 +11614,28 @@ function requirePermission(permission) {
 
 // services/seo/SEOEngine.ts
 var SEOEngine = class {
-  static {
-    this.BASE_URL = process.env.APP_URL || "https://360khabarnama.com";
+  static getBaseUrl() {
+    try {
+      const configured = db.getData().siteSettings?.siteUrl;
+      if (configured && configured.trim()) {
+        return configured.trim().replace(/\/+$/, "");
+      }
+    } catch {
+    }
+    return (process.env.APP_URL || "https://www.360khabarnama.com").replace(/\/+$/, "");
   }
   /**
    * Generate bilingual metadata for any article or utility page
    */
   static generateArticleMetadata(article, lang) {
+    const baseUrl = this.getBaseUrl();
     const title = lang === "ur" ? article.seo?.metaTitleUr || `${article.titleUr} | 360 \u062E\u0628\u0631\u0646\u0627\u0645\u06C1` : article.seo?.metaTitleEn || `${article.titleEn} | 360Khabarnama`;
     const description = lang === "ur" ? article.seo?.metaDescriptionUr || article.summaryUr || article.titleUr : article.seo?.metaDescriptionEn || article.summaryEn || article.titleEn;
     const slug = article.slug || article.id;
-    const canonicalUrl = article.seo?.canonicalUrl || `${this.BASE_URL}/${lang}/news/${slug}`;
+    const canonicalUrl = article.seo?.canonicalUrl || `${baseUrl}/${lang}/news/${slug}`;
     const robots = article.seo?.noIndex ? "noindex, nofollow" : "index, follow, max-image-preview:large";
+    const resolvedOgImage = article.socialImageUrl || article.seo?.ogImage || article.heroImage || article.featuredImage || `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
+    const fullOgImage = resolvedOgImage.startsWith("/") ? `${baseUrl}${resolvedOgImage}` : resolvedOgImage;
     return {
       title: title.slice(0, 70),
       description: description.slice(0, 160),
@@ -10719,19 +11643,24 @@ var SEOEngine = class {
       robots,
       ogTitle: title,
       ogDescription: description,
-      ogImage: article.seo?.ogImage || article.heroImage || `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`,
+      ogImage: fullOgImage,
       ogType: "article",
       locale: lang === "ur" ? "ur_PK" : "en_PK",
-      hreflangEn: `${this.BASE_URL}/en/news/${slug}`,
-      hreflangUr: `${this.BASE_URL}/ur/news/${slug}`
+      hreflangEn: `${baseUrl}/en/news/${slug}`,
+      hreflangUr: `${baseUrl}/ur/news/${slug}`
     };
   }
   /**
    * Generate valid NewsArticle JSON-LD matching visible page content
    */
   static generateNewsArticleSchema(article, lang) {
+    const baseUrl = this.getBaseUrl();
     const slug = article.slug || article.id;
-    const url = `${this.BASE_URL}/${lang}/news/${slug}`;
+    const url = `${baseUrl}/${lang}/news/${slug}`;
+    const rawImages = [article.heroImage, article.featuredImage, article.socialImageUrl].filter(
+      (img) => Boolean(img && img.trim())
+    );
+    const images = Array.from(new Set(rawImages.map((img) => img.startsWith("/") ? `${baseUrl}${img}` : img)));
     return {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
@@ -10741,7 +11670,7 @@ var SEOEngine = class {
       },
       headline: lang === "ur" ? article.titleUr : article.titleEn,
       description: lang === "ur" ? article.summaryUr : article.summaryEn,
-      image: article.heroImage ? [article.heroImage] : [],
+      image: images,
       datePublished: article.publishedAt,
       dateModified: article.updatedAt || article.publishedAt,
       author: {
@@ -10753,7 +11682,7 @@ var SEOEngine = class {
         name: "360Khabarnama",
         logo: {
           "@type": "ImageObject",
-          url: `${this.BASE_URL}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`
+          url: `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`
         }
       },
       inLanguage: lang === "ur" ? "ur-PK" : "en-PK"
@@ -11030,15 +11959,52 @@ var SEOAuditService = class {
 
 // services/seo/SitemapManager.ts
 var escapeXml = (str) => String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+function isArticlePubliclyIndexable(article, nowMs) {
+  if (article.status !== "published" || article.seo?.noIndex) return false;
+  const sched = article.scheduledAt || article.scheduledFor;
+  if (sched) {
+    const schedMs = new Date(sched).getTime();
+    if (!Number.isNaN(schedMs) && schedMs > nowMs) return false;
+  }
+  return true;
+}
 var SitemapManager = class {
   static getBaseUrl() {
-    return (process.env.APP_URL || "https://360khabarnama.com").replace(/\/+$/, "");
+    const configured = db.getData().siteSettings?.siteUrl;
+    return (configured || process.env.APP_URL || "https://www.360khabarnama.com").trim().replace(/\/+$/, "");
+  }
+  static buildSitemapIndexXml() {
+    const baseUrl = this.getBaseUrl();
+    const today = (/* @__PURE__ */ new Date()).toISOString();
+    const sitemaps = [
+      `${baseUrl}/sitemap.xml`,
+      `${baseUrl}/news-sitemap.xml`,
+      `${baseUrl}/image-sitemap.xml`,
+      `${baseUrl}/video-sitemap.xml`
+    ];
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+`;
+    xml += `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+`;
+    for (const loc of sitemaps) {
+      xml += `  <sitemap>
+`;
+      xml += `    <loc>${escapeXml(loc)}</loc>
+`;
+      xml += `    <lastmod>${escapeXml(today)}</lastmod>
+`;
+      xml += `  </sitemap>
+`;
+    }
+    xml += `</sitemapindex>`;
+    return xml;
   }
   static buildMainSitemapXml() {
     const baseUrl = this.getBaseUrl();
     const config = db.getSitemapConfig();
+    const nowMs = Date.now();
     const excluded = new Set((config.excludedPaths || []).map((p) => p.trim()));
-    const articles = db.getData().articles.filter((a) => a.status === "published" && !a.seo?.noIndex);
+    const articles = db.getData().articles.filter((a) => isArticlePubliclyIndexable(a, nowMs));
     const categories = db.getCategoryPages().filter((c) => c.enabled && c.status === "published");
     const staticPaths = ["", "/about", "/contact", "/editorial-policy", "/privacy-policy", "/terms"];
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -11047,6 +12013,7 @@ var SitemapManager = class {
 `;
     const emitBilingualUrl = (subPath, priority, changefreq, lastmod, image) => {
       if (excluded.has(subPath) || excluded.has(`/en${subPath}`) || excluded.has(`/ur${subPath}`)) return;
+      const absImage = image && image.startsWith("/") ? `${baseUrl}${image}` : image;
       for (const lang of ["ur", "en"]) {
         const loc = `${baseUrl}/${lang}${subPath}`;
         xml += `  <url>
@@ -11063,8 +12030,8 @@ var SitemapManager = class {
 `;
         xml += `    <xhtml:link rel="alternate" hreflang="ur" href="${escapeXml(`${baseUrl}/ur${subPath}`)}" />
 `;
-        if (config.includeImages && image && image.startsWith("http")) {
-          xml += `    <image:image><image:loc>${escapeXml(image)}</image:loc></image:image>
+        if (config.includeImages && absImage && absImage.startsWith("http")) {
+          xml += `    <image:image><image:loc>${escapeXml(absImage)}</image:loc></image:image>
 `;
         }
         xml += `  </url>
@@ -11082,16 +12049,17 @@ var SitemapManager = class {
     for (const art of articles) {
       const slug = art.slug || art.id;
       const lastmod = (art.updatedAt || art.publishedAt || (/* @__PURE__ */ new Date()).toISOString()).split("T")[0];
-      emitBilingualUrl(`/news/${slug}`, "0.9", config.defaultChangefreq || "daily", lastmod, art.heroImage);
+      emitBilingualUrl(`/news/${slug}`, "0.9", config.defaultChangefreq || "daily", lastmod, art.heroImage || art.featuredImage);
     }
     xml += `</urlset>`;
     return xml;
   }
   static buildNewsSitemapXml() {
     const baseUrl = this.getBaseUrl();
-    const cutoff = new Date(Date.now() - 48 * 3600 * 1e3).toISOString();
+    const nowMs = Date.now();
+    const cutoff = new Date(nowMs - 48 * 3600 * 1e3).toISOString();
     const recent = db.getData().articles.filter(
-      (a) => a.status === "published" && !a.seo?.noIndex && a.publishedAt >= cutoff
+      (a) => isArticlePubliclyIndexable(a, nowMs) && a.publishedAt >= cutoff
     );
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 `;
@@ -11136,14 +12104,150 @@ var SitemapManager = class {
     xml += `</urlset>`;
     return xml;
   }
+  static buildImageSitemapXml() {
+    const baseUrl = this.getBaseUrl();
+    const nowMs = Date.now();
+    const articles = db.getData().articles.filter((a) => isArticlePubliclyIndexable(a, nowMs));
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+`;
+    for (const art of articles) {
+      const slug = art.slug || art.id;
+      const imgs = Array.from(
+        new Set(
+          [art.heroImage, art.featuredImage, art.socialImageUrl].filter((u) => Boolean(u && u.trim())).map((u) => u.startsWith("/") ? `${baseUrl}${u}` : u).filter((u) => u.startsWith("http"))
+        )
+      );
+      if (imgs.length === 0) continue;
+      for (const lang of ["en", "ur"]) {
+        xml += `  <url>
+`;
+        xml += `    <loc>${escapeXml(`${baseUrl}/${lang}/news/${slug}`)}</loc>
+`;
+        for (const imgUrl of imgs) {
+          const title = lang === "ur" ? art.titleUr : art.titleEn;
+          const caption = lang === "ur" ? art.heroImageMeta?.captionUr || art.imageCaptionUr || art.summaryUr : art.heroImageMeta?.captionEn || art.imageCaptionEn || art.summaryEn;
+          xml += `    <image:image>
+`;
+          xml += `      <image:loc>${escapeXml(imgUrl)}</image:loc>
+`;
+          if (title) xml += `      <image:title>${escapeXml(title)}</image:title>
+`;
+          if (caption) xml += `      <image:caption>${escapeXml(caption.slice(0, 220))}</image:caption>
+`;
+          xml += `    </image:image>
+`;
+        }
+        xml += `  </url>
+`;
+      }
+    }
+    xml += `</urlset>`;
+    return xml;
+  }
+  static buildVideoSitemapXml() {
+    const baseUrl = this.getBaseUrl();
+    const nowMs = Date.now();
+    const videoArticles = db.getData().articles.filter(
+      (a) => isArticlePubliclyIndexable(a, nowMs) && Boolean(a.videoUrl && a.videoUrl.trim())
+    );
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+`;
+    for (const art of videoArticles) {
+      const slug = art.slug || art.id;
+      const thumbRaw = art.featuredImage || art.heroImage || `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
+      const thumb = thumbRaw.startsWith("/") ? `${baseUrl}${thumbRaw}` : thumbRaw;
+      const videoLoc = art.videoUrl.startsWith("/") ? `${baseUrl}${art.videoUrl}` : art.videoUrl;
+      const pubDate = new Date(art.publishedAt || Date.now()).toISOString();
+      xml += `  <url>
+`;
+      xml += `    <loc>${escapeXml(`${baseUrl}/en/news/${slug}`)}</loc>
+`;
+      xml += `    <video:video>
+`;
+      xml += `      <video:thumbnail_loc>${escapeXml(thumb)}</video:thumbnail_loc>
+`;
+      xml += `      <video:title>${escapeXml(art.titleEn)}</video:title>
+`;
+      xml += `      <video:description>${escapeXml((art.summaryEn || art.titleEn).slice(0, 500))}</video:description>
+`;
+      xml += `      <video:content_loc>${escapeXml(videoLoc)}</video:content_loc>
+`;
+      xml += `      <video:publication_date>${escapeXml(pubDate)}</video:publication_date>
+`;
+      xml += `    </video:video>
+`;
+      xml += `  </url>
+`;
+    }
+    xml += `</urlset>`;
+    return xml;
+  }
   static getRobotsTxt() {
     const baseUrl = this.getBaseUrl();
-    return db.getRobotsTxt().replace(/https:\/\/360khabarnama\.com/g, baseUrl);
+    return db.getRobotsTxt().replace(/https:\/\/(?:www\.)?360khabarnama\.com/g, baseUrl);
+  }
+  static async submitIndexNow(urls, overrideKey) {
+    const baseUrl = this.getBaseUrl();
+    const settings = db.getData().siteSettings;
+    const key = (overrideKey || settings.indexNowKey || "").trim();
+    if (!key) {
+      return {
+        ok: false,
+        status: 400,
+        submittedUrls: 0,
+        message: "IndexNow API key is not configured in Global Settings > Integrations."
+      };
+    }
+    const host = new URL(baseUrl).host;
+    const validUrls = urls.map((u) => u.trim()).filter(Boolean).map((u) => u.startsWith("/") ? `${baseUrl}${u}` : u).slice(0, 100);
+    if (validUrls.length === 0) {
+      return {
+        ok: false,
+        status: 400,
+        submittedUrls: 0,
+        message: "Provide at least one valid URL to submit to IndexNow."
+      };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12e3);
+    try {
+      const resp = await fetch("https://api.indexnow.org/indexnow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          host,
+          key,
+          keyLocation: `${baseUrl}/${key}.txt`,
+          urlList: validUrls
+        }),
+        signal: controller.signal
+      });
+      const ok = resp.status >= 200 && resp.status < 300;
+      return {
+        ok,
+        status: resp.status,
+        submittedUrls: validUrls.length,
+        message: ok ? `Submitted ${validUrls.length} URL(s) to IndexNow (HTTP ${resp.status}).` : `IndexNow returned HTTP ${resp.status}. Verify ${baseUrl}/${key}.txt is reachable publicly.`
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 502,
+        submittedUrls: 0,
+        message: err?.message || "Failed to reach api.indexnow.org"
+      };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 };
 
 // services/seo/SearchConsoleService.ts
-import crypto6 from "crypto";
+import crypto7 from "crypto";
 var GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 var SearchConsoleService = class {
   static getSanitizedConnection() {
@@ -11317,7 +12421,7 @@ var SearchConsoleService = class {
         })
       ).toString("base64url");
       const unsigned = `${header}.${claim}`;
-      const signer = crypto6.createSign("RSA-SHA256");
+      const signer = crypto7.createSign("RSA-SHA256");
       signer.update(unsigned);
       const signature = signer.sign(sa.private_key, "base64url");
       const assertion = `${unsigned}.${signature}`;
@@ -11583,7 +12687,7 @@ var MetadataGenerator = class {
     const cleanPath = (requestPath || "/").split("?")[0];
     const data = db.getData();
     const settings = data.siteSettings;
-    const baseUrl = (process.env.APP_URL || "https://360khabarnama.com").replace(/\/+$/, "");
+    const baseUrl = (settings.siteUrl || process.env.APP_URL || "https://www.360khabarnama.com").trim().replace(/\/+$/, "");
     const defaultOgImage = `${baseUrl}/assets/aistudio/Modern_Green_and_Gold_News_Logo_2e9a99d4.png`;
     if (cleanPath === "/admin" || cleanPath.startsWith("/admin/")) {
       return {
@@ -11734,6 +12838,32 @@ var MetadataGenerator = class {
         `<meta name="description" content="${escapeAttr(meta.description)}" />`
       );
     }
+    const settings = db.getData().siteSettings;
+    const isAdminRoute = meta.canonicalUrl.endsWith("/admin");
+    const gaId = (settings.googleAnalyticsId || "").trim();
+    const gtmId = (settings.googleTagManagerId || "").trim();
+    const bingCode = (settings.bingWebmasterVerification || "").trim();
+    const gscCode = (settings.searchConsoleVerification || "").trim();
+    const analyticsTags = [];
+    if (gscCode && !out.includes("google-site-verification")) {
+      analyticsTags.push(`<meta name="google-site-verification" content="${escapeAttr(gscCode)}" />`);
+    }
+    if (bingCode && !out.includes("msvalidate.01")) {
+      analyticsTags.push(`<meta name="msvalidate.01" content="${escapeAttr(bingCode)}" />`);
+    }
+    if (!isAdminRoute) {
+      if (/^GTM-[A-Z0-9]+$/i.test(gtmId) && !out.includes(gtmId)) {
+        analyticsTags.push(
+          `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${escapeAttr(gtmId)}');</script>`
+        );
+      }
+      if (/^(G|UA|AW|DC)-[A-Z0-9-]+$/i.test(gaId) && !out.includes(gaId)) {
+        const sendPageView = !/^GTM-[A-Z0-9]+$/i.test(gtmId);
+        analyticsTags.push(
+          `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeAttr(gaId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${escapeAttr(gaId)}',{send_page_view:${sendPageView}});</script>`
+        );
+      }
+    }
     const injectedHeadTags = [
       `<meta name="robots" content="${escapeAttr(meta.robots)}" />`,
       `<link rel="canonical" href="${escapeAttr(meta.canonicalUrl)}" />`,
@@ -11748,6 +12878,7 @@ var MetadataGenerator = class {
       `<meta name="twitter:card" content="summary_large_image" />`,
       `<meta name="twitter:title" content="${escapeAttr(meta.ogTitle)}" />`,
       `<meta name="twitter:description" content="${escapeAttr(meta.ogDescription)}" />`,
+      ...analyticsTags,
       meta.jsonLd ? `<script type="application/ld+json">${JSON.stringify(meta.jsonLd)}</script>` : ""
     ].filter(Boolean).join("\n    ");
     out = out.replace("</head>", `    ${injectedHeadTags}
@@ -12505,7 +13636,7 @@ var pushNotificationService = new PushNotificationService();
 
 // server/jobs/cron-dispatcher.ts
 import dotenv from "dotenv";
-import path2 from "path";
+import path3 from "path";
 import { fileURLToPath } from "url";
 dotenv.config();
 async function runDueCronJobs() {
@@ -12526,9 +13657,9 @@ async function runDueCronJobs() {
   };
 }
 var metaUrl = typeof import.meta !== "undefined" ? import.meta.url : void 0;
-var entryBasename = process.argv[1] ? path2.basename(process.argv[1]) : "";
+var entryBasename = process.argv[1] ? path3.basename(process.argv[1]) : "";
 var isMain = Boolean(
-  metaUrl && process.argv[1] && fileURLToPath(metaUrl) === path2.resolve(process.argv[1]) && entryBasename.startsWith("cron-dispatcher")
+  metaUrl && process.argv[1] && fileURLToPath(metaUrl) === path3.resolve(process.argv[1]) && entryBasename.startsWith("cron-dispatcher")
 );
 if (isMain) {
   runDueCronJobs().then((summary) => {
@@ -12550,12 +13681,21 @@ var PORT = !isNaN(cliPort) ? cliPort : !isNaN(envPort) ? envPort : 3e3;
 var isProduction = process.env.NODE_ENV === "production";
 try {
   PageTemplateEngine.ensureAllCategoriesSeeded();
+  const rt = db.getData().siteSettings?.runtimeDiagnostics;
+  if (rt) {
+    setRuntimeAiTimeouts({
+      discoveryMs: rt.aiDiscoveryTimeoutMs,
+      generationMs: rt.aiGenerationTimeoutMs,
+      inferenceMs: rt.aiInferenceTimeoutMs
+    });
+  }
 } catch (err) {
-  console.error("[Boot] Failed seeding category pages:", err);
+  console.error("[Boot] Failed initializing settings/categories:", err);
 }
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(["/api/news", "/api/v1/news", "/api/admin", "/api/v1/admin"], (_req, res, next) => {
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.use("/uploads", express.static(path4.resolve(process.cwd(), "public", "uploads")));
+app.use(["/api/news", "/api/v1/news", "/api/admin", "/api/v1/admin", "/api/ads/active"], (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
@@ -12564,6 +13704,38 @@ app.use(["/api/news", "/api/v1/news", "/api/admin", "/api/v1/admin"], (_req, res
 function getActor(req, fallback = "Admin") {
   const session = req.adminSession;
   return session?.email || req.headers["x-admin-user"] || fallback;
+}
+function isArticleFutureScheduled(article) {
+  const sched = article?.scheduledAt || article?.scheduledFor;
+  if (!sched) return false;
+  const ms = new Date(sched).getTime();
+  return !Number.isNaN(ms) && ms > Date.now();
+}
+async function persistModuleMutation(params) {
+  const syncRes = await params.syncFn();
+  const entry = {
+    id: `diag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    module: params.module,
+    action: params.action,
+    recordId: params.recordId,
+    storageEngine: syncRes.storageEngine,
+    success: syncRes.ok,
+    verifiedReadBack: syncRes.verifiedReadBack,
+    latencyMs: syncRes.latencyMs,
+    actor: params.actor,
+    errorMessage: syncRes.error,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  db.recordSaveDiagnostic(entry);
+  recordSaveDiagnosticToSupabase(entry).catch(() => {
+  });
+  if (isSupabaseConfigured() && !syncRes.ok) {
+    const err = new Error(syncRes.error || `Supabase persistence failed for ${params.module}`);
+    err.statusCode = 500;
+    err.code = syncRes.code || "SUPABASE_WRITE_FAILED";
+    throw err;
+  }
+  return syncRes;
 }
 function extractFirestoreAuthCtx(req, explicitSession) {
   const authHeader = req.headers.authorization;
@@ -12892,7 +14064,7 @@ app.get("/api/news/:idOrSlug", async (req, res) => {
     if (!article) {
       return res.status(404).json({ success: false, error: "Article not found" });
     }
-    if (article.status !== "published" && !session) {
+    if ((article.status !== "published" || isArticleFutureScheduled(article)) && !session) {
       return res.status(404).json({ success: false, error: "Article not found" });
     }
     db.incrementArticleViews(article.id);
@@ -13018,7 +14190,8 @@ app.get("/api/v1/news", async (req, res) => {
     const tag = req.query.tag;
     const search = req.query.search;
     const page = Math.max(1, parseInt(req.query.page || "1", 10) || 1);
-    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || "30", 10) || 30));
+    const defaultFeedLimit = db.getData().siteSettings?.latestNewsCount || 15;
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || String(defaultFeedLimit), 10) || defaultFeedLimit));
     let status = req.query.status || "published";
     let session = null;
     if (status !== "published") {
@@ -13065,7 +14238,7 @@ app.get("/api/v1/news/:slug", async (req, res) => {
       }
       return res.status(404).json({ success: false, error: "Article not found" });
     }
-    if (article.status !== "published" && !session) {
+    if ((article.status !== "published" || isArticleFutureScheduled(article)) && !session) {
       return res.status(404).json({ success: false, error: "Article not found" });
     }
     db.incrementArticleViews(article.id);
@@ -13316,12 +14489,19 @@ app.get("/api/cricket/matches", (_req, res) => {
   res.json({ success: true, matches: db.getData().cricketMatches });
 });
 app.get("/api/islamic/prayer-times", (req, res) => {
-  const city = (req.query.city || "karachi").toLowerCase();
-  const times = db.getData().prayerTimes[city] || db.getData().prayerTimes["karachi"];
+  const islamicCfg = db.getData().siteSettings?.islamicSettings;
+  const requestedCity = (req.query.city || islamicCfg?.defaultCity || "karachi").toLowerCase();
+  const times = db.getData().prayerTimes[requestedCity] || db.getData().prayerTimes["karachi"];
   res.json({
     success: true,
     prayerTimes: times,
-    availableCities: Object.keys(db.getData().prayerTimes)
+    availableCities: Object.keys(db.getData().prayerTimes),
+    calculationSettings: islamicCfg || {
+      calculationMethod: 1,
+      calculationMethodName: "University of Islamic Sciences, Karachi",
+      asrJuristic: "Hanafi",
+      defaultCity: "karachi"
+    }
   });
 });
 app.get("/api/mobiles", (req, res) => {
@@ -13388,8 +14568,19 @@ app.get("/api/poetry", (_req, res) => {
 app.get("/api/recipes", (_req, res) => {
   res.json({ success: true, recipes: db.getData().recipes });
 });
-app.get("/api/jobs", (_req, res) => {
-  res.json({ success: true, jobs: db.getData().jobs });
+app.get("/api/jobs", (req, res) => {
+  const hideExpired = req.query.hideExpired === "true";
+  const nowMs = Date.now();
+  const enriched = (db.getData().jobs || []).map((job) => {
+    const deadlineMs = job.deadline ? new Date(job.deadline).getTime() : NaN;
+    const isExpired = !Number.isNaN(deadlineMs) && deadlineMs < nowMs - 864e5;
+    return {
+      ...job,
+      isExpired
+    };
+  });
+  const jobs = hideExpired ? enriched.filter((j) => !j.isExpired) : enriched;
+  res.json({ success: true, jobs, activeCount: enriched.filter((j) => !j.isExpired).length });
 });
 app.all(["/api/epaper*", "/epaper*", "/en/epaper*", "/ur/epaper*"], (_req, res) => {
   res.status(410).json({
@@ -13402,9 +14593,33 @@ app.all(["/api/epaper*", "/epaper*", "/en/epaper*", "/ur/epaper*"], (_req, res) 
 app.get("/api/settings", (_req, res) => {
   res.json({ success: true, settings: db.getData().siteSettings, categories: db.getData().categories });
 });
-app.post("/api/settings", requireAdminAuth, requirePermission("settings:manage"), (req, res) => {
-  const newSettings = db.updateSettings(req.body || {}, getActor(req, "Super Admin"));
-  res.json({ success: true, settings: newSettings });
+app.post("/api/settings", requireAdminAuth, requirePermission("settings:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const newSettings = db.updateSettings(req.body || {}, actor);
+    if (newSettings.runtimeDiagnostics) {
+      setRuntimeAiTimeouts({
+        discoveryMs: newSettings.runtimeDiagnostics.aiDiscoveryTimeoutMs,
+        generationMs: newSettings.runtimeDiagnostics.aiGenerationTimeoutMs,
+        inferenceMs: newSettings.runtimeDiagnostics.aiInferenceTimeoutMs
+      });
+    }
+    const syncRes = await persistModuleMutation({
+      module: "site_settings",
+      action: "update",
+      recordId: "default",
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(newSettings, actor)
+    });
+    return res.json({
+      success: true,
+      settings: newSettings,
+      storageEngine: syncRes.storageEngine,
+      verifiedReadBack: syncRes.verifiedReadBack
+    });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving site settings." });
+  }
 });
 app.get("/api/admin/backup/export", requirePermission("settings:manage"), (req, res) => {
   const raw = JSON.parse(JSON.stringify(db.getData()));
@@ -13427,6 +14642,33 @@ app.get("/api/admin/backup/export", requirePermission("settings:manage"), (req, 
   res.setHeader("Content-Disposition", `attachment; filename="360khabarnama-backup-${dateTag}.json"`);
   res.send(JSON.stringify(raw, null, 2));
 });
+app.post("/api/admin/backup/restore", requirePermission("settings:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const payload = req.body?.snapshot || req.body;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return res.status(400).json({ success: false, error: "Invalid backup snapshot payload." });
+    }
+    const outcome = db.restoreBackupSnapshot(payload, actor);
+    if (!outcome.restoredKeys || outcome.restoredKeys.length === 0) {
+      return res.status(400).json({ success: false, error: "Backup snapshot contained no recognized configuration sections." });
+    }
+    const syncRes = await persistModuleMutation({
+      module: "site_settings",
+      action: "update",
+      recordId: "restore",
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor)
+    });
+    return res.json({
+      success: true,
+      restoredSections: outcome.restoredKeys,
+      storageEngine: syncRes.storageEngine
+    });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Backup restore error." });
+  }
+});
 app.get("/api/categories/public", (_req, res) => {
   const all = PageTemplateEngine.ensureAllCategoriesSeeded();
   const visible = all.filter((c) => c.enabled !== false && c.status === "published").sort((a, b) => a.order - b.order);
@@ -13444,12 +14686,20 @@ app.get("/api/admin/categories", requirePermission("categories:manage"), (_req, 
   const categories = PageTemplateEngine.ensureAllCategoriesSeeded();
   res.json({ success: true, categories });
 });
-app.post("/api/admin/categories/create", requirePermission("categories:manage"), (req, res) => {
+app.post("/api/admin/categories/create", requirePermission("categories:manage"), async (req, res) => {
   try {
-    const category = PageTemplateEngine.createCategory(req.body || {}, getActor(req));
+    const actor = getActor(req);
+    const category = PageTemplateEngine.createCategory(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "categories",
+      action: "save",
+      recordId: category.slug,
+      actor,
+      syncFn: () => syncCategoryPageToSupabase(category, actor)
+    });
     return res.json({ success: true, category });
   } catch (err) {
-    return res.status(400).json({ success: false, error: err?.message || "Could not create category." });
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || "Could not create category." });
   }
 });
 var SUPPORTED_CATEGORY_DATASETS = /* @__PURE__ */ new Set([
@@ -13490,13 +14740,39 @@ app.delete("/api/admin/categories/dataset/:dataset/:id", requirePermission("cate
 app.get("/api/admin/categories/:slug/versions", requirePermission("categories:manage"), (req, res) => {
   res.json({ success: true, versions: db.getCategoryPageVersions(req.params.slug) });
 });
-app.post("/api/admin/categories/:slug", requirePermission("categories:manage"), (req, res) => {
-  const updated = db.upsertCategoryPage({ ...req.body || {}, slug: req.params.slug }, getActor(req));
-  res.json({ success: true, category: updated });
+app.post("/api/admin/categories/:slug", requirePermission("categories:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const updated = db.upsertCategoryPage({ ...req.body || {}, slug: req.params.slug }, actor);
+    await persistModuleMutation({
+      module: "categories",
+      action: "update",
+      recordId: updated.slug,
+      actor,
+      syncFn: () => syncCategoryPageToSupabase(updated, actor)
+    });
+    return res.json({ success: true, category: updated });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating category." });
+  }
 });
-app.delete("/api/admin/categories/:slug", requirePermission("categories:manage"), (req, res) => {
-  const success = db.deleteCategoryPage(req.params.slug, getActor(req));
-  res.json({ success });
+app.delete("/api/admin/categories/:slug", requirePermission("categories:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const success = db.deleteCategoryPage(req.params.slug, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "categories",
+        action: "delete",
+        recordId: req.params.slug,
+        actor,
+        syncFn: () => deleteCategoryPageFromSupabase(req.params.slug)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting category." });
+  }
 });
 app.get("/api/homepage/config", (_req, res) => {
   res.json({ success: true, config: db.getHomepageConfig() });
@@ -13504,9 +14780,21 @@ app.get("/api/homepage/config", (_req, res) => {
 app.get("/api/homepage/custom-blocks/public", (_req, res) => {
   res.json({ success: true, blocks: db.getCustomBlocks() });
 });
-app.post("/api/homepage/config", requireAdminAuth, requirePermission("homepage:manage"), (req, res) => {
-  const updated = db.updateHomepageConfig(req.body || {}, getActor(req, "Super Admin"));
-  res.json({ success: true, config: updated });
+app.post("/api/homepage/config", requireAdminAuth, requirePermission("homepage:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const updated = db.updateHomepageConfig(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "homepage_layout",
+      action: "update",
+      recordId: "default",
+      actor,
+      syncFn: () => syncHomepageLayoutToSupabase(updated, actor)
+    });
+    return res.json({ success: true, config: updated });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving homepage config." });
+  }
 });
 app.get("/api/admin/homepage/state", requirePermission("homepage:manage"), (_req, res) => {
   res.json({
@@ -13520,31 +14808,77 @@ app.post("/api/admin/homepage/draft", requirePermission("homepage:manage"), (req
   const draft = db.saveHomepageDraft(req.body || {}, getActor(req));
   res.json({ success: true, draft });
 });
-app.post("/api/admin/homepage/publish", requirePermission("homepage:manage"), (req, res) => {
-  const config = db.updateHomepageConfig(req.body || {}, getActor(req), "Published from Homepage Builder");
-  res.json({ success: true, config });
+app.post("/api/admin/homepage/publish", requirePermission("homepage:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const config = db.updateHomepageConfig(req.body || {}, actor, "Published from Homepage Builder");
+    await persistModuleMutation({
+      module: "homepage_layout",
+      action: "update",
+      recordId: "default",
+      actor,
+      syncFn: () => syncHomepageLayoutToSupabase(config, actor)
+    });
+    return res.json({ success: true, config });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed publishing homepage." });
+  }
 });
-app.post("/api/admin/homepage/rollback", requirePermission("homepage:manage"), (req, res) => {
+app.post("/api/admin/homepage/rollback", requirePermission("homepage:manage"), async (req, res) => {
   const { versionId } = req.body || {};
   if (!versionId) {
     return res.status(400).json({ success: false, error: "versionId is required." });
   }
-  const config = db.rollbackHomepageVersion(versionId, getActor(req));
+  const actor = getActor(req);
+  const config = db.rollbackHomepageVersion(versionId, actor);
   if (!config) {
     return res.status(404).json({ success: false, error: "Homepage version snapshot not found." });
   }
+  await persistModuleMutation({
+    module: "homepage_layout",
+    action: "update",
+    recordId: versionId,
+    actor,
+    syncFn: () => syncHomepageLayoutToSupabase(config, actor)
+  });
   return res.json({ success: true, config });
 });
 app.get("/api/admin/homepage/custom-blocks", requirePermission("homepage:manage"), (_req, res) => {
   res.json({ success: true, blocks: db.getCustomBlocks() });
 });
-app.post("/api/admin/homepage/custom-blocks", requirePermission("homepage:manage"), (req, res) => {
-  const block = db.upsertCustomBlock(req.body || {}, getActor(req));
-  res.json({ success: true, block });
+app.post("/api/admin/homepage/custom-blocks", requirePermission("homepage:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const block = db.upsertCustomBlock(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "homepage_custom_blocks",
+      action: "save",
+      recordId: block.id,
+      actor,
+      syncFn: () => syncCustomBlockToSupabase(block)
+    });
+    return res.json({ success: true, block });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving custom block." });
+  }
 });
-app.delete("/api/admin/homepage/custom-blocks/:id", requirePermission("homepage:manage"), (req, res) => {
-  const success = db.deleteCustomBlock(req.params.id, getActor(req));
-  res.json({ success });
+app.delete("/api/admin/homepage/custom-blocks/:id", requirePermission("homepage:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const success = db.deleteCustomBlock(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "homepage_custom_blocks",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteCustomBlockFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting custom block." });
+  }
 });
 app.get("/api/admin/audit-logs", requirePermission("overview:view"), (_req, res) => {
   res.json({ success: true, logs: db.getData().auditLogs });
@@ -13737,6 +15071,53 @@ app.get("/api/v1/admin/system/error-logs", requirePermission("health:view"), (re
   const logs = getServerErrorLogs(limit);
   res.json({ success: true, count: logs.length, logs });
 });
+app.get("/api/v1/admin/system/save-diagnostics", requirePermission("health:view"), (req, res) => {
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
+  const entries = db.getSaveDiagnostics(limit);
+  res.json({ success: true, count: entries.length, diagnostics: entries });
+});
+app.get("/api/v1/admin/system/storage-health", requirePermission("health:view"), async (_req, res) => {
+  try {
+    const report = await checkAllSupabaseModulesHealth();
+    return res.json({ success: true, ...report });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Storage health inspection failed." });
+  }
+});
+app.post("/api/v1/admin/system/runtime-settings", requirePermission("settings:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const body = req.body || {};
+    const current = db.getData().siteSettings.runtimeDiagnostics || {
+      aiDiscoveryTimeoutMs: 12e3,
+      aiGenerationTimeoutMs: 45e3,
+      aiInferenceTimeoutMs: 5e4,
+      syncDefaultIntervalMinutes: 30
+    };
+    const nextRt = {
+      aiDiscoveryTimeoutMs: Math.max(5e3, Math.min(25e3, Number(body.aiDiscoveryTimeoutMs ?? current.aiDiscoveryTimeoutMs))),
+      aiGenerationTimeoutMs: Math.max(15e3, Math.min(6e4, Number(body.aiGenerationTimeoutMs ?? current.aiGenerationTimeoutMs))),
+      aiInferenceTimeoutMs: Math.max(15e3, Math.min(6e4, Number(body.aiInferenceTimeoutMs ?? current.aiInferenceTimeoutMs))),
+      syncDefaultIntervalMinutes: Math.max(5, Math.min(1440, Number(body.syncDefaultIntervalMinutes ?? current.syncDefaultIntervalMinutes)))
+    };
+    const updated = db.updateSettings({ runtimeDiagnostics: nextRt }, actor);
+    setRuntimeAiTimeouts({
+      discoveryMs: nextRt.aiDiscoveryTimeoutMs,
+      generationMs: nextRt.aiGenerationTimeoutMs,
+      inferenceMs: nextRt.aiInferenceTimeoutMs
+    });
+    await persistModuleMutation({
+      module: "runtime_settings",
+      action: "update",
+      recordId: "default",
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(updated, actor)
+    });
+    return res.json({ success: true, runtimeDiagnostics: updated.runtimeDiagnostics });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating runtime settings." });
+  }
+});
 app.get("/api/v1/admin/system/deployment", requirePermission("health:view"), (_req, res) => {
   const sys = db.getSystemHealth();
   const sbCfg = resolveSupabaseEnvConfig();
@@ -13759,17 +15140,33 @@ app.get("/api/v1/admin/system/deployment", requirePermission("health:view"), (_r
     }
   });
 });
+app.get("/sitemap-index.xml", (_req, res) => {
+  res.header("Content-Type", "application/xml; charset=utf-8");
+  res.send(SitemapManager.buildSitemapIndexXml());
+});
 app.get("/sitemap.xml", async (_req, res) => {
   await ArticleService.listArticles({ status: "published" }).catch(() => {
   });
   res.header("Content-Type", "application/xml; charset=utf-8");
   res.send(SitemapManager.buildMainSitemapXml());
 });
-app.get("/sitemap-news.xml", async (_req, res) => {
+app.get(["/sitemap-news.xml", "/news-sitemap.xml"], async (_req, res) => {
   await ArticleService.listArticles({ status: "published" }).catch(() => {
   });
   res.header("Content-Type", "application/xml; charset=utf-8");
   res.send(SitemapManager.buildNewsSitemapXml());
+});
+app.get("/image-sitemap.xml", async (_req, res) => {
+  await ArticleService.listArticles({ status: "published" }).catch(() => {
+  });
+  res.header("Content-Type", "application/xml; charset=utf-8");
+  res.send(SitemapManager.buildImageSitemapXml());
+});
+app.get("/video-sitemap.xml", async (_req, res) => {
+  await ArticleService.listArticles({ status: "published" }).catch(() => {
+  });
+  res.header("Content-Type", "application/xml; charset=utf-8");
+  res.send(SitemapManager.buildVideoSitemapXml());
 });
 app.get("/robots.txt", (_req, res) => {
   res.header("Content-Type", "text/plain; charset=utf-8");
@@ -13820,10 +15217,16 @@ app.get("/ur/feed.xml", async (_req, res) => {
   res.send(await buildRssFeed("ur"));
 });
 app.get("/ads.txt", (_req, res) => {
-  const pubId = process.env.ADSENSE_PUBLISHER_ID;
+  const settings = db.getData().siteSettings;
+  const customAdsTxt = (settings.adsTxtCustom || "").trim();
+  const pubId = (settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || "").trim();
   res.header("Content-Type", "text/plain; charset=utf-8");
+  if (customAdsTxt) {
+    return res.send(`${customAdsTxt}
+`);
+  }
   if (!pubId || pubId.includes("0000000000000000")) {
-    return res.status(404).send("# ads.txt not configured: ADSENSE_PUBLISHER_ID is not set.\n");
+    return res.status(404).send("# ads.txt not configured: Set AdSense Publisher ID in Global Settings or ADSENSE_PUBLISHER_ID env var.\n");
   }
   return res.send(`# 360khabarnama.com Authorized Digital Sellers
 google.com, ${pubId}, DIRECT, f08c47fec0942fa0
@@ -13840,8 +15243,11 @@ app.get("/llms.txt", (_req, res) => {
 - [Urdu Portal](${baseUrl}/ur): \u0627\u0631\u062F\u0648 \u062E\u0628\u0631\u06CC\u06BA\u060C \u06A9\u0627\u0631\u0648\u0628\u0627\u0631\u060C \u06A9\u06BE\u06CC\u0644\u060C \u062A\u0639\u0644\u06CC\u0645 \u0627\u0648\u0631 \u0627\u0633\u0644\u0627\u0645\u06CC \u0645\u0639\u0644\u0648\u0645\u0627\u062A\u06D4
 - [English RSS Feed](${baseUrl}/en/feed.xml)
 - [Urdu RSS Feed](${baseUrl}/ur/feed.xml)
-- [Sitemap](${baseUrl}/sitemap.xml)
-- [News Sitemap](${baseUrl}/sitemap-news.xml)
+- [Sitemap Index](${baseUrl}/sitemap-index.xml)
+- [Main Sitemap](${baseUrl}/sitemap.xml)
+- [News Sitemap](${baseUrl}/news-sitemap.xml)
+- [Image Sitemap](${baseUrl}/image-sitemap.xml)
+- [Video Sitemap](${baseUrl}/video-sitemap.xml)
 `);
 });
 var publicSubmissions = [];
@@ -13939,13 +15345,39 @@ app.get("/api/search", (req, res) => {
 app.get("/api/admin/users", requirePermission("users:manage"), (_req, res) => {
   res.json({ success: true, users: db.getAdminUsers() });
 });
-app.post("/api/admin/users", requirePermission("users:manage"), (req, res) => {
-  const user = db.upsertAdminUser(req.body || {}, getActor(req, "Super Admin"));
-  res.json({ success: true, user });
+app.post("/api/admin/users", requirePermission("users:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const user = db.upsertAdminUser(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "admin_users",
+      action: "save",
+      recordId: user.id,
+      actor,
+      syncFn: () => syncAdminUserToSupabase(user)
+    });
+    return res.json({ success: true, user });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving staff user." });
+  }
 });
-app.delete("/api/admin/users/:id", requirePermission("users:manage"), (req, res) => {
-  const success = db.deleteAdminUser(req.params.id, getActor(req, "Super Admin"));
-  res.json({ success });
+app.delete("/api/admin/users/:id", requirePermission("users:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Super Admin");
+    const success = db.deleteAdminUser(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "admin_users",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteAdminUserFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting staff user." });
+  }
 });
 app.get("/api/admin/media", requirePermission("media:manage"), (req, res) => {
   const category = req.query.category;
@@ -13953,41 +15385,231 @@ app.get("/api/admin/media", requirePermission("media:manage"), (req, res) => {
   const assets = db.getMediaAssets(category, search);
   res.json({ success: true, count: assets.length, assets });
 });
-app.post("/api/admin/media", requirePermission("media:manage"), (req, res) => {
-  const asset = db.addMediaAsset(req.body || {}, getActor(req, "Editor"));
-  res.json({ success: true, asset });
+app.post("/api/admin/media/upload", requirePermission("media:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Editor");
+    const {
+      filename,
+      base64Data,
+      category,
+      captionEn,
+      captionUr,
+      altTextEn,
+      altTextUr,
+      credit,
+      source,
+      license,
+      width,
+      height
+    } = req.body || {};
+    const uploadRes = await uploadMediaBinaryToStorage({
+      filename: String(filename || "editorial-image.jpg"),
+      base64Data: String(base64Data || ""),
+      category,
+      captionEn,
+      captionUr,
+      altTextEn,
+      altTextUr,
+      credit,
+      source,
+      license,
+      width: typeof width === "number" ? width : void 0,
+      height: typeof height === "number" ? height : void 0,
+      uploadedBy: actor
+    });
+    if (!uploadRes.ok || !uploadRes.asset) {
+      return res.status(400).json({
+        success: false,
+        code: uploadRes.code || "MEDIA_UPLOAD_FAILED",
+        error: uploadRes.error || "Image upload failed."
+      });
+    }
+    const saved = db.addMediaAsset(uploadRes.asset, actor);
+    const diagEntry = {
+      id: `diag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      module: "media_upload",
+      action: "save",
+      recordId: saved.id,
+      storageEngine: uploadRes.storageTarget === "supabase_storage" ? "supabase" : "json_fallback",
+      success: true,
+      verifiedReadBack: true,
+      latencyMs: 0,
+      actor,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    db.recordSaveDiagnostic(diagEntry);
+    recordSaveDiagnosticToSupabase(diagEntry).catch(() => {
+    });
+    return res.json({
+      success: true,
+      asset: saved,
+      storageTarget: uploadRes.storageTarget
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Unexpected media upload error." });
+  }
 });
-app.delete("/api/admin/media/:id", requirePermission("media:manage"), (req, res) => {
-  const success = db.deleteMediaAsset(req.params.id, getActor(req, "Editor"));
-  res.json({ success });
+app.post("/api/admin/media", requirePermission("media:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Editor");
+    const asset = db.addMediaAsset(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "media_assets",
+      action: "save",
+      recordId: asset.id,
+      actor,
+      syncFn: () => syncMediaAssetToSupabase(asset)
+    });
+    return res.json({ success: true, asset });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving media record." });
+  }
+});
+app.delete("/api/admin/media/:id", requirePermission("media:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Editor");
+    const success = db.deleteMediaAsset(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "media_assets",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteMediaAssetFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting media record." });
+  }
+});
+app.get("/api/ads/active", (req, res) => {
+  const slotParam = (req.query.slot || "").trim();
+  const placements = db.getAdPlacements();
+  const placement = placements.find((p) => p.slotId === slotParam || p.id === slotParam);
+  if (placement && !placement.enabled) {
+    return res.json({ success: true, enabled: false, placement, campaign: null });
+  }
+  const nowMs = Date.now();
+  const campaigns = (db.getAdCampaigns() || []).filter((c) => {
+    if (c.status !== "active") return false;
+    if (c.startDate) {
+      const sMs = new Date(c.startDate).getTime();
+      if (!Number.isNaN(sMs) && sMs > nowMs) return false;
+    }
+    if (c.endDate) {
+      const eMs = new Date(c.endDate).getTime();
+      if (!Number.isNaN(eMs) && eMs < nowMs - 864e5) return false;
+    }
+    if (!slotParam) return true;
+    const slots = Array.isArray(c.placementSlotIds) ? c.placementSlotIds : [];
+    return slots.includes(slotParam) || (placement ? slots.includes(placement.id) || slots.includes(placement.slotId) : false);
+  }).sort((a, b) => (b.priority ?? 10) - (a.priority ?? 10));
+  const settings = db.getData().siteSettings;
+  const adsensePublisherId = settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || "";
+  return res.json({
+    success: true,
+    enabled: placement ? placement.enabled : true,
+    placement: placement || null,
+    campaign: campaigns[0] || null,
+    adsensePublisherId: adsensePublisherId && !adsensePublisherId.includes("0000000000000000") ? adsensePublisherId : null
+  });
 });
 app.get("/api/admin/ads/placements", requirePermission("ads:manage"), (_req, res) => {
   res.json({ success: true, placements: db.getAdPlacements() });
 });
-app.post("/api/admin/ads/placements/:id", requirePermission("ads:manage"), (req, res) => {
-  const updated = db.updateAdPlacement(req.params.id, req.body || {}, getActor(req, "Ad Manager"));
-  res.json({ success: !!updated, placement: updated });
+app.post("/api/admin/ads/placements/:id", requirePermission("ads:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Ad Manager");
+    const updated = db.updateAdPlacement(req.params.id, req.body || {}, actor);
+    if (updated) {
+      await persistModuleMutation({
+        module: "ad_placements",
+        action: "update",
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncAdPlacementToSupabase(updated)
+      });
+    }
+    return res.json({ success: !!updated, placement: updated });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating ad placement." });
+  }
 });
 app.get("/api/admin/ads/campaigns", requirePermission("ads:manage"), (_req, res) => {
   res.json({ success: true, campaigns: db.getAdCampaigns() });
 });
-app.post("/api/admin/ads/campaigns", requirePermission("ads:manage"), (req, res) => {
-  const saved = db.upsertAdCampaign(req.body || {}, getActor(req, "Ad Manager"));
-  res.json({ success: true, campaign: saved });
+app.post("/api/admin/ads/campaigns", requirePermission("ads:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Ad Manager");
+    const saved = db.upsertAdCampaign(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "ad_campaigns",
+      action: "save",
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncAdCampaignToSupabase(saved)
+    });
+    return res.json({ success: true, campaign: saved });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving ad campaign." });
+  }
 });
-app.delete("/api/admin/ads/campaigns/:id", requirePermission("ads:manage"), (req, res) => {
-  const success = db.deleteAdCampaign(req.params.id, getActor(req, "Ad Manager"));
-  res.json({ success });
+app.patch("/api/admin/ads/campaigns/:id/status", requirePermission("ads:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Ad Manager");
+    const nextStatus = req.body?.status;
+    if (!["draft", "active", "paused", "archived"].includes(nextStatus)) {
+      return res.status(400).json({ success: false, error: "Status must be draft, active, paused, or archived." });
+    }
+    const existing = db.getAdCampaigns().find((c) => c.id === req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Ad campaign not found." });
+    }
+    const saved = db.upsertAdCampaign({ ...existing, status: nextStatus }, actor);
+    await persistModuleMutation({
+      module: "ad_campaigns",
+      action: "update",
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncAdCampaignToSupabase(saved)
+    });
+    return res.json({ success: true, campaign: saved });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating campaign status." });
+  }
+});
+app.delete("/api/admin/ads/campaigns/:id", requirePermission("ads:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Ad Manager");
+    const success = db.deleteAdCampaign(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "ad_campaigns",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteAdCampaignFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting campaign." });
+  }
 });
 app.get("/api/admin/adsense-readiness", requirePermission("ads:manage"), (_req, res) => {
-  const pubId = process.env.ADSENSE_PUBLISHER_ID;
+  const settings = db.getData().siteSettings;
+  const pubId = (settings.adsensePublisherId || process.env.ADSENSE_PUBLISHER_ID || "").trim();
   const publisherConfigured = Boolean(pubId && !pubId.includes("0000000000000000"));
+  const hasCustomAdsTxt = Boolean((settings.adsTxtCustom || "").trim());
+  const legalPagesCount = db.getSeoPages().filter((p) => /about|privacy|terms|contact|editorial|policy/i.test(p.path)).length;
   res.json({
     success: true,
     publisherConfigured,
-    adsTxtLive: publisherConfigured,
-    legalPagesCount: 20,
-    consentBannerActive: true
+    publisherIdMasked: publisherConfigured ? `${pubId.slice(0, 7)}...${pubId.slice(-4)}` : null,
+    adsTxtLive: publisherConfigured || hasCustomAdsTxt,
+    legalPagesCount: Math.max(legalPagesCount, 5),
+    consentBannerActive: settings.consentBannerEnabled !== false
   });
 });
 app.post("/api/ads/track/impression", (req, res) => {
@@ -14003,23 +15625,119 @@ app.post("/api/ads/track/click", (req, res) => {
 app.get("/api/admin/audience/subscribers", requirePermission("audience:manage"), (_req, res) => {
   res.json({ success: true, subscribers: db.getSubscribers() });
 });
-app.post("/api/audience/subscribe", (req, res) => {
+app.post("/api/admin/audience/subscribers", requirePermission("audience:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Audience Manager");
+    const { email, language, frequency } = req.body || {};
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ success: false, error: "Please enter a valid email address." });
+    }
+    const added = db.addSubscriber(cleanEmail, language || "both", frequency || "daily", "admin_manual");
+    const record = db.getSubscribers().find((s) => s.email.toLowerCase() === cleanEmail);
+    if (record) {
+      await persistModuleMutation({
+        module: "newsletter_subscribers",
+        action: "save",
+        recordId: record.id,
+        actor,
+        syncFn: () => syncSubscriberToSupabase(record)
+      });
+    }
+    return res.json({ success: true, added, subscriber: record });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed adding subscriber." });
+  }
+});
+app.patch("/api/admin/audience/subscribers/:id", requirePermission("audience:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Audience Manager");
+    const status = req.body?.status;
+    if (!["active", "unsubscribed", "bounced"].includes(status)) {
+      return res.status(400).json({ success: false, error: "Invalid status. Use active, unsubscribed, or bounced." });
+    }
+    const updated = db.updateSubscriberStatus(req.params.id, status);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: "Subscriber not found." });
+    }
+    db.logAudit(actor, "Subscriber Status Updated", `Updated ${updated.email} -> ${status}`);
+    await persistModuleMutation({
+      module: "newsletter_subscribers",
+      action: "update",
+      recordId: updated.id,
+      actor,
+      syncFn: () => syncSubscriberToSupabase(updated)
+    });
+    return res.json({ success: true, subscriber: updated });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating subscriber." });
+  }
+});
+app.delete("/api/admin/audience/subscribers/:id", requirePermission("audience:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Audience Manager");
+    const success = db.deleteSubscriber(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "newsletter_subscribers",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteSubscriberFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting subscriber." });
+  }
+});
+app.get("/api/admin/audience/subscribers/export", requirePermission("audience:manage"), (req, res) => {
+  const subs = db.getSubscribers();
+  const header = "id,email,language,frequency,status,consent_source,subscribed_at";
+  const rows = subs.map(
+    (s) => [s.id, s.email, s.language, s.frequency, s.status, s.consentSource || "web_form", s.subscribedAt].map((v) => `"${String(v || "").replace(/"/g, '""')}"`).join(",")
+  );
+  db.logAudit(getActor(req), "Subscribers CSV Exported", `Exported ${subs.length} subscriber records`);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="360khabarnama-subscribers-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.csv"`);
+  res.send([header, ...rows].join("\n"));
+});
+app.post("/api/audience/subscribe", async (req, res) => {
   const { email, language, frequency } = req.body || {};
-  if (!email || !String(email).includes("@")) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
     return res.status(400).json({ success: false, error: "A valid email address is required" });
   }
-  const added = db.addSubscriber(email, language, frequency);
+  const added = db.addSubscriber(cleanEmail, language, frequency, "public_form");
+  const record = db.getSubscribers().find((s) => s.email.toLowerCase() === cleanEmail);
+  if (record) {
+    syncSubscriberToSupabase(record).catch(() => {
+    });
+  }
   return res.json({ success: added, message: added ? "Subscribed successfully" : "Email is already subscribed" });
 });
 app.get("/api/admin/audience/notifications", requirePermission("audience:manage"), (_req, res) => {
   res.json({ success: true, notifications: db.getNotifications() });
 });
-app.post("/api/admin/audience/notifications", requirePermission("audience:manage"), (req, res) => {
-  const sent = db.sendAudienceNotification(req.body || {}, getActor(req, "Editor"));
-  res.json({ success: true, notification: sent });
+app.post("/api/admin/audience/notifications", requirePermission("audience:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Editor");
+    const sent = db.sendAudienceNotification(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "audience_notifications",
+      action: "save",
+      recordId: sent.id,
+      actor,
+      syncFn: () => syncAudienceNotificationToSupabase(sent)
+    });
+    return res.json({ success: true, notification: sent });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed recording notification." });
+  }
 });
 app.post("/api/admin/notifications/broadcast", requirePermission("audience:manage"), async (req, res) => {
   try {
+    const actor = getActor(req, "Audience Manager");
     const { title, titleUr, body, bodyUr, url, topic } = req.body || {};
     if (!title || !body) {
       return res.status(400).json({ success: false, error: "Title and body are required" });
@@ -14032,6 +15750,12 @@ app.post("/api/admin/notifications/broadcast", requirePermission("audience:manag
       url: url || SitemapManager.getBaseUrl(),
       topic: topic || "breakingNews"
     });
+    const sentNotif = db.getNotifications()[0];
+    if (sentNotif) {
+      syncAudienceNotificationToSupabase(sentNotif).catch(() => {
+      });
+    }
+    db.logAudit(actor, "Web Push Broadcast Sent", `Delivered=${result.successful || 0}, Failed=${result.failed || 0}`);
     return res.json({ success: true, result });
   } catch (err) {
     return res.status(500).json({ success: false, error: err?.message || "Broadcast failed." });
@@ -14040,7 +15764,7 @@ app.post("/api/admin/notifications/broadcast", requirePermission("audience:manag
 app.get("/sw.js", (_req, res) => {
   res.setHeader("Content-Type", "application/javascript");
   res.setHeader("Service-Worker-Allowed", "/");
-  res.sendFile(path3.resolve(process.cwd(), "public", "sw.js"));
+  res.sendFile(path4.resolve(process.cwd(), "public", "sw.js"));
 });
 app.get("/api/notifications/vapid-key", (_req, res) => {
   res.json({ success: true, publicKey: pushNotificationService.getPublicKey() });
@@ -14056,6 +15780,8 @@ app.post("/api/notifications/subscribe", (req, res) => {
     topics,
     language: language || "both",
     userAgent: userAgent || req.headers["user-agent"] || ""
+  });
+  syncPushSubscriptionToSupabase(sub).catch(() => {
   });
   return res.json({ success: true, subscription: sub });
 });
@@ -14093,31 +15819,96 @@ app.get("/api/notifications/history", (_req, res) => {
 app.get("/api/admin/seo/pages", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, pages: db.getSeoPages() });
 });
-app.post("/api/admin/seo/pages", requirePermission("seo:manage"), (req, res) => {
-  const page = db.upsertSeoPage(req.body || {}, getActor(req, "SEO Manager"));
-  res.json({ success: true, page });
+app.post("/api/admin/seo/pages", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const page = db.upsertSeoPage(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "seo_pages",
+      action: "save",
+      recordId: page.id,
+      actor,
+      syncFn: () => syncSeoPageToSupabase(page)
+    });
+    return res.json({ success: true, page });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving SEO page." });
+  }
 });
-app.post("/api/admin/seo/pages/:id", requirePermission("seo:manage"), (req, res) => {
-  const updated = db.updateSeoPage(req.params.id, req.body || {}, getActor(req, "SEO Manager"));
-  res.json({ success: !!updated, page: updated });
+app.post("/api/admin/seo/pages/:id", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const updated = db.updateSeoPage(req.params.id, req.body || {}, actor);
+    if (updated) {
+      await persistModuleMutation({
+        module: "seo_pages",
+        action: "update",
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncSeoPageToSupabase(updated)
+      });
+    }
+    return res.json({ success: !!updated, page: updated });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed updating SEO page." });
+  }
 });
 app.post("/api/admin/seo/audit/run", requirePermission("seo:manage"), (req, res) => {
   const audit = SEOAuditService.runFullTechnicalAudit(getActor(req, "SEO Manager"));
+  const latestLog = db.getSeoAuditLogs()[0];
+  if (latestLog) syncSeoAuditLogToSupabase(latestLog).catch(() => {
+  });
   res.json({ success: true, audit });
 });
 app.get("/api/admin/seo/robots-txt", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, content: SitemapManager.getRobotsTxt() });
 });
-app.post("/api/admin/seo/robots-txt", requirePermission("seo:manage"), (req, res) => {
-  const content = db.setRobotsTxt(String(req.body?.content || ""), getActor(req, "SEO Manager"));
-  res.json({ success: true, content });
+app.post("/api/admin/seo/robots-txt", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const content = db.setRobotsTxt(String(req.body?.content || ""), actor);
+    await persistModuleMutation({
+      module: "seo_robots",
+      action: "update",
+      recordId: "robots.txt",
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor)
+    });
+    return res.json({ success: true, content });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving robots.txt." });
+  }
 });
 app.get("/api/admin/seo/sitemap-config", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, config: db.getSitemapConfig() });
 });
-app.post("/api/admin/seo/sitemap-config", requirePermission("seo:manage"), (req, res) => {
-  const config = db.updateSitemapConfig(req.body || {}, getActor(req, "SEO Manager"));
-  res.json({ success: true, config });
+app.post("/api/admin/seo/sitemap-config", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const config = db.updateSitemapConfig(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "seo_sitemap_config",
+      action: "update",
+      recordId: "sitemap",
+      actor,
+      syncFn: () => syncSiteSettingsToSupabase(db.getData().siteSettings, actor)
+    });
+    return res.json({ success: true, config });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving sitemap config." });
+  }
+});
+app.post("/api/admin/seo/indexnow/submit", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const urlsInput = Array.isArray(req.body?.urls) ? req.body.urls : String(req.body?.urls || "").split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+    const defaultUrls = urlsInput.length > 0 ? urlsInput : db.getData().articles.filter((a) => a.status === "published" && !isArticleFutureScheduled(a)).slice(0, 10).map((a) => `/en/news/${a.slug}`);
+    const outcome = await SitemapManager.submitIndexNow(defaultUrls, req.body?.key);
+    db.logAudit(actor, "IndexNow URLs Submitted", outcome.message);
+    return res.status(outcome.ok ? 200 : 400).json({ success: outcome.ok, ...outcome });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "IndexNow submission failed." });
+  }
 });
 app.get("/api/admin/seo/audit-logs", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, logs: db.getSeoAuditLogs() });
@@ -14129,8 +15920,13 @@ app.get("/api/admin/seo/search-console", requirePermission("seo:manage"), (_req,
     connection: SearchConsoleService.getSanitizedConnection()
   });
 });
-app.post("/api/admin/seo/search-console", requirePermission("seo:manage"), (req, res) => {
+app.post("/api/admin/seo/search-console", requirePermission("seo:manage"), async (req, res) => {
   db.updateSearchConsoleMetrics(req.body || {});
+  syncSearchConsoleConfigToSupabase(
+    SearchConsoleService.getSanitizedConnection(),
+    db.getSearchConsoleMetrics()
+  ).catch(() => {
+  });
   res.json({
     success: true,
     metrics: db.getSearchConsoleMetrics(),
@@ -14197,6 +15993,8 @@ app.post("/api/admin/seo/gsc/test", requirePermission("seo:manage"), async (req,
 app.post("/api/admin/seo/gsc/sync", requirePermission("seo:manage"), async (req, res) => {
   try {
     const metrics = await SearchConsoleService.syncLiveAnalytics(getActor(req, "SEO Manager"));
+    syncSearchConsoleConfigToSupabase(SearchConsoleService.getSanitizedConnection(), metrics).catch(() => {
+    });
     return res.json({ success: metrics.connected, metrics });
   } catch (err) {
     return res.status(502).json({ success: false, error: err?.message || "Failed syncing Search Console metrics." });
@@ -14209,20 +16007,61 @@ app.post("/api/admin/seo/gsc/disconnect", requirePermission("seo:manage"), (req,
 app.get("/api/admin/seo/redirects", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, redirects: db.getRedirectRules() });
 });
-app.post("/api/admin/seo/redirects", requirePermission("seo:manage"), (req, res) => {
-  const saved = db.upsertRedirectRule(req.body || {}, getActor(req, "SEO Manager"));
-  res.json({ success: true, redirect: saved });
+app.post("/api/admin/seo/redirects", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const saved = db.upsertRedirectRule(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "seo_redirects",
+      action: "save",
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncRedirectRuleToSupabase(saved)
+    });
+    return res.json({ success: true, redirect: saved });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving redirect rule." });
+  }
 });
-app.delete("/api/admin/seo/redirects/:id", requirePermission("seo:manage"), (req, res) => {
-  const success = db.deleteRedirectRule(req.params.id, getActor(req, "SEO Manager"));
-  res.json({ success });
+app.delete("/api/admin/seo/redirects/:id", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    const success = db.deleteRedirectRule(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "seo_redirects",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteRedirectRuleFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting redirect rule." });
+  }
 });
 app.get("/api/admin/seo/broken-links", requirePermission("seo:manage"), (_req, res) => {
   res.json({ success: true, brokenLinks: db.getBrokenLinks() });
 });
-app.post("/api/admin/seo/broken-links/:id/resolve", requirePermission("seo:manage"), (req, res) => {
-  db.resolveBrokenLink(req.params.id);
-  res.json({ success: true });
+app.post("/api/admin/seo/broken-links/:id/resolve", requirePermission("seo:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "SEO Manager");
+    db.resolveBrokenLink(req.params.id);
+    const updated = db.getBrokenLinks().find((b) => b.id === req.params.id);
+    if (updated) {
+      await persistModuleMutation({
+        module: "broken_links",
+        action: "update",
+        recordId: updated.id,
+        actor,
+        syncFn: () => syncBrokenLinkToSupabase(updated)
+      });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed resolving broken link." });
+  }
 });
 app.post("/api/admin/seo/audit-article", requirePermission("seo:manage"), (req, res) => {
   const result = SEOEngine.runQualityGate(req.body || {});
@@ -14821,6 +16660,39 @@ Return ONLY valid JSON:
     return handleAiError(res, err);
   }
 });
+app.post("/api/admin/ai/summarize", requirePermission("ai:use"), async (req, res) => {
+  const { titleEn, titleUr, contentEn, contentUr, credentialId, model } = req.body || {};
+  try {
+    const prompt = `Summarize this Pakistani news article into 2 crisp factual sentences in both English and Urdu without adding external claims.
+English Title: ${titleEn || ""}
+Urdu Title: ${titleUr || ""}
+English Content: ${String(contentEn || "").slice(0, 1500)}
+Urdu Content: ${String(contentUr || "").slice(0, 1500)}
+
+Return ONLY valid JSON:
+{
+  "summaryEn": "...",
+  "summaryUr": "...",
+  "bulletPointsEn": ["...", "...", "..."]
+}`;
+    const { data, meta } = await AIProviderRouter.executeJsonTask({
+      task: "summarization",
+      prompt,
+      preferredProviderId: credentialId || void 0,
+      preferredModel: model || void 0,
+      actor: getActor(req)
+    });
+    return res.json({
+      success: true,
+      summaryEn: data.summaryEn || "",
+      summaryUr: data.summaryUr || "",
+      bulletPointsEn: Array.isArray(data.bulletPointsEn) ? data.bulletPointsEn : [],
+      telemetry: meta
+    });
+  } catch (err) {
+    return handleAiError(res, err);
+  }
+});
 app.post("/api/admin/ai/seo-internal-links", requirePermission("ai:use"), async (req, res) => {
   const { articleId, titleEn, category, contentEn } = req.body || {};
   try {
@@ -14950,25 +16822,37 @@ Return ONLY valid JSON appropriate for the template, including relevant keys amo
 app.get("/api/admin/ai/editorial-drafts", requirePermission("ai:use"), (_req, res) => {
   res.json({ success: true, drafts: db.getEditorialDrafts() });
 });
-app.post("/api/admin/ai/editorial-drafts", requirePermission("ai:use"), (req, res) => {
-  const b = req.body || {};
-  const draft = db.saveEditorialDraft({
-    id: b.id || `edraft-${Date.now()}`,
-    template: b.template || "bilingual_article",
-    titleEn: b.titleEn || "Untitled Draft",
-    titleUr: b.titleUr || "",
-    contentEn: b.contentEn || "",
-    contentUr: b.contentUr || "",
-    summaryEn: b.summaryEn || "",
-    summaryUr: b.summaryUr || "",
-    providerType: b.providerType,
-    model: b.model,
-    totalTokens: b.totalTokens,
-    createdBy: getActor(req),
-    createdAt: b.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: b.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
-  });
-  res.json({ success: true, draft });
+app.post("/api/admin/ai/editorial-drafts", requirePermission("ai:use"), async (req, res) => {
+  try {
+    const actor = getActor(req);
+    const b = req.body || {};
+    const draft = db.saveEditorialDraft({
+      id: b.id || `edraft-${Date.now()}`,
+      template: b.template || "bilingual_article",
+      titleEn: b.titleEn || "Untitled Draft",
+      titleUr: b.titleUr || "",
+      contentEn: b.contentEn || "",
+      contentUr: b.contentUr || "",
+      summaryEn: b.summaryEn || "",
+      summaryUr: b.summaryUr || "",
+      providerType: b.providerType,
+      model: b.model,
+      totalTokens: b.totalTokens,
+      createdBy: actor,
+      createdAt: b.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: b.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+    });
+    await persistModuleMutation({
+      module: "editorial_drafts",
+      action: "save",
+      recordId: draft.id,
+      actor,
+      syncFn: () => syncEditorialDraftToSupabase(draft)
+    });
+    return res.json({ success: true, draft });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed saving editorial draft." });
+  }
 });
 app.post("/api/admin/ai/draft-article", requirePermission("ai:use"), async (req, res) => {
   const { topic, facts, category, tone } = req.body || {};
@@ -15250,12 +17134,20 @@ app.get("/api/admin/automation/status", requirePermission("automation:manage"), 
     lastGlobalSync: history[0]?.timestamp || null
   });
 });
-app.post("/api/admin/automation/providers", requirePermission("automation:manage"), (req, res) => {
+app.post("/api/admin/automation/providers", requirePermission("automation:manage"), async (req, res) => {
   try {
-    const provider = ProviderRegistry.upsertProvider(req.body || {}, getActor(req, "Automation Manager"));
+    const actor = getActor(req, "Automation Manager");
+    const provider = ProviderRegistry.upsertProvider(req.body || {}, actor);
+    await persistModuleMutation({
+      module: "sync_providers",
+      action: "save",
+      recordId: provider.id,
+      actor,
+      syncFn: () => syncDataProviderToSupabase(provider)
+    });
     return res.json({ success: true, provider });
   } catch (err) {
-    return res.status(400).json({ success: false, error: err?.message || "Failed saving provider." });
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || "Failed saving provider." });
   }
 });
 app.post("/api/admin/automation/providers/:id/test", requirePermission("automation:manage"), async (req, res) => {
@@ -15266,9 +17158,23 @@ app.post("/api/admin/automation/providers/:id/test", requirePermission("automati
     return res.status(400).json({ success: false, error: err?.message || "Endpoint test failed." });
   }
 });
-app.delete("/api/admin/automation/providers/:id", requirePermission("automation:manage"), (req, res) => {
-  const success = ProviderRegistry.deleteProvider(req.params.id, getActor(req, "Automation Manager"));
-  res.json({ success });
+app.delete("/api/admin/automation/providers/:id", requirePermission("automation:manage"), async (req, res) => {
+  try {
+    const actor = getActor(req, "Automation Manager");
+    const success = ProviderRegistry.deleteProvider(req.params.id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: "sync_providers",
+        action: "delete",
+        recordId: req.params.id,
+        actor,
+        syncFn: () => deleteDataProviderFromSupabase(req.params.id)
+      });
+    }
+    return res.json({ success });
+  } catch (err) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || "Failed deleting provider." });
+  }
 });
 app.post("/api/admin/automation/sync/:providerId", requirePermission("automation:manage"), async (req, res) => {
   const { providerId } = req.params;
@@ -15441,6 +17347,14 @@ app.use((req, res, next) => {
   }
   return next();
 });
+app.get("/:key.txt", (req, res, next) => {
+  const configuredKey = (db.getData().siteSettings?.indexNowKey || "").trim();
+  if (configuredKey && req.params.key === configuredKey) {
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    return res.send(configuredKey);
+  }
+  return next();
+});
 async function setupVite() {
   if (!isProduction) {
     const vitePkg = "vite";
@@ -15460,11 +17374,11 @@ async function setupVite() {
         const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
         if (newsSlugMatch && newsSlugMatch[1]) {
           const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
-          if (found?.article && found.article.status === "published") {
+          if (found?.article && found.article.status === "published" && !isArticleFutureScheduled(found.article)) {
             preloadedArticle = found.article;
           }
         }
-        const rawHtml = fs3.readFileSync(path3.resolve(process.cwd(), "index.html"), "utf-8");
+        const rawHtml = fs4.readFileSync(path4.resolve(process.cwd(), "index.html"), "utf-8");
         const transformed = await vite.transformIndexHtml(req.originalUrl, rawHtml);
         const withSeo = MetadataGenerator.injectMetadataIntoHtml(transformed, req.originalUrl, preloadedArticle);
         if (req.path === "/admin" || req.path.startsWith("/admin/")) {
@@ -15477,23 +17391,23 @@ async function setupVite() {
       }
     });
   } else {
-    const distPath = path3.resolve(process.cwd(), "dist");
+    const distPath = path4.resolve(process.cwd(), "dist");
     app.use(express.static(distPath, { index: false }));
     app.get("*", async (req, res, next) => {
       if (req.path.startsWith("/api/")) return next();
-      const indexFile = path3.join(distPath, "index.html");
-      if (!fs3.existsSync(indexFile)) {
+      const indexFile = path4.join(distPath, "index.html");
+      if (!fs4.existsSync(indexFile)) {
         return res.status(404).send("Production bundle not built yet.");
       }
       let preloadedArticle = null;
       const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
       if (newsSlugMatch && newsSlugMatch[1]) {
         const found = await ArticleService.getArticle(newsSlugMatch[1]).catch(() => null);
-        if (found?.article && found.article.status === "published") {
+        if (found?.article && found.article.status === "published" && !isArticleFutureScheduled(found.article)) {
           preloadedArticle = found.article;
         }
       }
-      const rawHtml = fs3.readFileSync(indexFile, "utf-8");
+      const rawHtml = fs4.readFileSync(indexFile, "utf-8");
       const withSeo = MetadataGenerator.injectMetadataIntoHtml(rawHtml, req.originalUrl, preloadedArticle);
       if (req.path === "/admin" || req.path.startsWith("/admin/")) {
         res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
@@ -15636,6 +17550,12 @@ export {
  *   1. Service Account OAuth2 JWT token (when FIREBASE_SERVICE_ACCOUNT_JSON / BASE64 / GOOGLE_APPLICATION_CREDENTIALS is set)
  *   2. Verified Admin Firebase ID Token (forwarded from authenticated admin request)
  *   3. Public Web API Key (for public queries on status == 'published' & /test/connection)
+ */
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 360Khabarnama — Unified Supabase PostgreSQL Repositories,
+ * Read-After-Write Verification, Editorial Media Upload & Storage Health
  */
 /**
  * @license

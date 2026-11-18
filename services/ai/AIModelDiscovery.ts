@@ -11,6 +11,7 @@ import {
   generateCorrelationId,
   getDiscoveryTimeoutMs,
   ProviderExecutionError,
+  safeReadResponseText,
 } from './AIConnectionValidator.ts';
 
 export interface ModelDiscoveryResult {
@@ -299,7 +300,7 @@ export class AIModelDiscovery {
           getDiscoveryTimeoutMs()
         );
 
-        const rawText = await res.text();
+        const rawText = await safeReadResponseText(res);
         let parsed: any = null;
         try {
           parsed = rawText ? JSON.parse(rawText) : {};
@@ -427,7 +428,7 @@ export class AIModelDiscovery {
         getDiscoveryTimeoutMs()
       );
 
-      const rawText = await res.text();
+      const rawText = await safeReadResponseText(res);
       let parsed: any = null;
       try {
         parsed = rawText ? JSON.parse(rawText) : {};

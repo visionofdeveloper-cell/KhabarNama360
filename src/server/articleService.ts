@@ -26,6 +26,7 @@ import {
   listSupabaseArticles,
   upsertSupabaseArticle,
 } from './supabaseAdmin.ts';
+import { recordSaveDiagnosticToSupabase } from './supabaseRepositories.ts';
 import { checkSupabaseHealth } from './databaseHealth.ts';
 import { hasServiceAccountConfigured } from '../lib/firebase-admin.ts';
 import { recordServerError, getServerErrorLogs } from './errorTracker.ts';
@@ -77,7 +78,20 @@ function mergeArticleLists(remoteList: Article[], localList: Article[], statusFi
 
   let merged = Array.from(map.values());
   if (statusFilter && statusFilter !== 'all') {
-    merged = merged.filter((a) => a.status === statusFilter);
+    const nowMs = Date.now();
+    merged = merged.filter((a) => {
+      if (a.status !== statusFilter) return false;
+      if (statusFilter === 'published') {
+        const sched = a.scheduledAt || a.scheduledFor;
+        if (sched) {
+          const schedMs = new Date(sched).getTime();
+          if (Number.isFinite(schedMs) && schedMs > nowMs) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
   }
 
   merged.sort((a, b) => {
@@ -296,8 +310,21 @@ export class ArticleService {
     let firestoreWarning: string | undefined;
 
     if (supabaseActive) {
+      const t0 = Date.now();
       const sbWrite = await upsertSupabaseArticle(savedLocal, actor);
       if (!sbWrite.ok || !sbWrite.article) {
+        const errDiag = db.recordSaveDiagnostic({
+          module: 'articles',
+          action: input.id ? 'update' : 'create',
+          recordId: savedLocal.id,
+          storageEngine: 'supabase',
+          success: false,
+          verifiedReadBack: false,
+          latencyMs: Date.now() - t0,
+          actor,
+          errorMessage: sbWrite.error || 'Supabase write failed',
+        });
+        recordSaveDiagnosticToSupabase(errDiag).catch(() => {});
         const err: any = new Error(
           `Supabase PostgreSQL save failed [${sbWrite.code || 'WRITE_ERROR'}]: ${sbWrite.error || 'Unable to commit row.'}`
         );
@@ -309,6 +336,17 @@ export class ArticleService {
       finalArticle = sbWrite.article;
       storageEngine = 'supabase';
       verifiedReadBack = true;
+      const okDiag = db.recordSaveDiagnostic({
+        module: 'articles',
+        action: input.id ? 'update' : 'create',
+        recordId: finalArticle.id,
+        storageEngine: 'supabase',
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: Date.now() - t0,
+        actor,
+      });
+      recordSaveDiagnosticToSupabase(okDiag).catch(() => {});
 
       // Best-effort secondary mirror to Firestore only if Firebase admin auth is already active
       if (hasFirestoreWriteAuth) {
@@ -329,6 +367,16 @@ export class ArticleService {
       storageEngine = 'firestore';
       verifiedReadBack = true;
     } else {
+      db.recordSaveDiagnostic({
+        module: 'articles',
+        action: input.id ? 'update' : 'create',
+        recordId: savedLocal.id,
+        storageEngine: 'json_fallback',
+        success: true,
+        verifiedReadBack: true,
+        latencyMs: 1,
+        actor,
+      });
       firestoreWarning =
         'Saved in local workspace persistence only — configure SUPABASE_URL + SUPABASE_SECRET_KEY (or Firebase Admin credentials) for external database sync.';
       recordServerError({

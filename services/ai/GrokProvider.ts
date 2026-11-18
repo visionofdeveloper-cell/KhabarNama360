@@ -13,6 +13,7 @@ import {
   getGenerationTimeoutMs,
   getInferenceTimeoutMs,
   ProviderExecutionError,
+  safeReadResponseText,
   sleepWithAbort,
 } from './AIConnectionValidator.ts';
 import { AIModelDiscovery } from './AIModelDiscovery.ts';
@@ -173,7 +174,7 @@ export class GrokProvider {
         opts.timeoutMs || getInferenceTimeoutMs()
       );
 
-      const rawText = await response.text();
+      const rawText = await safeReadResponseText(response);
       let parsed: any = {};
       try {
         parsed = rawText ? JSON.parse(rawText) : {};

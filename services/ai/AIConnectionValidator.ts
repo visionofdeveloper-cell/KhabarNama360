@@ -8,22 +8,70 @@ import crypto from 'crypto';
 import dns from 'dns/promises';
 import { AIConnectionStatus, AIDiagnosticError, AIFailureSource, AIProviderType } from '../../src/types/index.ts';
 
+const runtimeAiTimeouts: {
+  discoveryMs?: number;
+  generationMs?: number;
+  inferenceMs?: number;
+} = {};
+
+export function setRuntimeAiTimeouts(opts: {
+  discoveryMs?: number;
+  generationMs?: number;
+  inferenceMs?: number;
+}): void {
+  if (typeof opts.discoveryMs === 'number' && Number.isFinite(opts.discoveryMs)) {
+    runtimeAiTimeouts.discoveryMs = Math.max(5000, Math.min(25000, Math.round(opts.discoveryMs)));
+  }
+  if (typeof opts.generationMs === 'number' && Number.isFinite(opts.generationMs)) {
+    runtimeAiTimeouts.generationMs = Math.max(15000, Math.min(60000, Math.round(opts.generationMs)));
+  }
+  if (typeof opts.inferenceMs === 'number' && Number.isFinite(opts.inferenceMs)) {
+    runtimeAiTimeouts.inferenceMs = Math.max(15000, Math.min(60000, Math.round(opts.inferenceMs)));
+  }
+}
+
+export async function safeReadResponseText(res: globalThis.Response): Promise<string> {
+  try {
+    if (res.bodyUsed) return '';
+    return await res.text();
+  } catch (err: any) {
+    if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+      throw err;
+    }
+    try {
+      const buf = await res.arrayBuffer();
+      return Buffer.from(buf).toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+}
+
 /**
  * Bounded server-side AI timeout budgets (kept under reverse-proxy ~60-90s ceilings).
  */
 export function getDiscoveryTimeoutMs(): number {
+  if (typeof runtimeAiTimeouts.discoveryMs === 'number') {
+    return runtimeAiTimeouts.discoveryMs;
+  }
   const raw = Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000);
   if (!Number.isFinite(raw)) return 12000;
   return Math.max(5000, Math.min(25000, Math.round(raw)));
 }
 
 export function getGenerationTimeoutMs(): number {
+  if (typeof runtimeAiTimeouts.generationMs === 'number') {
+    return runtimeAiTimeouts.generationMs;
+  }
   const raw = Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000);
   if (!Number.isFinite(raw)) return 45000;
   return Math.max(15000, Math.min(60000, Math.round(raw)));
 }
 
 export function getInferenceTimeoutMs(): number {
+  if (typeof runtimeAiTimeouts.inferenceMs === 'number') {
+    return runtimeAiTimeouts.inferenceMs;
+  }
   const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 50000);
   if (!Number.isFinite(raw)) return 50000;
   return Math.max(15000, Math.min(60000, Math.round(raw)));

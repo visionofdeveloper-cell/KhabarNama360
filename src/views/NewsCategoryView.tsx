@@ -129,8 +129,12 @@ export const NewsCategoryView: React.FC<NewsCategoryViewProps> = ({
                 <div>
                   <div className="aspect-16/10 overflow-hidden bg-gray-100 relative">
                     <img
-                      src={art.heroImage}
-                      alt={artTitle}
+                      src={art.featuredImage || art.heroImage}
+                      alt={isUrdu ? art.featuredImageMeta?.altTextUr || artTitle : art.featuredImageMeta?.altTextEn || artTitle}
+                      width={640}
+                      height={400}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <span className="absolute top-3 left-3 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase">
