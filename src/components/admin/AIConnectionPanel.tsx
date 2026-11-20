@@ -167,6 +167,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
   const [isSuperAdmin, setIsSuperAdmin] = useState(true);
   const [currentUserRole, setCurrentUserRole] = useState('Super Admin');
   const [activeProvider, setActiveProvider] = useState<AIProviderCredential | null>(null);
+  const [totalCredentials, setTotalCredentials] = useState<number>(0);
   const [geminiStatusText, setGeminiStatusText] = useState<string>('Not Connected');
   const [grokStatusText, setGrokStatusText] = useState<string>('Not Connected');
   const [envVars, setEnvVars] = useState<EnvVarReport[]>([]);
@@ -222,6 +223,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
       });
       if (statusRes?.success) {
         setActiveProvider(statusRes.activeProvider || null);
+        setTotalCredentials(Number(statusRes.totalCredentials ?? 0));
         setGeminiStatusText(statusRes.geminiStatus || 'Not Connected');
         setGrokStatusText(statusRes.grokStatus || 'Not Connected');
         setEnvVars(Array.isArray(statusRes.envManagedVariables) ? statusRes.envManagedVariables : []);
@@ -486,14 +488,15 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
+      const targetId = activeProvider?.id;
       const res = await safeFetchJson('/api/v1/admin/ai/disconnect', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentialId: activeProvider?.id }),
+        body: JSON.stringify({ credentialId: targetId }),
       });
-      if (res?.success) {
-        setActiveProvider(null);
+      if (res?.success && (res._httpStatus || 200) < 400 && res?.receipt?.verifiedAfterMutation !== false) {
+        await loadStatusAndDiagnostics(false);
         setReplaceMode(false);
         setApiKeyInput('');
         setNeedsProviderChoice(false);
@@ -507,13 +510,23 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           lastChecked: new Date().toISOString(),
           availableModels: [],
           message: res.message || 'AI API key disconnected.',
-          correlationId: 'disconnect',
+          correlationId: res.receipt?.correlationId || 'disconnect',
         });
         onNotify?.('AI API disconnected.');
-        onProvidersChanged?.();
-        await loadStatusAndDiagnostics(false);
-      } else if (res?.error) {
-        onNotify?.(res.error);
+        await onProvidersChanged?.();
+      } else {
+        setLastResult({
+          ok: false,
+          status: 'error',
+          billingStatus: 'unknown',
+          billingNote: 'Disconnect failed',
+          lastChecked: new Date().toISOString(),
+          availableModels: [],
+          errorClassification: 'Delete Verification Failed',
+          message: res?.error || 'Could not verify AI key removal.',
+          correlationId: res?.receipt?.correlationId || 'disconnect-err',
+        });
+        onNotify?.(res?.error || 'Could not disconnect AI credential.');
       }
     } finally {
       setDisconnecting(false);
@@ -529,7 +542,12 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmReset: 'RESET_ALL_AI_KEYS' }),
       });
-      if (res?.success) {
+      if (
+        res?.success &&
+        (res._httpStatus || 200) < 400 &&
+        res?.verifiedAfterMutation !== false &&
+        res?.receipt?.verifiedAfterMutation !== false
+      ) {
         setResetConfirmOpen(false);
         setActiveProvider(null);
         setApiKeyInput('');
@@ -545,7 +563,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           envManagedVariables: Array.isArray(res.envManagedVariables) ? res.envManagedVariables : [],
         });
         onNotify?.('All previous Gemini & Grok AI credentials reset. Both providers are Not Connected.');
-        onProvidersChanged?.();
+        await onProvidersChanged?.();
         await loadStatusAndDiagnostics(false);
       } else {
         setLastResult({
@@ -555,8 +573,9 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           billingNote: 'Reset blocked',
           lastChecked: new Date().toISOString(),
           availableModels: [],
+          errorClassification: 'Reset Failed',
           message: res?.error || 'Could not reset AI API credentials.',
-          correlationId: 'reset-err',
+          correlationId: res?.receipt?.correlationId || 'reset-err',
         });
       }
     } finally {
@@ -687,6 +706,9 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2.5 py-1 rounded border bg-slate-50 text-slate-800 border-slate-200 text-[11px] font-bold">
+              Active Credentials: {totalCredentials}
+            </span>
             <span
               className={`px-2.5 py-1 rounded border text-[11px] font-bold ${
                 geminiStatusText === 'Connected'
@@ -713,7 +735,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
                 className="px-3 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 text-[11px] font-bold rounded-lg inline-flex items-center gap-1.5"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset All AI Keys</span>
+                <span>Reset All Gemini &amp; Grok Credentials</span>
               </button>
             )}
           </div>
@@ -734,7 +756,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           <div className="p-4 bg-rose-50 border border-rose-300 rounded-xl space-y-3 text-xs">
             <div className="font-black text-rose-950 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-rose-700 shrink-0" />
-              <span>Confirm Super Admin Action: Reset All AI Keys</span>
+              <span>Confirm Super Admin Action: Reset All Gemini &amp; Grok Credentials</span>
             </div>
             <p className="text-rose-900">
               This will permanently remove all saved <strong>Gemini</strong> and <strong>Grok</strong> API credentials from encrypted storage and Supabase, clear cached model lists and task bindings, suppress old environment fallback keys, and reset both providers to <strong>Not Connected</strong>.

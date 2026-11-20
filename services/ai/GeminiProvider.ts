@@ -99,21 +99,24 @@ export class GeminiProvider {
       opts.signal.addEventListener('abort', onCallerAbort, { once: true });
     }
 
-    const config: Record<string, any> = {};
-    if (opts.jsonMode) {
-      config.responseMimeType = 'application/json';
-      config.maxOutputTokens = Math.max(opts.maxTokens || 4096, 4096);
-    } else if (typeof opts.maxTokens === 'number' && opts.maxTokens > 0) {
-      config.maxOutputTokens = opts.maxTokens;
-    }
-
     const isGemini4 = model.startsWith('gemini-4-');
     const isGemini3 = model.startsWith('gemini-3');
     const isGemini25 = model.startsWith('gemini-2.5');
+
+    const config: Record<string, any> = {};
+    if (opts.jsonMode) {
+      config.responseMimeType = 'application/json';
+      if (!isGemini4) {
+        config.maxOutputTokens = Math.max(opts.maxTokens || 4096, 4096);
+      }
+    } else if (!isGemini4 && typeof opts.maxTokens === 'number' && opts.maxTokens > 0) {
+      config.maxOutputTokens = opts.maxTokens;
+    }
+
     if (!isGemini4 && !isGemini3 && typeof opts.temperature === 'number') {
       config.temperature = opts.temperature;
     }
-    if (isGemini4 && (!opts.maxTokens || opts.maxTokens <= 4096)) {
+    if (isGemini4) {
       config.thinkingConfig = { thinkingLevel: 'LOW' };
     } else if (isGemini3 && opts.jsonMode && model.includes('flash-lite')) {
       config.thinkingConfig = { thinkingLevel: 'MINIMAL' };
@@ -149,6 +152,7 @@ export class GeminiProvider {
             model,
             stage: 'inference',
             secretToRedact: cleanKey,
+            timeoutWindowMs: timeoutMs,
           })
         );
       }
@@ -176,6 +180,7 @@ export class GeminiProvider {
           model,
           stage: 'inference',
           secretToRedact: cleanKey,
+          timeoutWindowMs: timeoutMs,
         })
       );
     } finally {

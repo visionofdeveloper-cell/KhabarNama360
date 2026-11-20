@@ -4,7 +4,7 @@
  * 360Khabarnama — Centralized AI Provider Lifecycle, Validation, Discovery & Health Manager
  */
 
-import { db } from '../../src/server/db.ts';
+import { db, isServerlessRuntime } from '../../src/server/db.ts';
 import { encryptSecret, tryDecryptSecret, maskSecret } from '../../src/server/crypto.ts';
 import {
   deleteSupabaseAiCredential,
@@ -118,12 +118,41 @@ function mapDiagnosticToAutoCategory(
   }
 }
 
+export const AI_VAULT_BUILD_VERSION =
+  process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || '2026.11.20-ai-crud-v3';
+
+export interface AIMutationDebugEntry {
+  correlationId: string;
+  timestamp: string;
+  action:
+    | 'add_credential'
+    | 'edit_credential'
+    | 'toggle_credential'
+    | 'delete_credential'
+    | 'reset_all'
+    | 'save_task_routes'
+    | 'auto_connect';
+  handler: string;
+  endpoint: string;
+  httpStatus: number;
+  storageBackend: 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured';
+  table: string;
+  targetId: string;
+  affectedCount: number;
+  verifiedAfterMutation: boolean;
+  rlsError?: string | null;
+  cacheRefreshed?: boolean;
+  buildVersion: string;
+  note?: string;
+}
+
 export class AIProviderManager {
   private static lastDbError: { message: string; code?: string; at: string; operation: string } | null = null;
   private static lastSuccessfulSaveAt: string | null = null;
   private static lastSuccessfulDeleteAt: string | null = null;
   private static lastProviderValidationAt: string | null = null;
   private static hydrationPromise: Promise<{ ok: boolean; error?: string; code?: string }> | null = null;
+  private static mutationDebugLogs: AIMutationDebugEntry[] = [];
 
   private static recordDbFailure(operation: string, message: string, code?: string) {
     this.lastDbError = {
@@ -132,6 +161,58 @@ export class AIProviderManager {
       code,
       at: new Date().toISOString(),
     };
+  }
+
+  public static getStorageBackendMode(): 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' {
+    if (isSupabaseConfigured()) return 'supabase+local_encrypted';
+    if (isServerlessRuntime()) return 'ephemeral_tmp_unconfigured';
+    return 'local_encrypted';
+  }
+
+  public static recordMutationDebugLog(
+    entry: Omit<AIMutationDebugEntry, 'timestamp' | 'buildVersion' | 'storageBackend'> & {
+      timestamp?: string;
+      storageBackend?: AIMutationDebugEntry['storageBackend'];
+    }
+  ): AIMutationDebugEntry {
+    const clean: AIMutationDebugEntry = {
+      correlationId: entry.correlationId,
+      timestamp: entry.timestamp || new Date().toISOString(),
+      action: entry.action,
+      handler: entry.handler,
+      endpoint: entry.endpoint,
+      httpStatus: entry.httpStatus,
+      storageBackend: entry.storageBackend || this.getStorageBackendMode(),
+      table: entry.table,
+      targetId: entry.targetId,
+      affectedCount: entry.affectedCount,
+      verifiedAfterMutation: entry.verifiedAfterMutation,
+      rlsError: entry.rlsError || null,
+      cacheRefreshed: entry.cacheRefreshed ?? true,
+      buildVersion: AI_VAULT_BUILD_VERSION,
+      note: entry.note ? redactSecrets(entry.note) : undefined,
+    };
+    this.mutationDebugLogs.unshift(clean);
+    if (this.mutationDebugLogs.length > 50) {
+      this.mutationDebugLogs = this.mutationDebugLogs.slice(0, 50);
+    }
+    console.info(
+      `[AI Vault Mutation] cid=${clean.correlationId} action=${clean.action} endpoint=${clean.endpoint} status=${clean.httpStatus} backend=${clean.storageBackend} table=${clean.table} targetId=${clean.targetId} affected=${clean.affectedCount} verified=${clean.verifiedAfterMutation}${clean.rlsError ? ` rlsError=${clean.rlsError}` : ''}`
+    );
+    return clean;
+  }
+
+  public static getMutationDebugLogs(): AIMutationDebugEntry[] {
+    return this.mutationDebugLogs.slice(0, 50);
+  }
+
+  private static assertPersistentMutationBackend(operation: string): void {
+    if (isServerlessRuntime() && !isSupabaseConfigured()) {
+      const msg =
+        'Persistent database unavailable: Serverless production requires SUPABASE_URL and SUPABASE_SECRET_KEY. Ephemeral /tmp writes cannot persist across requests.';
+      this.recordDbFailure(operation, msg, 'SERVERLESS_SUPABASE_MISSING');
+      throw new Error(msg);
+    }
   }
 
   public static sanitizeCredential(cred: AIProviderCredential, routes?: { task: string; label: string; primaryCredentialId: string; fallbackCredentialId?: string }[]) {
@@ -344,6 +425,8 @@ export class AIProviderManager {
       );
     }
 
+    this.assertPersistentMutationBackend(input.id ? 'edit_credential' : 'add_credential');
+
     if (isSupabaseConfigured()) {
       await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
@@ -355,9 +438,11 @@ export class AIProviderManager {
     if (!existing && (!input.apiKey || !input.apiKey.trim())) {
       throw new Error('API key is required when adding a new credential.');
     }
-    if (!input.label?.trim() || !input.projectId?.trim()) {
-      throw new Error('Friendly credential name and Project ID are required.');
+    if (!input.label?.trim()) {
+      throw new Error('Friendly credential name is required.');
     }
+    const resolvedProjectId =
+      input.projectId?.trim() || existing?.projectId || `${input.providerType}-project`;
 
     const now = new Date().toISOString();
     const rawKey = input.apiKey?.trim();
@@ -402,7 +487,7 @@ export class AIProviderManager {
       id: existing?.id || `aik-${input.providerType}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       providerType: input.providerType,
       label: input.label.trim(),
-      projectId: input.projectId.trim(),
+      projectId: resolvedProjectId,
       endpointUrl:
         input.endpointUrl !== undefined
           ? input.endpointUrl.trim() || defaultEndpoint
@@ -447,6 +532,10 @@ export class AIProviderManager {
     }
 
     const saved = db.upsertAiProvider(persistedRecord, actor);
+    const localVerify = db.getAiProviders().find(p => p.id === saved.id);
+    if (!localVerify) {
+      throw new Error('Credential write verification failed: record missing after local cache upsert.');
+    }
     this.lastSuccessfulSaveAt = now;
 
     if (Array.isArray(input.assignedTasks)) {
@@ -872,6 +961,8 @@ export class AIProviderManager {
   }
 
   public static async resetAllCredentials(actor: string = 'Super Admin') {
+    this.assertPersistentMutationBackend('reset_all');
+
     let supabaseResult: { ok: boolean; configured: boolean; removedCount: number; error?: string } = {
       ok: true,
       configured: false,
@@ -888,6 +979,12 @@ export class AIProviderManager {
     }
 
     const localResult = db.resetAllAiCredentials(actor);
+    const remainingLocal = db
+      .getAiProviders()
+      .filter(p => p.providerType === 'gemini' || p.providerType === 'grok');
+    if (remainingLocal.length > 0) {
+      throw new Error(`Reset verification failed: ${remainingLocal.length} Gemini/Grok credentials remain in storage.`);
+    }
     this.lastSuccessfulDeleteAt = new Date().toISOString();
 
     const envManagedVariables = this.getEnvManagedVariablesStatus();
@@ -897,6 +994,10 @@ export class AIProviderManager {
       ok: true,
       removedLocalCount: localResult.removedCount,
       removedSupabaseCount: supabaseResult.removedCount,
+      remainingCount: 0,
+      verifiedAfterMutation: true,
+      storageBackend: this.getStorageBackendMode(),
+      buildVersion: AI_VAULT_BUILD_VERSION,
       supabaseConfigured: supabaseResult.configured,
       supabaseSynced: !supabaseResult.configured || supabaseResult.ok,
       supabaseError: supabaseResult.error,
@@ -930,24 +1031,33 @@ export class AIProviderManager {
       providers[0] ||
       null;
 
+    const backendMode = this.getStorageBackendMode();
     return {
+      buildVersion: AI_VAULT_BUILD_VERSION,
       connectivity,
       supabase,
       lastHealthCheck: cachedHealth,
       recentTests,
       envManagedVariables,
+      mutationDebugLogs: this.getMutationDebugLogs(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || 'development',
         nodeVersion: process.version,
+        isServerless: isServerlessRuntime(),
+        ephemeralServerlessWarning: backendMode === 'ephemeral_tmp_unconfigured',
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
         supabaseConfigured: isSupabaseConfigured(),
         masterKeyConfigured: Boolean(process.env.AI_MASTER_KEY && process.env.AI_MASTER_KEY.trim()),
       },
       runtimeTelemetry: {
-        configSource: isSupabaseConfigured()
-          ? 'Supabase PostgreSQL (authoritative) + Local Encrypted Cache'
-          : 'Local Encrypted Vault (portal_database.json fallback)',
+        storageBackend: backendMode,
+        configSource:
+          backendMode === 'supabase+local_encrypted'
+            ? 'Supabase PostgreSQL (authoritative) + Local Encrypted Cache'
+            : backendMode === 'ephemeral_tmp_unconfigured'
+            ? 'Ephemeral /tmp (NOT persistent in serverless — set SUPABASE_URL & SUPABASE_SECRET_KEY)'
+            : 'Local Encrypted Vault (data/portal_database.json)',
         storedCredentialCount: providers.length,
         enabledCredentialCount: providers.filter(p => p.enabled).length,
         activeConnectedCount: providers.filter(p => p.enabled && p.connectionStatus === 'connected').length,
@@ -1114,6 +1224,8 @@ export class AIProviderManager {
     if (items.length === 0) {
       throw new Error('At least one task route entry is required.');
     }
+
+    this.assertPersistentMutationBackend('save_task_routes');
 
     if (isSupabaseConfigured()) {
       await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
@@ -2085,6 +2197,7 @@ export class AIProviderManager {
     now: string;
     actor: string;
   }): Promise<AIProviderCredential> {
+    this.assertPersistentMutationBackend('auto_connect');
     if (isSupabaseConfigured()) {
       await this.hydrateFromSupabaseIfConfigured(params.actor, { requireSuccess: true });
     }
@@ -2218,10 +2331,23 @@ export class AIProviderManager {
   public static async disconnectCredential(
     credentialId?: string,
     actor: string = 'Super Admin'
-  ): Promise<{ ok: boolean; notFound?: boolean; deletedCount?: number; disconnectedId?: string; message: string }> {
+  ): Promise<{
+    ok: boolean;
+    notFound?: boolean;
+    deletedCount?: number;
+    disconnectedId?: string;
+    verifiedAfterMutation?: boolean;
+    rlsError?: string | null;
+    storageBackend?: string;
+    message: string;
+  }> {
+    this.assertPersistentMutationBackend('delete_credential');
+
     if (isSupabaseConfigured()) {
       await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
+
+    const backendMode = this.getStorageBackendMode();
 
     // Handle server environment fallback key removal via suppression
     if (credentialId === 'env-gemini-default' || credentialId === 'env-grok-default') {
@@ -2234,6 +2360,8 @@ export class AIProviderManager {
           return {
             ok: false,
             deletedCount: 0,
+            verifiedAfterMutation: false,
+            storageBackend: backendMode,
             message: `Failed suppressing environment variable in Supabase: ${flagRes.error}`,
           };
         }
@@ -2264,6 +2392,8 @@ export class AIProviderManager {
         ok: true,
         deletedCount: 1,
         disconnectedId: credentialId,
+        verifiedAfterMutation: true,
+        storageBackend: backendMode,
         message: `Suppressed runtime loading of ${
           providerKey === 'gemini' ? 'GEMINI_API_KEY' : 'XAI_API_KEY'
         } environment fallback.`,
@@ -2283,10 +2413,18 @@ export class AIProviderManager {
           ok: false,
           notFound: true,
           deletedCount: 0,
+          verifiedAfterMutation: false,
+          storageBackend: backendMode,
           message: `AI credential "${credentialId}" was not found or already deleted.`,
         };
       }
-      return { ok: true, deletedCount: 0, message: 'No active stored AI API key to disconnect.' };
+      return {
+        ok: true,
+        deletedCount: 0,
+        verifiedAfterMutation: true,
+        storageBackend: backendMode,
+        message: 'No active stored AI API key to disconnect.',
+      };
     }
 
     // Step 1: Clear or rebind dependent task routes FIRST so FK references never block delete
@@ -2324,12 +2462,16 @@ export class AIProviderManager {
         return {
           ok: false,
           deletedCount: 0,
+          verifiedAfterMutation: false,
+          rlsError: routeClearRes.code || null,
+          storageBackend: backendMode,
           message: `Failed clearing dependent task routes in Supabase: ${routeClearRes.error || 'Unknown database error'}`,
         };
       }
     }
 
     // Step 2: Authoritatively delete from Supabase & verify 0 residual rows
+    let supabaseDeletedCount = 0;
     if (isSupabaseConfigured()) {
       const sbDel = await deleteSupabaseAiCredential(target.id);
       if (!sbDel.ok) {
@@ -2338,22 +2480,49 @@ export class AIProviderManager {
           ok: false,
           notFound: sbDel.code === 'NOT_FOUND',
           deletedCount: 0,
+          verifiedAfterMutation: false,
+          rlsError: sbDel.code || null,
+          storageBackend: backendMode,
           message: sbDel.error || 'Failed deleting AI credential from Supabase.',
         };
       }
+      supabaseDeletedCount = sbDel.deletedCount;
     }
 
-    // Step 3: Commit local route cleanup & credential removal
+    // Step 3: Commit local route cleanup & credential removal, then verify read-back absence
     for (const nextRoute of updatedRoutes) {
       db.setAiTaskRoute(nextRoute.task, nextRoute, actor);
     }
     const localRemoved = db.deleteAiProvider(target.id, actor);
+    const stillPresentLocally = db.getAiProviders().some(p => p.id === target.id);
+    const danglingRoute = Object.values(db.getAiTaskRoutes()).some(
+      r => r && (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id)
+    );
+
+    const affectedCount = isSupabaseConfigured() ? supabaseDeletedCount : localRemoved ? 1 : 0;
+    if (affectedCount === 0 || stillPresentLocally || danglingRoute) {
+      return {
+        ok: false,
+        deletedCount: 0,
+        disconnectedId: target.id,
+        verifiedAfterMutation: false,
+        storageBackend: backendMode,
+        message: stillPresentLocally
+          ? `Delete verification failed: "${target.label}" is still present after removal.`
+          : danglingRoute
+          ? `Delete verification failed: dependent task routes still reference "${target.id}".`
+          : `Delete affected 0 records for "${target.id}".`,
+      };
+    }
+
     this.lastSuccessfulDeleteAt = new Date().toISOString();
 
     return {
       ok: true,
-      deletedCount: localRemoved ? 1 : 0,
+      deletedCount: affectedCount,
       disconnectedId: target.id,
+      verifiedAfterMutation: true,
+      storageBackend: backendMode,
       message: `Deleted ${
         target.providerType === 'gemini'
           ? 'Google Gemini'

@@ -6,7 +6,14 @@
 
 import { db } from '../db.ts';
 import { AiContentDraft } from './types.ts';
-import { AIProviderRouter } from '../../../services/ai/AIProviderRouter.ts';
+import { AIProviderRouter, AIUnavailableError } from '../../../services/ai/AIProviderRouter.ts';
+
+let isDraftGenerationRunning = false;
+let enginePausedUntilMs = 0;
+
+export function resetAiContentEngineCooldown(): void {
+  enginePausedUntilMs = 0;
+}
 
 export async function processDataChangeWithGemini(
   category: 'gold' | 'currency' | 'fuel' | 'weather' | 'cricket',
@@ -19,13 +26,33 @@ export async function processDataChangeWithGemini(
     return null;
   }
 
-  const now = new Date();
+  const nowMs = Date.now();
+  if (nowMs < enginePausedUntilMs) {
+    return null;
+  }
+
+  // Prevent concurrent data-provider syncs from bursting AI quota simultaneously
+  if (isDraftGenerationRunning) {
+    return null;
+  }
+
+  const now = new Date(nowMs);
   if (settings.lastGeminiCallAt) {
-    const elapsedMinutes = (now.getTime() - new Date(settings.lastGeminiCallAt).getTime()) / (1000 * 60);
+    const elapsedMinutes = (nowMs - new Date(settings.lastGeminiCallAt).getTime()) / (1000 * 60);
     if (elapsedMinutes < settings.geminiCooldownMin) {
       return null;
     }
   }
+
+  // Only invoke background AI if at least one credential (DB or server env) is actually available
+  const availableCreds = AIProviderRouter.getAllCredentialsSanitized().filter((c: any) => c.enabled);
+  if (availableCreds.length === 0) {
+    return null;
+  }
+
+  isDraftGenerationRunning = true;
+  // Record attempt timestamp immediately so failures/timeouts also respect cooldown window
+  db.updateAutomationSettings({ lastGeminiCallAt: now.toISOString() }, 'AI Automation Engine');
 
   try {
     const prompt = `You are the Senior Chief Editor for "360Khabarnama", a premier Pakistani bilingual news publication.
@@ -49,9 +76,9 @@ STRICT EDITORIAL RULES:
       task: 'breaking_alerts',
       prompt,
       systemInstruction:
-        'You are a bilingual Urdu/English newsroom editor. Output ONLY a single valid JSON object with keys titleEn, titleUr, summaryEn, summaryUr, contentEn, contentUr, seoTags.',
+        'You are a bilingual Urdu/English newsroom editor. Output ONLY a single valid JSON object with keys titleEn, titleUr, summaryEn, summaryUr, contentEn, contentUr, seoTags. Keep total JSON response concise (under 900 words).',
       temperature: 0.2,
-      maxTokens: 4096,
+      maxTokens: 2048,
       actor: 'Automated Data Engine',
     });
 
@@ -80,10 +107,26 @@ STRICT EDITORIAL RULES:
     };
 
     db.saveAiDraft(draft);
-    db.updateAutomationSettings({ lastGeminiCallAt: now.toISOString() }, 'AI Automation Engine');
+    enginePausedUntilMs = 0;
     return draft;
   } catch (error: any) {
-    console.error('[AI Engine] Automated draft skipped/failed:', error.message);
+    const diag = error instanceof AIUnavailableError ? error.diagnostic : undefined;
+    if (diag?.category === 'quota_429') {
+      const pauseSec = Math.min(Math.max(diag.retryAfterSeconds || 1800, 60), 24 * 3600);
+      enginePausedUntilMs = Date.now() + pauseSec * 1000;
+    } else if (
+      diag?.category === 'billing_required' ||
+      diag?.category === 'auth_failed_401' ||
+      diag?.category === 'permission_denied_403' ||
+      (error instanceof AIUnavailableError && error.code === 'NO_AI_KEY')
+    ) {
+      enginePausedUntilMs = Date.now() + 60 * 60 * 1000;
+    } else if (diag?.category === 'timeout' || diag?.category === 'server_error_5xx') {
+      enginePausedUntilMs = Date.now() + 10 * 60 * 1000;
+    }
+    console.warn('[AI Engine] Automated draft skipped:', error?.message || String(error));
     return null;
+  } finally {
+    isDraftGenerationRunning = false;
   }
 }

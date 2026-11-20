@@ -167,7 +167,12 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
   const [saving, setSaving] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
 
-  const loadAll = async () => {
+  const loadAll = async (): Promise<{
+    ok: boolean;
+    providers: ExtendedCredential[];
+    routes: AITaskRouting[];
+    error?: string;
+  }> => {
     setLoading(true);
     try {
       const [provRes, routeRes, useRes, diagRes] = await Promise.all([
@@ -176,18 +181,22 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
         safeFetchJson('/api/v1/admin/ai/usage', { credentials: 'include', cache: 'no-store' }),
         safeFetchJson('/api/v1/admin/ai/diagnostics', { credentials: 'include', cache: 'no-store' }),
       ]);
-      if (provRes.success) setCredentials(provRes.providers || []);
-      if (routeRes.success) setRoutes(routeRes.routes || []);
+      const nextProviders: ExtendedCredential[] = provRes.success ? provRes.providers || [] : [];
+      const nextRoutes: AITaskRouting[] = routeRes.success ? routeRes.routes || [] : [];
+      if (provRes.success) setCredentials(nextProviders);
+      if (routeRes.success) setRoutes(nextRoutes);
       if (useRes.success) setUsageSummary(useRes.usage || null);
       if (diagRes.success) setDiagnostics(diagRes);
       if (!provRes.success || !routeRes.success) {
-        setStatusBanner({
-          ok: false,
-          text: provRes.error || routeRes.error || 'Failed to load AI provider settings.',
-        });
+        const errText = provRes.error || routeRes.error || 'Failed to load AI provider settings.';
+        setStatusBanner({ ok: false, text: errText });
+        return { ok: false, providers: nextProviders, routes: nextRoutes, error: errText };
       }
+      return { ok: true, providers: nextProviders, routes: nextRoutes };
     } catch (e: any) {
-      setStatusBanner({ ok: false, text: e?.message || 'Failed to load AI provider settings.' });
+      const errText = e?.message || 'Failed to load AI provider settings.';
+      setStatusBanner({ ok: false, text: errText });
+      return { ok: false, providers: [], routes: [], error: errText };
     } finally {
       setLoading(false);
     }
@@ -272,13 +281,37 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current);
 
     const trimmed = val.trim();
+    let detectedProvider = formProviderType;
+    let nextEndpoint = formEndpointUrl;
+    if (!editingId) {
+      if (/^AIza[0-9A-Za-z_-]{15,}$/.test(trimmed)) {
+        detectedProvider = 'gemini';
+        nextEndpoint = '';
+        if (formProviderType !== 'gemini') {
+          setFormProviderType('gemini');
+          setFormEndpointUrl('');
+          setFormModel('');
+          setDiscoveredModels([]);
+        }
+      } else if (/^xai-[0-9A-Za-z_-]{15,}$/.test(trimmed)) {
+        detectedProvider = 'grok';
+        nextEndpoint = formEndpointUrl || 'https://api.x.ai/v1';
+        if (formProviderType !== 'grok') {
+          setFormProviderType('grok');
+          setFormEndpointUrl(nextEndpoint);
+          setFormModel('');
+          setDiscoveredModels([]);
+        }
+      }
+    }
+
     if (trimmed.length >= 20) {
       debounceTimerRef.current = window.setTimeout(() => {
         runValidation({
-          providerType: formProviderType,
+          providerType: detectedProvider,
           apiKey: trimmed,
           credentialId: editingId,
-          endpointUrl: formEndpointUrl,
+          endpointUrl: nextEndpoint,
           model: formModel,
           runGenerationTest: false,
         });
@@ -375,20 +408,34 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
           validationResult: validationResult || undefined,
         }),
       });
-      if (d.success) {
+      if (
+        d.success &&
+        (d._httpStatus || 200) < 400 &&
+        d.provider?.id &&
+        d.receipt?.verifiedAfterMutation !== false
+      ) {
+        const fresh = await loadAll();
+        const confirmedRecord = fresh.providers.find(p => p.id === d.provider.id);
+        if (!fresh.ok || !confirmedRecord) {
+          setModalError(
+            fresh.error ||
+              'Save response completed, but the credential was missing on post-save database read-back. Check Supabase configuration and retry.'
+          );
+          return;
+        }
         setModalOpen(false);
         setModalError(null);
-        const isVerified = d.provider?.connectionStatus === 'connected';
+        const isVerified = confirmedRecord.connectionStatus === 'connected';
         setStatusBanner({
           ok: true,
           text: isVerified
-            ? `${editingId ? 'Updated' : 'Saved'} & connected "${d.provider.label}" (${d.provider.model}) — encrypted with AES-256-GCM.`
-            : `${editingId ? 'Updated' : 'Saved'} "${d.provider?.label}" encrypted at rest (${d.provider?.connectionStatus || 'untested'}).`,
+            ? `${editingId ? 'Updated' : 'Saved'} & connected "${confirmedRecord.label}" (${confirmedRecord.model}) — verified in persistent storage.`
+            : `${editingId ? 'Updated' : 'Saved'} "${confirmedRecord.label}" encrypted at rest (${confirmedRecord.connectionStatus || 'untested'}) — verified in storage.`,
+          correlationId: d.receipt?.correlationId,
         });
         setPanelRefreshKey(k => k + 1);
         onNotify?.(editingId ? 'AI credential updated.' : 'AI credential saved.');
         onProvidersChanged?.();
-        await loadAll();
       } else {
         setModalError(d.error || 'Failed to save credential.');
       }
@@ -428,23 +475,40 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     if (togglingId) return;
     setTogglingId(cred.id);
     setStatusBanner(null);
+    const targetEnabled = !cred.enabled;
     try {
       const d = await safeFetchJson(`/api/v1/admin/ai/providers/${encodeURIComponent(cred.id)}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !cred.enabled }),
+        body: JSON.stringify({ enabled: targetEnabled }),
       });
-      if (d.success) {
+      if (d.success && (d._httpStatus || 200) < 400 && d.provider?.id) {
+        const fresh = await loadAll();
+        const refreshed = fresh.providers.find(p => p.id === cred.id);
+        if (!fresh.ok || !refreshed || refreshed.enabled !== targetEnabled) {
+          setStatusBanner({
+            ok: false,
+            text:
+              fresh.error ||
+              `Toggle for "${cred.label}" did not persist after fresh read-back verification.`,
+            correlationId: d.receipt?.correlationId,
+          });
+          return;
+        }
         setStatusBanner({
           ok: true,
-          text: `"${cred.label}" is now ${!cred.enabled ? 'Enabled' : 'Disabled'}.`,
+          text: `"${refreshed.label}" is now ${refreshed.enabled ? 'Enabled' : 'Disabled'} (verified).`,
+          correlationId: d.receipt?.correlationId,
         });
         setPanelRefreshKey(k => k + 1);
         onProvidersChanged?.();
-        await loadAll();
       } else {
-        setStatusBanner({ ok: false, text: d.error || 'Failed toggling credential status.' });
+        setStatusBanner({
+          ok: false,
+          text: d.error || 'Failed toggling credential status.',
+          correlationId: d.receipt?.correlationId,
+        });
       }
     } catch (err: any) {
       setStatusBanner({ ok: false, text: err?.message || 'Network error toggling credential.' });
@@ -463,27 +527,54 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     setDeleting(true);
     setDeleteError(null);
     setStatusBanner(null);
+    const targetId = deleteTargetCred.id;
+    const deletedLabel = deleteTargetCred.label;
     try {
       const d = await safeFetchJson(
-        `/api/v1/admin/ai/providers/${encodeURIComponent(deleteTargetCred.id)}`,
+        `/api/v1/admin/ai/providers/${encodeURIComponent(targetId)}`,
         {
           method: 'DELETE',
           credentials: 'include',
         }
       );
-      if (d.success) {
-        const deletedLabel = deleteTargetCred.label;
+      if (
+        d.success &&
+        (d._httpStatus || 200) < 400 &&
+        (d.deletedCount ?? 0) >= 1 &&
+        d.receipt?.verifiedAfterMutation !== false
+      ) {
+        const fresh = await loadAll();
+        const stillExists = fresh.providers.some(p => p.id === targetId);
+        if (!fresh.ok || stillExists) {
+          setDeleteError(
+            stillExists
+              ? `Delete aborted/reverted: "${deletedLabel}" (${targetId}) is still present after fresh database read-back. Check Supabase configuration and retry.`
+              : fresh.error || 'Delete succeeded on server, but fresh verification read failed.'
+          );
+          return;
+        }
+
+        if (logsModalCred?.id === targetId) setLogsModalCred(null);
+        if (editingId === targetId) {
+          setModalOpen(false);
+          setEditingId(null);
+        }
         setDeleteTargetCred(null);
         setStatusBanner({
           ok: true,
-          text: d.message || `Deleted AI API key "${deletedLabel}".`,
+          text: d.message || `Deleted AI API key "${deletedLabel}" (verified removed from database).`,
+          correlationId: d.receipt?.correlationId,
         });
         setPanelRefreshKey(k => k + 1);
         onNotify?.('AI credential deleted.');
         onProvidersChanged?.();
-        await loadAll();
       } else {
-        setDeleteError(d.error || 'Failed deleting AI credential.');
+        setDeleteError(
+          d.error ||
+            (d.deletedCount === 0
+              ? `Delete affected 0 database records for "${deletedLabel}".`
+              : 'Failed deleting AI credential.')
+        );
       }
     } catch (err: any) {
       setDeleteError(err?.message || 'Network error deleting AI credential.');
@@ -498,6 +589,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     try {
       const d = await safeFetchJson(`/api/v1/admin/ai/providers/${encodeURIComponent(cred.id)}/logs`, {
         credentials: 'include',
+        cache: 'no-store',
       });
       if (d.success) {
         setCredLogs({ tests: d.tests || [], usage: d.usage || [] });
@@ -610,8 +702,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
         embeddedInAdvancedVault={true}
         refreshKey={panelRefreshKey}
         onNotify={onNotify}
-        onProvidersChanged={() => {
-          loadAll();
+        onProvidersChanged={async () => {
+          await loadAll();
           onProvidersChanged?.();
         }}
         advancedContent={
@@ -1217,6 +1309,18 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               </div>
             </div>
 
+            {diagnostics?.serverEnvironment?.ephemeralServerlessWarning && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-xs text-rose-950 font-semibold">
+                Serverless Persistence Warning: SUPABASE_URL / SUPABASE_SECRET_KEY are missing in this serverless environment. Any changes cannot persist across requests until Supabase is configured.
+              </div>
+            )}
+
+            {diagnostics?.buildVersion && (
+              <div className="text-[10px] font-mono text-gray-500">
+                Backend AI Vault Build: {diagnostics.buildVersion} • Storage Mode: {diagnostics?.runtimeTelemetry?.storageBackend || 'unknown'}
+              </div>
+            )}
+
             {diagnostics?.runtimeTelemetry?.lastDbError && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900">
                 <strong>Last DB Error ({diagnostics.runtimeTelemetry.lastDbError.operation}):</strong>{' '}
@@ -1224,6 +1328,40 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                 <span className="font-mono text-[10px]">
                   ({new Date(diagnostics.runtimeTelemetry.lastDbError.at).toLocaleString()})
                 </span>
+              </div>
+            )}
+
+            {Array.isArray(diagnostics?.mutationDebugLogs) && diagnostics.mutationDebugLogs.length > 0 && (
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-[11px] font-black text-gray-800">
+                  Recent Verified DB Mutations (Zero Secrets)
+                </div>
+                <div className="overflow-x-auto max-h-48">
+                  <table className="w-full text-[10px] text-left font-mono">
+                    <thead className="bg-gray-50 border-b border-gray-100 text-gray-500">
+                      <tr>
+                        <th className="p-2">Correlation ID</th>
+                        <th className="p-2">Action</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2">Table / ID</th>
+                        <th className="p-2">Rows</th>
+                        <th className="p-2">Verified</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {diagnostics.mutationDebugLogs.slice(0, 12).map((m: any) => (
+                        <tr key={m.correlationId}>
+                          <td className="p-2">{m.correlationId}</td>
+                          <td className="p-2">{m.action}</td>
+                          <td className="p-2">{m.httpStatus}</td>
+                          <td className="p-2">{m.table} / {m.targetId}</td>
+                          <td className="p-2">{m.affectedCount}</td>
+                          <td className="p-2">{m.verifiedAfterMutation ? 'YES' : 'NO'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

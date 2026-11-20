@@ -485,6 +485,7 @@ export interface AIDiagnosticError {
   failureSource?: AIFailureSource;
   timeoutWindowMs?: number;
   retried?: boolean;
+  retryAfterSeconds?: number;
 }
 
 export interface AIConnectionTestRecord {

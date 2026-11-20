@@ -3,7 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import { db } from './src/server/db.ts';
+import { db, isServerlessRuntime } from './src/server/db.ts';
 import { scheduler } from './src/server/automation/scheduler.ts';
 import {
   requireAdminAuth,
@@ -47,10 +47,11 @@ import { ProviderRegistry } from './services/automation/ProviderRegistry.ts';
 import { JobScheduler } from './services/automation/JobScheduler.ts';
 import { PageTemplateEngine } from './services/pages/PageTemplateEngine.ts';
 import { AIProviderRouter, AIUnavailableError } from './services/ai/AIProviderRouter.ts';
-import { AIProviderManager } from './services/ai/AIProviderManager.ts';
+import { AIProviderManager, AI_VAULT_BUILD_VERSION } from './services/ai/AIProviderManager.ts';
 import { AIUsageTracker } from './services/ai/AIUsageTracker.ts';
-import { setRuntimeAiTimeouts } from './services/ai/AIConnectionValidator.ts';
+import { generateCorrelationId, setRuntimeAiTimeouts } from './services/ai/AIConnectionValidator.ts';
 import { pushNotificationService } from './src/server/pushNotificationService.ts';
+import { resetAiContentEngineCooldown } from './src/server/automation/aiContentEngine.ts';
 import { runDueCronJobs } from './server/jobs/cron-dispatcher.ts';
 import {
   SupabaseSyncResult,
@@ -2984,14 +2985,20 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
     const all = await AIProviderRouter.listCredentialsAuthoritative();
     const connected = all.find((c: any) => c.enabled && c.connectionStatus === 'connected');
     const active = connected || all.find((c: any) => c.enabled) || all[0] || null;
-    const geminiCred = all.find((c: any) => c.providerType === 'gemini' && c.enabled);
-    const grokCred = all.find((c: any) => c.providerType === 'grok' && c.enabled);
+    const geminiCred =
+      all.find((c: any) => c.providerType === 'gemini' && c.enabled && c.connectionStatus === 'connected') ||
+      all.find((c: any) => c.providerType === 'gemini' && c.enabled);
+    const grokCred =
+      all.find((c: any) => c.providerType === 'grok' && c.enabled && c.connectionStatus === 'connected') ||
+      all.find((c: any) => c.providerType === 'grok' && c.enabled);
     const supabaseConfigured = isSupabaseConfigured();
     const recentTests = db.getAiConnectionTests(undefined, 10);
     const latestTest = recentTests[0] || null;
 
+    const storageBackend = AIProviderManager.getStorageBackendMode();
     res.json({
       success: true,
+      buildVersion: AI_VAULT_BUILD_VERSION,
       connected: Boolean(connected),
       activeProvider: active,
       geminiStatus:
@@ -3006,12 +3013,14 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
       isSuperAdmin: session?.role === 'Super Admin',
       totalCredentials: all.length,
       connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
-      storageBackend: supabaseConfigured ? 'supabase+local_encrypted' : 'local_encrypted',
+      storageBackend,
       supabaseConfigured,
+      ephemeralServerlessWarning: isServerlessRuntime() && !supabaseConfigured,
       envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || 'development',
         nodeVersion: process.version,
+        isServerless: isServerlessRuntime(),
         generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000),
         discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
       },
@@ -3047,9 +3056,11 @@ app.post('/api/v1/admin/ai/discover-auto', requireSuperAdmin, async (req, res) =
     );
     return res.json({ success: result.ok, result });
   } catch (err: any) {
-    return res.status(500).json({
+    const msg = err?.message || 'AI credential verification step failed.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || 'AI credential verification step failed.',
+      error: msg,
     });
   }
 });
@@ -3084,9 +3095,11 @@ app.post('/api/v1/admin/ai/verify-generation-auto', requireSuperAdmin, async (re
     );
     return res.json({ success: result.ok, result });
   } catch (err: any) {
-    return res.status(500).json({
+    const msg = err?.message || 'AI generation test failed.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || 'AI generation test failed.',
+      error: msg,
     });
   }
 });
@@ -3114,11 +3127,17 @@ app.post('/api/v1/admin/ai/connect-auto', requireSuperAdmin, async (req, res) =>
       getActor(req, 'Super Admin'),
       controller.signal
     );
+    if (result.ok) {
+      AIProviderRouter.clearAutomationCooldowns();
+      resetAiContentEngineCooldown();
+    }
     return res.json({ success: result.ok, result });
   } catch (err: any) {
-    return res.status(500).json({
+    const msg = err?.message || 'Automatic AI connection failed.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || 'Automatic AI connection failed.',
+      error: msg,
     });
   }
 });
@@ -3133,6 +3152,7 @@ async function handleResetPreview(_req: Request, res: Response) {
 }
 
 async function handleResetAll(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-reset');
   try {
     const body = req.body || {};
     if (body.confirmReset !== 'RESET_ALL_AI_KEYS') {
@@ -3142,11 +3162,39 @@ async function handleResetAll(req: Request, res: Response) {
       });
     }
     const report = await AIProviderManager.resetAllCredentials(getActor(req, 'Super Admin'));
-    return res.json({ success: true, ...report });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const affected = isSupabaseConfigured() ? report.removedSupabaseCount : report.removedLocalCount;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'reset_all',
+      handler: 'handleResetAll',
+      endpoint: req.path,
+      httpStatus: 200,
+      table: 'ai_provider_credentials',
+      targetId: 'provider_type IN (gemini, grok)',
+      affectedCount: affected,
+      verifiedAfterMutation: Boolean(report.verifiedAfterMutation),
+    });
+    return res.json({ success: true, ...report, receipt });
   } catch (err: any) {
-    return res.status(500).json({
+    const msg = err?.message || 'Failed to reset AI API credentials.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'reset_all',
+      handler: 'handleResetAll',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: 'provider_type IN (gemini, grok)',
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({
       success: false,
-      error: err?.message || 'Failed to reset AI API credentials.',
+      error: msg,
     });
   }
 }
@@ -3159,18 +3207,48 @@ app.post('/api/admin/ai/reset-all', requireSuperAdmin, handleResetAll);
 app.post('/api/admin/ai/providers/reset', requireSuperAdmin, handleResetAll);
 
 async function handleDisconnect(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-disc');
+  const targetId = req.body?.credentialId ? String(req.body.credentialId) : 'active';
   try {
     const body = req.body || {};
     const out = await AIProviderManager.disconnectCredential(
       body.credentialId ? String(body.credentialId) : undefined,
       getActor(req, 'Super Admin')
     );
+    const status = out.ok ? 200 : out.notFound ? 404 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'delete_credential',
+      handler: 'handleDisconnect',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: out.disconnectedId || targetId,
+      affectedCount: out.deletedCount ?? 0,
+      verifiedAfterMutation: Boolean(out.verifiedAfterMutation),
+      rlsError: out.rlsError || null,
+      note: out.message,
+    });
     if (!out.ok) {
-      return res.status(out.notFound ? 404 : 500).json({ success: false, error: out.message, ...out });
+      return res.status(status).json({ success: false, error: out.message, ...out, receipt });
     }
-    return res.json({ success: true, ...out });
+    return res.json({ success: true, ...out, receipt });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message || 'Failed to disconnect AI provider.' });
+    const msg = err?.message || 'Failed to disconnect AI provider.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'delete_credential',
+      handler: 'handleDisconnect',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 
@@ -3249,47 +3327,129 @@ async function handleListProviders(_req: Request, res: Response) {
 }
 
 async function handleCreateOrUpsertProvider(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-add');
+  const action = req.body?.id ? 'edit_credential' : 'add_credential';
+  const expectedStatus = req.body?.id ? 200 : 201;
   try {
     const saved = await AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, 'Super Admin'));
-    return res.status(req.body?.id ? 200 : 201).json({ success: true, provider: saved });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: 'handleCreateOrUpsertProvider',
+      endpoint: req.path,
+      httpStatus: expectedStatus,
+      table: 'ai_provider_credentials',
+      targetId: saved.id,
+      affectedCount: 1,
+      verifiedAfterMutation: true,
+    });
+    return res.status(expectedStatus).json({ success: true, provider: saved, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed saving AI credential.';
     const status = msg.toLowerCase().includes('not found')
       ? 404
+      : msg.toLowerCase().includes('serverless')
+      ? 503
       : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
       ? 500
       : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: 'handleCreateOrUpsertProvider',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: req.body?.id ? String(req.body.id) : 'new',
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 
 async function handlePatchProvider(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-edit');
+  const action =
+    req.body && Object.keys(req.body).length === 1 && 'enabled' in req.body
+      ? 'toggle_credential'
+      : 'edit_credential';
   try {
     const updated = await AIProviderManager.updateCredentialPartial(
       req.params.id,
       req.body || {},
       getActor(req, 'Super Admin')
     );
-    return res.json({ success: true, provider: updated });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: 'handlePatchProvider',
+      endpoint: req.path,
+      httpStatus: 200,
+      table: 'ai_provider_credentials',
+      targetId: updated.id,
+      affectedCount: 1,
+      verifiedAfterMutation: true,
+    });
+    return res.json({ success: true, provider: updated, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed updating AI credential.';
     const status = msg.toLowerCase().includes('not found')
       ? 404
+      : msg.toLowerCase().includes('serverless')
+      ? 503
       : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
       ? 500
       : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: 'handlePatchProvider',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: req.params.id,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 
 async function handleDeleteProvider(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-del');
   try {
     const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, 'Super Admin'));
-    if (!out.ok) {
-      return res.status(out.notFound ? 404 : 500).json({
+    const status = out.ok && (out.deletedCount ?? 0) >= 1 && out.verifiedAfterMutation !== false
+      ? 200
+      : out.notFound
+      ? 404
+      : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'delete_credential',
+      handler: 'handleDeleteProvider',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: req.params.id,
+      affectedCount: out.deletedCount ?? 0,
+      verifiedAfterMutation: Boolean(out.verifiedAfterMutation),
+      rlsError: out.rlsError || null,
+      note: out.message,
+    });
+    if (status !== 200) {
+      return res.status(status).json({
         success: false,
         error: out.message,
         deletedCount: out.deletedCount ?? 0,
+        receipt,
       });
     }
     return res.json({
@@ -3297,12 +3457,28 @@ async function handleDeleteProvider(req: Request, res: Response) {
       deletedCount: out.deletedCount ?? 1,
       disconnectedId: out.disconnectedId,
       message: out.message,
+      receipt,
     });
   } catch (err: any) {
-    return res.status(500).json({
+    const msg = err?.message || 'Failed deleting AI credential.';
+    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'delete_credential',
+      handler: 'handleDeleteProvider',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_provider_credentials',
+      targetId: req.params.id,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({
       success: false,
-      error: err?.message || 'Failed deleting AI credential.',
+      error: msg,
       deletedCount: 0,
+      receipt,
     });
   }
 }
@@ -3367,6 +3543,7 @@ async function handleGetTaskRoutes(_req: Request, res: Response) {
 }
 
 async function handleSaveTaskRoutes(req: Request, res: Response) {
+  const correlationId = generateCorrelationId('ai-route');
   try {
     const body = req.body || {};
     const actor = getActor(req, 'Super Admin');
@@ -3375,11 +3552,38 @@ async function handleSaveTaskRoutes(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'Task routing payload is required.' });
     }
     const routes = await AIProviderManager.saveTaskRoutes(payload, actor);
-    return res.json({ success: true, routes });
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'save_task_routes',
+      handler: 'handleSaveTaskRoutes',
+      endpoint: req.path,
+      httpStatus: 200,
+      table: 'ai_task_routes',
+      targetId: Array.isArray(payload) ? 'all_routes' : String(payload.task),
+      affectedCount: Array.isArray(payload) ? payload.length : 1,
+      verifiedAfterMutation: true,
+    });
+    return res.json({ success: true, routes, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed saving AI task routes.';
-    const status = msg.toLowerCase().includes('database') ? 500 : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const status = msg.toLowerCase().includes('serverless')
+      ? 503
+      : msg.toLowerCase().includes('database')
+      ? 500
+      : 400;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: 'save_task_routes',
+      handler: 'handleSaveTaskRoutes',
+      endpoint: req.path,
+      httpStatus: status,
+      table: 'ai_task_routes',
+      targetId: 'task_routes',
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg,
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 

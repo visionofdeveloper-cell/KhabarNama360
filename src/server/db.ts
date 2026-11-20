@@ -3773,3 +3773,23 @@ class DatabaseManager {
 }
 
 export const db = new DatabaseManager();
+
+export function isServerlessRuntime(): boolean {
+  return Boolean(
+    IS_SERVERLESS ||
+      process.env.VERCEL ||
+      process.env.VERCEL_ENV ||
+      process.env.VERCEL_REGION ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.NOW_REGION
+  );
+}
+
+export function getPersistenceStorageInfo() {
+  return {
+    isServerless: isServerlessRuntime(),
+    dataDir: DATA_DIR,
+    dbFile: DB_FILE,
+  };
+}
+

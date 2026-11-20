@@ -3495,6 +3495,11 @@ var DatabaseManager = class {
   }
 };
 var db = new DatabaseManager();
+function isServerlessRuntime() {
+  return Boolean(
+    IS_SERVERLESS || process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION
+  );
+}
 
 // src/server/crypto.ts
 import crypto from "crypto";
@@ -4565,8 +4570,8 @@ function getInferenceTimeoutMs() {
   if (typeof runtimeAiTimeouts.inferenceMs === "number") {
     return runtimeAiTimeouts.inferenceMs;
   }
-  const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 5e4);
-  if (!Number.isFinite(raw)) return 5e4;
+  const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 55e3);
+  if (!Number.isFinite(raw)) return 55e3;
   return Math.max(15e3, Math.min(6e4, Math.round(raw)));
 }
 var ProviderExecutionError = class extends Error {
@@ -4643,6 +4648,75 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 15e3) {
     }
   }
 }
+function formatRetryDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "shortly";
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const mins = Math.ceil(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+}
+function parseUpstreamQuotaMetadata(rawMsg) {
+  let cleanText = rawMsg || "";
+  let retryAfterSeconds;
+  let quotaLimit;
+  const lower = rawMsg.toLowerCase();
+  let isFreeTierCap = lower.includes("free_tier") || lower.includes("freetier") || lower.includes("generaterequestsperdayperprojectpermodel-freetier");
+  try {
+    const firstBrace = rawMsg.indexOf("{");
+    const lastBrace = rawMsg.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const jsonSlice = rawMsg.slice(firstBrace, lastBrace + 1);
+      const parsed = JSON.parse(jsonSlice);
+      const errObj = parsed?.error || parsed;
+      if (typeof errObj?.message === "string" && errObj.message.trim()) {
+        cleanText = errObj.message.split("\n")[0].trim();
+      }
+      const details = Array.isArray(errObj?.details) ? errObj.details : [];
+      for (const d of details) {
+        if (typeof d?.retryDelay === "string") {
+          const m = d.retryDelay.match(/([\d.]+)s/i);
+          if (m) retryAfterSeconds = Math.ceil(Number(m[1]));
+        }
+        if (Array.isArray(d?.violations)) {
+          for (const v of d.violations) {
+            if (v?.quotaValue !== void 0 && Number.isFinite(Number(v.quotaValue))) {
+              quotaLimit = Number(v.quotaValue);
+            }
+            if (String(v?.quotaId || "").toLowerCase().includes("freetier")) {
+              isFreeTierCap = true;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+  }
+  if (retryAfterSeconds === void 0) {
+    const delayMatch = rawMsg.match(/retryDelay["']?\s*:\s*["']?(\d+(?:\.\d+)?)s/i);
+    if (delayMatch) {
+      retryAfterSeconds = Math.ceil(Number(delayMatch[1]));
+    } else {
+      const hmsMatch = rawMsg.match(/retry in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+      if (hmsMatch && (hmsMatch[1] || hmsMatch[2] || hmsMatch[3])) {
+        retryAfterSeconds = Math.ceil(
+          Number(hmsMatch[1] || 0) * 3600 + Number(hmsMatch[2] || 0) * 60 + Number(hmsMatch[3] || 0)
+        );
+      }
+    }
+  }
+  if (quotaLimit === void 0) {
+    const limitMatch = rawMsg.match(/limit:\s*(\d+)/i) || rawMsg.match(/quotaValue["']?\s*:\s*["']?(\d+)/i);
+    if (limitMatch) quotaLimit = Number(limitMatch[1]);
+  }
+  return {
+    conciseMessage: cleanText.replace(/\s+/g, " ").trim().slice(0, 220),
+    retryAfterSeconds,
+    quotaLimit,
+    isFreeTierCap
+  };
+}
 function defaultProviderSource(providerType) {
   if (providerType === "gemini") return "Google API";
   if (providerType === "grok") return "xAI API";
@@ -4661,7 +4735,7 @@ function classifyProviderError(params) {
   const errCode = String(params.err?.code || params.err?.cause?.code || "").toUpperCase();
   const isTimeoutSignal = params.err?.name === "TimeoutError" || params.err?.name === "AbortError" && !lower.includes("caller") && !lower.includes("disconnected") || lower.includes("timed out") || lower.includes("timeout") || errCode === "ETIMEDOUT" || errCode === "UND_ERR_CONNECT_TIMEOUT" || errCode === "UND_ERR_HEADERS_TIMEOUT";
   if (isTimeoutSignal) {
-    const windowMs = params.timeoutWindowMs || getGenerationTimeoutMs();
+    const windowMs = params.timeoutWindowMs || (params.stage === "inference" ? getInferenceTimeoutMs() : getGenerationTimeoutMs());
     const isGeminiAuthGen = params.providerType === "gemini" && Boolean(params.authenticated) && params.stage === "generation_test";
     const isGrokAuthGen = params.providerType === "grok" && Boolean(params.authenticated) && params.stage === "generation_test";
     return {
@@ -4704,17 +4778,20 @@ function classifyProviderError(params) {
       failureSource: apiSource
     };
   }
-  const isBillingSignal = status === 402 || lower.includes("credit") || lower.includes("billing") || lower.includes("payment") || lower.includes("balance") || lower.includes("spending limit") || lower.includes("insufficient_quota") || lower.includes("prepaid") || lower.includes("free tier is not available") || lower.includes("limit: 0");
-  if (isBillingSignal) {
+  const quotaMeta = parseUpstreamQuotaMetadata(rawMsg);
+  const isRateOrDailyQuota = status === 429 || lower.includes("resource_exhausted") || lower.includes("rate limit") || lower.includes("exceeded your current quota");
+  const isStrictBillingSignal = status === 402 || lower.includes("credit") || lower.includes("payment") || lower.includes("balance") || lower.includes("spending limit") || lower.includes("insufficient_quota") || lower.includes("prepaid") || lower.includes("free tier is not available") || lower.includes("billing account") || lower.includes("enable billing") || quotaMeta.quotaLimit === 0 || !isRateOrDailyQuota && lower.includes("billing");
+  if (isStrictBillingSignal) {
+    const cleanReason = quotaMeta.conciseMessage || rawMsg;
     return {
       correlationId,
       httpStatus: status,
       category: "billing_required",
       connectionStatus: "billing_required",
       title: "Billing Required",
-      diagnosis: params.authenticated ? `Your ${providerLabel} key authenticated, but generation requires billing or prepaid credits (${rawMsg}).` : `${providerLabel} requires billing or prepaid credits for this key (${rawMsg}).`,
-      suggestedAction: params.providerType === "grok" ? "Open console.x.ai \u2192 Billing & Credits, add prepaid credits or raise your spending limit, then click Retry Test." : "Enable billing in Google AI Studio / Google Cloud Billing, or use a free-tier eligible AI Studio key.",
-      providerMessage: rawMsg || void 0,
+      diagnosis: params.authenticated ? `Your ${providerLabel} key authenticated, but generation requires billing or prepaid credits (${cleanReason}).` : `${providerLabel} requires billing or prepaid credits for this key (${cleanReason}).`,
+      suggestedAction: params.providerType === "grok" ? "Open console.x.ai -> Billing & Credits, add prepaid credits or raise your spending limit, then click Retry Test." : "Enable billing in Google AI Studio / Google Cloud Billing, or switch to a free-tier eligible model.",
+      providerMessage: cleanReason || void 0,
       failureSource: apiSource
     };
   }
@@ -4757,17 +4834,21 @@ function classifyProviderError(params) {
       failureSource: apiSource
     };
   }
-  if (status === 429 || lower.includes("resource_exhausted") || lower.includes("rate limit") || lower.includes("quota")) {
+  if (isRateOrDailyQuota || lower.includes("quota")) {
+    const retryText = quotaMeta.retryAfterSeconds ? `Retry in ${formatRetryDuration(quotaMeta.retryAfterSeconds)}` : "Wait for quota reset before retrying";
+    const tierNote = quotaMeta.isFreeTierCap ? `Free-tier${quotaMeta.quotaLimit ? ` (${quotaMeta.quotaLimit}/day)` : ""} quota exhausted` : "Quota or rate limit exhausted";
+    const cleanReason = quotaMeta.conciseMessage || rawMsg;
     return {
       correlationId,
       httpStatus: status || 429,
       category: "quota_429",
       connectionStatus: "quota_exhausted",
       title: "Quota Exceeded",
-      diagnosis: params.authenticated ? `Key verified, but quota or rate limit is currently exhausted (${rawMsg}).` : `${providerLabel} quota exceeded / rate limited (429): ${rawMsg}`,
-      suggestedAction: "Wait a minute for RPM/TPM quota reset, then click Retry Test.",
-      providerMessage: rawMsg || void 0,
-      failureSource: apiSource
+      diagnosis: params.authenticated ? `Key verified, but ${tierNote.toLowerCase()} on ${params.model || "selected model"}. ${retryText}.` : `${providerLabel} ${tierNote.toLowerCase()} on ${params.model || "selected model"} (429). ${retryText}.`,
+      suggestedAction: quotaMeta.isFreeTierCap ? `${retryText}, lower background AI automation frequency, or select another project/paid API tier in AI Studio.` : `${retryText}, then click Retry Test.`,
+      providerMessage: cleanReason || void 0,
+      failureSource: apiSource,
+      retryAfterSeconds: quotaMeta.retryAfterSeconds
     };
   }
   if (status === 400 || lower.includes("invalid_argument") || lower.includes("bad request")) {
@@ -5293,20 +5374,22 @@ var GeminiProvider = class {
       }
       opts.signal.addEventListener("abort", onCallerAbort, { once: true });
     }
-    const config = {};
-    if (opts.jsonMode) {
-      config.responseMimeType = "application/json";
-      config.maxOutputTokens = Math.max(opts.maxTokens || 4096, 4096);
-    } else if (typeof opts.maxTokens === "number" && opts.maxTokens > 0) {
-      config.maxOutputTokens = opts.maxTokens;
-    }
     const isGemini4 = model.startsWith("gemini-4-");
     const isGemini3 = model.startsWith("gemini-3");
     const isGemini25 = model.startsWith("gemini-2.5");
+    const config = {};
+    if (opts.jsonMode) {
+      config.responseMimeType = "application/json";
+      if (!isGemini4) {
+        config.maxOutputTokens = Math.max(opts.maxTokens || 4096, 4096);
+      }
+    } else if (!isGemini4 && typeof opts.maxTokens === "number" && opts.maxTokens > 0) {
+      config.maxOutputTokens = opts.maxTokens;
+    }
     if (!isGemini4 && !isGemini3 && typeof opts.temperature === "number") {
       config.temperature = opts.temperature;
     }
-    if (isGemini4 && (!opts.maxTokens || opts.maxTokens <= 4096)) {
+    if (isGemini4) {
       config.thinkingConfig = { thinkingLevel: "LOW" };
     } else if (isGemini3 && opts.jsonMode && model.includes("flash-lite")) {
       config.thinkingConfig = { thinkingLevel: "MINIMAL" };
@@ -5335,7 +5418,8 @@ var GeminiProvider = class {
             providerMessage: `Empty response payload from ${model} (finishReason=${firstCandidate?.finishReason || "unknown"})`,
             model,
             stage: "inference",
-            secretToRedact: cleanKey
+            secretToRedact: cleanKey,
+            timeoutWindowMs: timeoutMs
           })
         );
       }
@@ -5360,7 +5444,8 @@ var GeminiProvider = class {
           err,
           model,
           stage: "inference",
-          secretToRedact: cleanKey
+          secretToRedact: cleanKey,
+          timeoutWindowMs: timeoutMs
         })
       );
     } finally {
@@ -6135,12 +6220,35 @@ function getServerErrorLogs(limit = 50) {
 }
 
 // src/server/supabaseAdmin.ts
+function inspectJwtRoleClaim(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
 function resolveSupabaseEnvConfig() {
   const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
   const sbSecret = (process.env.SUPABASE_SECRET_KEY || "").trim();
   const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const secretKey = sbSecret || legacyService;
-  const secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
+  let secretKeyMisconfiguration;
+  let secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
+  if (secretKey) {
+    if (secretKey.startsWith("sb_publishable_")) {
+      secretKeyMode = "misconfigured_anon_or_publishable";
+      secretKeyMisconfiguration = "SUPABASE_SECRET_KEY holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a secret/service_role key is used.";
+    } else {
+      const jwtRole = inspectJwtRoleClaim(secretKey);
+      if (jwtRole && jwtRole !== "service_role") {
+        secretKeyMode = "misconfigured_anon_or_publishable";
+        secretKeyMisconfiguration = `SUPABASE_SECRET_KEY/SERVICE_ROLE_KEY JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
+      }
+    }
+  }
   const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
   const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
   const publishableKey = sbPub || legacyAnon;
@@ -6159,6 +6267,7 @@ function resolveSupabaseEnvConfig() {
     secretKey,
     secretKeyMode,
     publishableKeyMode,
+    secretKeyMisconfiguration,
     configured: Boolean(url && secretKey && projectHost && projectHost !== "invalid-url"),
     projectHost
   };
@@ -6825,9 +6934,28 @@ async function inspectSupabaseAiInfrastructure() {
     rlsStatus: {
       credentialsAnonBlocked,
       taskRoutesAnonBlocked,
-      detail: rlsDetail
-    }
+      detail: envCfg.secretKeyMisconfiguration ? `${envCfg.secretKeyMisconfiguration} ${rlsDetail}` : rlsDetail
+    },
+    ...envCfg.secretKeyMisconfiguration ? { error: envCfg.secretKeyMisconfiguration } : {}
   };
+}
+async function findSupabaseAdminUserByEmail(email) {
+  const client = getSupabaseAdminClient();
+  const cleanEmail = (email || "").trim().toLowerCase();
+  if (!client || !cleanEmail) return null;
+  try {
+    const { data, error } = await client.from("admin_users").select("id, email, name_en, role, status").ilike("email", cleanEmail).maybeSingle();
+    if (error || !data) return null;
+    return {
+      id: String(data.id),
+      email: String(data.email).toLowerCase(),
+      nameEn: String(data.name_en || data.email),
+      role: String(data.role || "Read-only Analyst"),
+      status: String(data.status || "active")
+    };
+  } catch {
+    return null;
+  }
 }
 async function runSupabaseAiCrudSelfTest() {
   const envCfg = resolveSupabaseEnvConfig();
@@ -7021,6 +7149,7 @@ function mapDiagnosticToAutoCategory(diag, modelsCount = 0) {
       return "PROVIDER_UNAVAILABLE";
   }
 }
+var AI_VAULT_BUILD_VERSION = process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "2026.11.20-ai-crud-v3";
 var AIProviderManager = class {
   static {
     this.lastDbError = null;
@@ -7034,6 +7163,12 @@ var AIProviderManager = class {
   static {
     this.lastProviderValidationAt = null;
   }
+  static {
+    this.hydrationPromise = null;
+  }
+  static {
+    this.mutationDebugLogs = [];
+  }
   static recordDbFailure(operation, message, code) {
     this.lastDbError = {
       operation,
@@ -7041,6 +7176,48 @@ var AIProviderManager = class {
       code,
       at: (/* @__PURE__ */ new Date()).toISOString()
     };
+  }
+  static getStorageBackendMode() {
+    if (isSupabaseConfigured()) return "supabase+local_encrypted";
+    if (isServerlessRuntime()) return "ephemeral_tmp_unconfigured";
+    return "local_encrypted";
+  }
+  static recordMutationDebugLog(entry) {
+    const clean = {
+      correlationId: entry.correlationId,
+      timestamp: entry.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+      action: entry.action,
+      handler: entry.handler,
+      endpoint: entry.endpoint,
+      httpStatus: entry.httpStatus,
+      storageBackend: entry.storageBackend || this.getStorageBackendMode(),
+      table: entry.table,
+      targetId: entry.targetId,
+      affectedCount: entry.affectedCount,
+      verifiedAfterMutation: entry.verifiedAfterMutation,
+      rlsError: entry.rlsError || null,
+      cacheRefreshed: entry.cacheRefreshed ?? true,
+      buildVersion: AI_VAULT_BUILD_VERSION,
+      note: entry.note ? redactSecrets(entry.note) : void 0
+    };
+    this.mutationDebugLogs.unshift(clean);
+    if (this.mutationDebugLogs.length > 50) {
+      this.mutationDebugLogs = this.mutationDebugLogs.slice(0, 50);
+    }
+    console.info(
+      `[AI Vault Mutation] cid=${clean.correlationId} action=${clean.action} endpoint=${clean.endpoint} status=${clean.httpStatus} backend=${clean.storageBackend} table=${clean.table} targetId=${clean.targetId} affected=${clean.affectedCount} verified=${clean.verifiedAfterMutation}${clean.rlsError ? ` rlsError=${clean.rlsError}` : ""}`
+    );
+    return clean;
+  }
+  static getMutationDebugLogs() {
+    return this.mutationDebugLogs.slice(0, 50);
+  }
+  static assertPersistentMutationBackend(operation) {
+    if (isServerlessRuntime() && !isSupabaseConfigured()) {
+      const msg = "Persistent database unavailable: Serverless production requires SUPABASE_URL and SUPABASE_SECRET_KEY. Ephemeral /tmp writes cannot persist across requests.";
+      this.recordDbFailure(operation, msg, "SERVERLESS_SUPABASE_MISSING");
+      throw new Error(msg);
+    }
   }
   static sanitizeCredential(cred, routes) {
     const assignedTasks = routes ? routes.filter((r) => r.primaryCredentialId === cred.id || r.fallbackCredentialId === cred.id).map((r) => r.label) : [];
@@ -7202,8 +7379,9 @@ var AIProviderManager = class {
         "Server environment fallback credentials cannot be edited directly. Add a database-backed credential or paste a new key in Connect AI API."
       );
     }
-    if (isSupabaseConfigured() && input.id) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+    this.assertPersistentMutationBackend(input.id ? "edit_credential" : "add_credential");
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
     const existing = input.id ? db.getAiProviders().find((p) => p.id === input.id) : void 0;
     if (input.id && !existing) {
@@ -7212,9 +7390,10 @@ var AIProviderManager = class {
     if (!existing && (!input.apiKey || !input.apiKey.trim())) {
       throw new Error("API key is required when adding a new credential.");
     }
-    if (!input.label?.trim() || !input.projectId?.trim()) {
-      throw new Error("Friendly credential name and Project ID are required.");
+    if (!input.label?.trim()) {
+      throw new Error("Friendly credential name is required.");
     }
+    const resolvedProjectId = input.projectId?.trim() || existing?.projectId || `${input.providerType}-project`;
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const rawKey = input.apiKey?.trim();
     const val = input.validationResult;
@@ -7250,7 +7429,7 @@ var AIProviderManager = class {
       id: existing?.id || `aik-${input.providerType}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       providerType: input.providerType,
       label: input.label.trim(),
-      projectId: input.projectId.trim(),
+      projectId: resolvedProjectId,
       endpointUrl: input.endpointUrl !== void 0 ? input.endpointUrl.trim() || defaultEndpoint : existing?.endpointUrl || defaultEndpoint,
       model: input.model?.trim() || val?.selectedModel || existing?.model || "",
       encryptedSecret: rawKey ? encryptSecret(rawKey) : existing.encryptedSecret,
@@ -7290,6 +7469,10 @@ var AIProviderManager = class {
       persistedRecord = sbRes.credential;
     }
     const saved = db.upsertAiProvider(persistedRecord, actor);
+    const localVerify = db.getAiProviders().find((p) => p.id === saved.id);
+    if (!localVerify) {
+      throw new Error("Credential write verification failed: record missing after local cache upsert.");
+    }
     this.lastSuccessfulSaveAt = now;
     if (Array.isArray(input.assignedTasks)) {
       const assignedSet = new Set(input.assignedTasks);
@@ -7323,7 +7506,9 @@ var AIProviderManager = class {
       if (updatedRoutes.length > 0 && isSupabaseConfigured()) {
         const routeRes = await upsertSupabaseAiTaskRoutes(updatedRoutes);
         if (!routeRes.ok) {
-          this.recordDbFailure("upsertSupabaseAiTaskRoutes", routeRes.error || "Task route sync failed", routeRes.code);
+          const msg = routeRes.error || "Task route sync failed";
+          this.recordDbFailure("upsertSupabaseAiTaskRoutes", msg, routeRes.code);
+          throw new Error(`Database route sync failed: ${msg}`);
         }
       }
     }
@@ -7332,7 +7517,7 @@ var AIProviderManager = class {
   }
   static async updateCredentialPartial(id, patch, actor) {
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
     const existing = db.getAiProviders().find((p) => p.id === id);
     if (!existing) {
@@ -7358,6 +7543,9 @@ var AIProviderManager = class {
     );
   }
   static async testSavedCredential(credId, actor) {
+    if (isSupabaseConfigured() && !credId.startsWith("env-")) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const resolved = this.resolveRawCredentialDetailed(credId);
     if (!resolved) {
       throw new Error("AI credential not found.");
@@ -7379,37 +7567,43 @@ var AIProviderManager = class {
     );
     const now = (/* @__PURE__ */ new Date()).toISOString();
     if (cred.id !== "env-gemini-default" && cred.id !== "env-grok-default") {
-      const updatedCred = db.upsertAiProvider(
-        {
-          ...cred,
-          model: cred.model || result.selectedModel,
-          availableModels: result.availableModels.length > 0 ? result.availableModels : cred.availableModels,
-          connectionStatus: cred.enabled ? result.connectionStatus : "disabled",
-          modelListStatus: result.authenticated ? "ok" : "error",
-          generationTestStatus: result.generationVerified ? "ok" : result.authenticated ? "error" : "untested",
-          lastTestedAt: now,
-          lastSuccessfulVerificationAt: result.authenticated ? now : cred.lastSuccessfulVerificationAt,
-          lastSuccessfulGenerationAt: result.generationVerified ? now : cred.lastSuccessfulGenerationAt,
-          lastFailureAt: !result.ok ? now : cred.lastFailureAt,
-          lastTestStatus: result.ok ? "connected" : "error",
-          lastTestMessage: result.message,
-          lastDiagnostic: result.diagnostic || null,
-          lastLatencyMs: result.latencyMs,
-          lastCorrelationId: result.correlationId,
-          updatedAt: now
-        },
-        actor
-      );
+      const nextCred = {
+        ...cred,
+        model: cred.model || result.selectedModel,
+        availableModels: result.availableModels.length > 0 ? result.availableModels : cred.availableModels,
+        connectionStatus: cred.enabled ? result.connectionStatus : "disabled",
+        modelListStatus: result.authenticated ? "ok" : "error",
+        generationTestStatus: result.generationVerified ? "ok" : result.authenticated ? "error" : "untested",
+        lastTestedAt: now,
+        lastSuccessfulVerificationAt: result.authenticated ? now : cred.lastSuccessfulVerificationAt,
+        lastSuccessfulGenerationAt: result.generationVerified ? now : cred.lastSuccessfulGenerationAt,
+        lastFailureAt: !result.ok ? now : cred.lastFailureAt,
+        lastTestStatus: result.ok ? "connected" : "error",
+        lastTestMessage: result.message,
+        lastDiagnostic: result.diagnostic || null,
+        lastLatencyMs: result.latencyMs,
+        lastCorrelationId: result.correlationId,
+        updatedAt: now
+      };
       if (isSupabaseConfigured()) {
-        const sbRes = await upsertSupabaseAiCredential(updatedCred);
+        const sbRes = await upsertSupabaseAiCredential(nextCred);
         if (!sbRes.ok) {
-          this.recordDbFailure("upsertSupabaseAiCredential", sbRes.error || "Failed persisting test status", sbRes.code);
+          const msg = sbRes.error || "Failed persisting test status to Supabase.";
+          this.recordDbFailure("upsertSupabaseAiCredential", msg, sbRes.code);
+          throw new Error(`Database status save failed: ${msg}`);
         }
+        db.upsertAiProvider(sbRes.credential || nextCred, actor);
+      } else {
+        db.upsertAiProvider(nextCred, actor);
       }
+      this.lastSuccessfulSaveAt = now;
     }
     return result;
   }
   static async discoverModelsForCredential(credId, actor) {
+    if (isSupabaseConfigured() && !credId.startsWith("env-")) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const resolved = this.resolveRawCredential(credId);
     if (!resolved) {
       throw new Error("AI credential not found.");
@@ -7418,17 +7612,25 @@ var AIProviderManager = class {
     const discovery = cred.providerType === "gemini" ? await AIModelDiscovery.discoverGeminiModels(rawKey) : await AIModelDiscovery.discoverGrokModels(rawKey, cred.endpointUrl || "https://api.x.ai/v1");
     if (cred.id !== "env-gemini-default" && cred.id !== "env-grok-default") {
       const now = (/* @__PURE__ */ new Date()).toISOString();
-      db.upsertAiProvider(
-        {
-          ...cred,
-          availableModels: discovery.models,
-          modelListStatus: "ok",
-          lastSuccessfulVerificationAt: now,
-          rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
-          updatedAt: now
-        },
-        actor
-      );
+      const updatedCred = {
+        ...cred,
+        availableModels: discovery.models,
+        modelListStatus: "ok",
+        lastSuccessfulVerificationAt: now,
+        rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
+        updatedAt: now
+      };
+      if (isSupabaseConfigured()) {
+        const sbRes = await upsertSupabaseAiCredential(updatedCred);
+        if (!sbRes.ok) {
+          const msg = sbRes.error || "Failed persisting discovered models to Supabase.";
+          this.recordDbFailure("upsertSupabaseAiCredential", msg, sbRes.code);
+          throw new Error(`Database model list sync failed: ${msg}`);
+        }
+        db.upsertAiProvider(sbRes.credential || updatedCred, actor);
+      } else {
+        db.upsertAiProvider(updatedCred, actor);
+      }
     }
     return discovery;
   }
@@ -7442,6 +7644,9 @@ var AIProviderManager = class {
    * (zero paid inference requests) + validates outbound HTTPS connectivity to provider hosts.
    */
   static async runLightweightHealthCheck(actor = "Health Monitor") {
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const creds = db.getAiProviders().filter((c) => c.enabled);
     const connectivity = await checkOutboundConnectivity();
     const checks = [];
@@ -7458,22 +7663,26 @@ var AIProviderManager = class {
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const prevConnected = cred.generationTestStatus === "ok" || cred.lastTestStatus === "connected";
         const nextStatus = prevConnected ? "connected" : "untested";
-        db.upsertAiProvider(
-          {
-            ...cred,
-            availableModels: discovery.models,
-            modelListStatus: "ok",
-            connectionStatus: nextStatus,
-            lastTestedAt: now,
-            lastSuccessfulVerificationAt: now,
-            lastLatencyMs: discovery.latencyMs,
-            lastCorrelationId: discovery.correlationId,
-            rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
-            updatedAt: now
-          },
-          actor
-        );
-        db.recordAiConnectionTest({
+        const healthyCred = {
+          ...cred,
+          availableModels: discovery.models,
+          modelListStatus: "ok",
+          connectionStatus: nextStatus,
+          lastTestedAt: now,
+          lastSuccessfulVerificationAt: now,
+          lastLatencyMs: discovery.latencyMs,
+          lastCorrelationId: discovery.correlationId,
+          rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
+          updatedAt: now
+        };
+        db.upsertAiProvider(healthyCred, actor);
+        if (isSupabaseConfigured()) {
+          const sbRes = await upsertSupabaseAiCredential(healthyCred);
+          if (!sbRes.ok) {
+            this.recordDbFailure("upsertSupabaseAiCredential", sbRes.error || "Health status sync failed", sbRes.code);
+          }
+        }
+        const hcRecord = {
           id: `aitest-hc-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           credentialId: cred.id,
           providerType: cred.providerType,
@@ -7487,7 +7696,12 @@ var AIProviderManager = class {
           latencyMs: discovery.latencyMs,
           actor,
           timestamp: now
-        });
+        };
+        db.recordAiConnectionTest(hcRecord);
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(hcRecord).catch(() => {
+          });
+        }
         checks.push({
           credentialId: cred.id,
           label: cred.label,
@@ -7506,23 +7720,27 @@ var AIProviderManager = class {
           secretToRedact: rawKey
         });
         const now = (/* @__PURE__ */ new Date()).toISOString();
-        db.upsertAiProvider(
-          {
-            ...cred,
-            modelListStatus: "error",
-            connectionStatus: diag.connectionStatus,
-            lastTestedAt: now,
-            lastFailureAt: now,
-            lastTestStatus: "error",
-            lastTestMessage: diag.diagnosis,
-            lastDiagnostic: diag,
-            lastLatencyMs: Date.now() - start,
-            lastCorrelationId: diag.correlationId,
-            updatedAt: now
-          },
-          actor
-        );
-        db.recordAiConnectionTest({
+        const failedCred = {
+          ...cred,
+          modelListStatus: "error",
+          connectionStatus: diag.connectionStatus,
+          lastTestedAt: now,
+          lastFailureAt: now,
+          lastTestStatus: "error",
+          lastTestMessage: diag.diagnosis,
+          lastDiagnostic: diag,
+          lastLatencyMs: Date.now() - start,
+          lastCorrelationId: diag.correlationId,
+          updatedAt: now
+        };
+        db.upsertAiProvider(failedCred, actor);
+        if (isSupabaseConfigured()) {
+          const sbRes = await upsertSupabaseAiCredential(failedCred);
+          if (!sbRes.ok) {
+            this.recordDbFailure("upsertSupabaseAiCredential", sbRes.error || "Health error sync failed", sbRes.code);
+          }
+        }
+        const errRecord = {
           id: `aitest-hc-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           credentialId: cred.id,
           providerType: cred.providerType,
@@ -7537,7 +7755,12 @@ var AIProviderManager = class {
           diagnostic: diag,
           actor,
           timestamp: now
-        });
+        };
+        db.recordAiConnectionTest(errRecord);
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(errRecord).catch(() => {
+          });
+        }
         checks.push({
           credentialId: cred.id,
           label: cred.label,
@@ -7617,6 +7840,7 @@ var AIProviderManager = class {
     };
   }
   static async resetAllCredentials(actor = "Super Admin") {
+    this.assertPersistentMutationBackend("reset_all");
     let supabaseResult = {
       ok: true,
       configured: false,
@@ -7631,6 +7855,10 @@ var AIProviderManager = class {
       }
     }
     const localResult = db.resetAllAiCredentials(actor);
+    const remainingLocal = db.getAiProviders().filter((p) => p.providerType === "gemini" || p.providerType === "grok");
+    if (remainingLocal.length > 0) {
+      throw new Error(`Reset verification failed: ${remainingLocal.length} Gemini/Grok credentials remain in storage.`);
+    }
     this.lastSuccessfulDeleteAt = (/* @__PURE__ */ new Date()).toISOString();
     const envManagedVariables = this.getEnvManagedVariablesStatus();
     const activeEnvVars = envManagedVariables.filter((v) => v.presentInEnv);
@@ -7638,6 +7866,10 @@ var AIProviderManager = class {
       ok: true,
       removedLocalCount: localResult.removedCount,
       removedSupabaseCount: supabaseResult.removedCount,
+      remainingCount: 0,
+      verifiedAfterMutation: true,
+      storageBackend: this.getStorageBackendMode(),
+      buildVersion: AI_VAULT_BUILD_VERSION,
       supabaseConfigured: supabaseResult.configured,
       supabaseSynced: !supabaseResult.configured || supabaseResult.ok,
       supabaseError: supabaseResult.error,
@@ -7662,22 +7894,28 @@ var AIProviderManager = class {
     const latestTest = recentTests[0] || null;
     const latestSuccess = recentTests.find((t) => t.ok && t.generationOk) || null;
     const activeCred = providers.find((c) => c.enabled && c.connectionStatus === "connected") || providers.find((c) => c.enabled) || providers[0] || null;
+    const backendMode = this.getStorageBackendMode();
     return {
+      buildVersion: AI_VAULT_BUILD_VERSION,
       connectivity,
       supabase,
       lastHealthCheck: cachedHealth,
       recentTests,
       envManagedVariables,
+      mutationDebugLogs: this.getMutationDebugLogs(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || "development",
         nodeVersion: process.version,
+        isServerless: isServerlessRuntime(),
+        ephemeralServerlessWarning: backendMode === "ephemeral_tmp_unconfigured",
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
         supabaseConfigured: isSupabaseConfigured(),
         masterKeyConfigured: Boolean(process.env.AI_MASTER_KEY && process.env.AI_MASTER_KEY.trim())
       },
       runtimeTelemetry: {
-        configSource: isSupabaseConfigured() ? "Supabase PostgreSQL (authoritative) + Local Encrypted Cache" : "Local Encrypted Vault (portal_database.json fallback)",
+        storageBackend: backendMode,
+        configSource: backendMode === "supabase+local_encrypted" ? "Supabase PostgreSQL (authoritative) + Local Encrypted Cache" : backendMode === "ephemeral_tmp_unconfigured" ? "Ephemeral /tmp (NOT persistent in serverless \u2014 set SUPABASE_URL & SUPABASE_SECRET_KEY)" : "Local Encrypted Vault (data/portal_database.json)",
         storedCredentialCount: providers.length,
         enabledCredentialCount: providers.filter((p) => p.enabled).length,
         activeConnectedCount: providers.filter((p) => p.enabled && p.connectionStatus === "connected").length,
@@ -7818,6 +8056,10 @@ var AIProviderManager = class {
     if (items.length === 0) {
       throw new Error("At least one task route entry is required.");
     }
+    this.assertPersistentMutationBackend("save_task_routes");
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const validCredIds = new Set(db.getAiProviders().map((p) => p.id));
     const envSuppressed = db.getAiEnvSuppressed();
     if (!envSuppressed.gemini && process.env.GEMINI_API_KEY?.trim()) validCredIds.add("env-gemini-default");
@@ -7870,6 +8112,9 @@ var AIProviderManager = class {
     });
   }
   static async syncRoutesForCredential(credentialId, model, actor) {
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const existingRoutes = db.getAiTaskRoutes();
     const updatedRoutes = AI_TASK_CATALOG.map((spec) => {
       const prev = existingRoutes[spec.task];
@@ -7888,7 +8133,9 @@ var AIProviderManager = class {
     if (isSupabaseConfigured()) {
       const sbRes = await upsertSupabaseAiTaskRoutes(updatedRoutes);
       if (!sbRes.ok) {
-        this.recordDbFailure("upsertSupabaseAiTaskRoutes", sbRes.error || "Route sync failed", sbRes.code);
+        const msg = sbRes.error || "Route sync failed";
+        this.recordDbFailure("upsertSupabaseAiTaskRoutes", msg, sbRes.code);
+        throw new Error(`Database route sync failed: ${msg}`);
       }
     }
     for (const next of updatedRoutes) {
@@ -7896,53 +8143,70 @@ var AIProviderManager = class {
     }
     return updatedRoutes;
   }
-  static async hydrateFromSupabaseIfConfigured(actor = "System") {
-    if (!isSupabaseConfigured()) return;
-    try {
-      const [credRes, routeRes, flagRes] = await Promise.all([
-        listSupabaseAiCredentials(),
-        listSupabaseAiTaskRoutes(),
-        getSupabaseAiEnvSuppression()
-      ]);
-      if (credRes.ok) {
-        db.replaceAiProvidersFromSupabase(credRes.credentials);
-      } else if (credRes.error) {
-        this.recordDbFailure("listSupabaseAiCredentials", credRes.error, credRes.code);
-      }
-      if (flagRes.ok && flagRes.suppressed) {
-        db.setAiEnvSuppressed(flagRes.suppressed);
-      }
-      if (routeRes.ok) {
-        if (routeRes.routes.length > 0 || credRes.ok && credRes.credentials.length === 0) {
-          db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
-        }
-      }
-      if (credRes.ok) {
-        const validIds = new Set(credRes.credentials.map((c) => c.id));
-        const localRoutes = db.getAiTaskRoutes();
-        for (const taskKey of Object.keys(localRoutes)) {
-          const r = localRoutes[taskKey];
-          if (!r) continue;
-          const badPrimary = r.primaryCredentialId && !r.primaryCredentialId.startsWith("env-") && !validIds.has(r.primaryCredentialId);
-          const badFallback = r.fallbackCredentialId && !r.fallbackCredentialId.startsWith("env-") && !validIds.has(r.fallbackCredentialId);
-          if (badPrimary || badFallback) {
-            db.setAiTaskRoute(
-              r.task,
-              {
-                ...r,
-                primaryCredentialId: badPrimary ? "" : r.primaryCredentialId,
-                primaryModel: badPrimary ? "" : r.primaryModel,
-                fallbackCredentialId: badFallback ? "" : r.fallbackCredentialId,
-                fallbackModel: badFallback ? "" : r.fallbackModel
-              },
-              actor
-            );
+  static async hydrateFromSupabaseIfConfigured(actor = "System", opts) {
+    if (!isSupabaseConfigured()) return { ok: true };
+    if (!this.hydrationPromise) {
+      this.hydrationPromise = (async () => {
+        try {
+          const [credRes, routeRes, flagRes] = await Promise.all([
+            listSupabaseAiCredentials(),
+            listSupabaseAiTaskRoutes(),
+            getSupabaseAiEnvSuppression()
+          ]);
+          if (!credRes.ok) {
+            const msg = credRes.error || "Failed reading AI credentials from Supabase.";
+            this.recordDbFailure("listSupabaseAiCredentials", msg, credRes.code);
+            return { ok: false, error: msg, code: credRes.code };
           }
+          db.replaceAiProvidersFromSupabase(credRes.credentials);
+          if (flagRes.ok && flagRes.suppressed) {
+            db.setAiEnvSuppressed(flagRes.suppressed);
+          } else if (!flagRes.ok && flagRes.error) {
+            this.recordDbFailure("getSupabaseAiEnvSuppression", flagRes.error);
+          }
+          if (routeRes.ok) {
+            if (routeRes.routes.length > 0 || credRes.credentials.length === 0) {
+              db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
+            }
+          } else if (routeRes.error) {
+            this.recordDbFailure("listSupabaseAiTaskRoutes", routeRes.error);
+          }
+          const validIds = new Set(credRes.credentials.map((c) => c.id));
+          const localRoutes = db.getAiTaskRoutes();
+          for (const taskKey of Object.keys(localRoutes)) {
+            const r = localRoutes[taskKey];
+            if (!r) continue;
+            const badPrimary = r.primaryCredentialId && !r.primaryCredentialId.startsWith("env-") && !validIds.has(r.primaryCredentialId);
+            const badFallback = r.fallbackCredentialId && !r.fallbackCredentialId.startsWith("env-") && !validIds.has(r.fallbackCredentialId);
+            if (badPrimary || badFallback) {
+              db.setAiTaskRoute(
+                r.task,
+                {
+                  ...r,
+                  primaryCredentialId: badPrimary ? "" : r.primaryCredentialId,
+                  primaryModel: badPrimary ? "" : r.primaryModel,
+                  fallbackCredentialId: badFallback ? "" : r.fallbackCredentialId,
+                  fallbackModel: badFallback ? "" : r.fallbackModel
+                },
+                actor
+              );
+            }
+          }
+          return { ok: true };
+        } catch (err) {
+          const msg = err?.message || "Supabase AI hydration failed";
+          this.recordDbFailure("hydrateFromSupabaseIfConfigured", msg);
+          return { ok: false, error: msg, code: "HYDRATION_EXCEPTION" };
+        } finally {
+          this.hydrationPromise = null;
         }
-      }
-    } catch (err) {
-      this.recordDbFailure("hydrateFromSupabaseIfConfigured", err?.message || "Hydration failed");
+      })();
     }
+    const result = await this.hydrationPromise;
+    if (!result.ok && opts?.requireSuccess) {
+      throw new Error(`Database read failed: ${result.error || "Could not load AI configuration from Supabase."}`);
+    }
+    return result;
   }
   /**
    * Step 1 (Fast 10-12s): Auto-detect provider, authenticate key, fetch models & choose optimal model.
@@ -8590,6 +8854,10 @@ var AIProviderManager = class {
     );
   }
   static async persistAutoConnectedCredential(params) {
+    this.assertPersistentMutationBackend("auto_connect");
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(params.actor, { requireSuccess: true });
+    }
     const existingList = db.getAiProviders();
     const masked = maskSecret(params.rawKey);
     let targetExisting = params.replaceCredentialId ? existingList.find((c) => c.id === params.replaceCredentialId) : existingList.find(
@@ -8633,8 +8901,12 @@ var AIProviderManager = class {
       if (prev.id !== cred.id && (prev.priority || 10) <= 1) {
         const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
         db.upsertAiProvider(demoted, params.actor);
-        if (isSupabaseConfigured()) upsertSupabaseAiCredential(demoted).catch(() => {
-        });
+        if (isSupabaseConfigured()) {
+          upsertSupabaseAiCredential(demoted).then((res) => {
+            if (!res.ok) this.recordDbFailure("upsertSupabaseAiCredential", res.error || "Priority demotion failed", res.code);
+          }).catch(() => {
+          });
+        }
       }
     }
     if (isSupabaseConfigured()) {
@@ -8691,9 +8963,11 @@ var AIProviderManager = class {
     return saved;
   }
   static async disconnectCredential(credentialId, actor = "Super Admin") {
+    this.assertPersistentMutationBackend("delete_credential");
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
+    const backendMode = this.getStorageBackendMode();
     if (credentialId === "env-gemini-default" || credentialId === "env-grok-default") {
       const providerKey = credentialId === "env-gemini-default" ? "gemini" : "grok";
       db.setAiEnvSuppressed({ [providerKey]: true });
@@ -8704,6 +8978,8 @@ var AIProviderManager = class {
           return {
             ok: false,
             deletedCount: 0,
+            verifiedAfterMutation: false,
+            storageBackend: backendMode,
             message: `Failed suppressing environment variable in Supabase: ${flagRes.error}`
           };
         }
@@ -8734,6 +9010,8 @@ var AIProviderManager = class {
         ok: true,
         deletedCount: 1,
         disconnectedId: credentialId,
+        verifiedAfterMutation: true,
+        storageBackend: backendMode,
         message: `Suppressed runtime loading of ${providerKey === "gemini" ? "GEMINI_API_KEY" : "XAI_API_KEY"} environment fallback.`
       };
     }
@@ -8745,10 +9023,18 @@ var AIProviderManager = class {
           ok: false,
           notFound: true,
           deletedCount: 0,
+          verifiedAfterMutation: false,
+          storageBackend: backendMode,
           message: `AI credential "${credentialId}" was not found or already deleted.`
         };
       }
-      return { ok: true, deletedCount: 0, message: "No active stored AI API key to disconnect." };
+      return {
+        ok: true,
+        deletedCount: 0,
+        verifiedAfterMutation: true,
+        storageBackend: backendMode,
+        message: "No active stored AI API key to disconnect."
+      };
     }
     const remaining = creds.filter(
       (c) => c.id !== target.id && c.enabled && c.connectionStatus === "connected"
@@ -8778,8 +9064,17 @@ var AIProviderManager = class {
           routeClearRes.error || "Failed clearing dependent task routes before delete",
           routeClearRes.code
         );
+        return {
+          ok: false,
+          deletedCount: 0,
+          verifiedAfterMutation: false,
+          rlsError: routeClearRes.code || null,
+          storageBackend: backendMode,
+          message: `Failed clearing dependent task routes in Supabase: ${routeClearRes.error || "Unknown database error"}`
+        };
       }
     }
+    let supabaseDeletedCount = 0;
     if (isSupabaseConfigured()) {
       const sbDel = await deleteSupabaseAiCredential(target.id);
       if (!sbDel.ok) {
@@ -8788,19 +9083,40 @@ var AIProviderManager = class {
           ok: false,
           notFound: sbDel.code === "NOT_FOUND",
           deletedCount: 0,
+          verifiedAfterMutation: false,
+          rlsError: sbDel.code || null,
+          storageBackend: backendMode,
           message: sbDel.error || "Failed deleting AI credential from Supabase."
         };
       }
+      supabaseDeletedCount = sbDel.deletedCount;
     }
     for (const nextRoute of updatedRoutes) {
       db.setAiTaskRoute(nextRoute.task, nextRoute, actor);
     }
     const localRemoved = db.deleteAiProvider(target.id, actor);
+    const stillPresentLocally = db.getAiProviders().some((p) => p.id === target.id);
+    const danglingRoute = Object.values(db.getAiTaskRoutes()).some(
+      (r) => r && (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id)
+    );
+    const affectedCount = isSupabaseConfigured() ? supabaseDeletedCount : localRemoved ? 1 : 0;
+    if (affectedCount === 0 || stillPresentLocally || danglingRoute) {
+      return {
+        ok: false,
+        deletedCount: 0,
+        disconnectedId: target.id,
+        verifiedAfterMutation: false,
+        storageBackend: backendMode,
+        message: stillPresentLocally ? `Delete verification failed: "${target.label}" is still present after removal.` : danglingRoute ? `Delete verification failed: dependent task routes still reference "${target.id}".` : `Delete affected 0 records for "${target.id}".`
+      };
+    }
     this.lastSuccessfulDeleteAt = (/* @__PURE__ */ new Date()).toISOString();
     return {
       ok: true,
-      deletedCount: localRemoved ? 1 : 0,
+      deletedCount: affectedCount,
       disconnectedId: target.id,
+      verifiedAfterMutation: true,
+      storageBackend: backendMode,
       message: `Deleted ${target.providerType === "gemini" ? "Google Gemini" : target.providerType === "grok" ? "xAI Grok" : "Custom"} credential "${target.label}" (${target.maskedKey}).`
     };
   }
@@ -8820,6 +9136,21 @@ var AIUnavailableError = class extends Error {
   }
 };
 var AIProviderRouter = class {
+  static {
+    this.automationCooldowns = /* @__PURE__ */ new Map();
+  }
+  static clearAutomationCooldowns() {
+    this.automationCooldowns.clear();
+  }
+  static getAutomationCooldownStatus(credId) {
+    const entry = this.automationCooldowns.get(credId);
+    if (!entry) return { active: false };
+    if (Date.now() >= entry.untilMs) {
+      this.automationCooldowns.delete(credId);
+      return { active: false };
+    }
+    return { active: true, untilMs: entry.untilMs, reason: entry.reason };
+  }
   static getAllCredentialsSanitized() {
     const dbCreds = db.getAiProviders();
     const routes = this.getTaskRoutesRaw(dbCreds);
@@ -8911,7 +9242,7 @@ var AIProviderRouter = class {
     });
   }
   static async listCredentialsAuthoritative() {
-    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    await AIProviderManager.hydrateFromSupabaseIfConfigured("System", { requireSuccess: true });
     return this.getAllCredentialsSanitized();
   }
   static async addOrUpdateCredential(input, actor) {
@@ -8921,7 +9252,7 @@ var AIProviderRouter = class {
     return AIProviderManager.testSavedCredential(credId, actor);
   }
   static async getTaskRoutesAuthoritative() {
-    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    await AIProviderManager.hydrateFromSupabaseIfConfigured("System", { requireSuccess: true });
     return this.getTaskRoutes();
   }
   static getTaskRoutes() {
@@ -8948,6 +9279,7 @@ var AIProviderRouter = class {
    */
   static async executeTask(params) {
     const actor = params.actor || "System";
+    await AIProviderManager.hydrateFromSupabaseIfConfigured(actor);
     const routes = this.getTaskRoutes();
     const route = routes.find((r) => r.task === params.task);
     const allSanitized = this.getAllCredentialsSanitized().filter((c) => c.enabled);
@@ -8985,10 +9317,18 @@ var AIProviderRouter = class {
         candidateSpecs.push({ credId: c.id, modelOverride: params.preferredModel || c.model });
       }
     }
+    const isBackgroundAutomation = actor === "Automated Data Engine";
     const attemptedProjectKeys = /* @__PURE__ */ new Set();
     const errors = [];
     let lastDiagnostic;
     for (const spec of candidateSpecs) {
+      if (isBackgroundAutomation) {
+        const cd = this.getAutomationCooldownStatus(spec.credId);
+        if (cd.active) {
+          errors.push(`[${spec.credId}] Background automation paused: ${cd.reason}`);
+          continue;
+        }
+      }
       const resolved = AIProviderManager.resolveRawCredentialDetailed(spec.credId);
       if (!resolved || !resolved.cred.enabled) continue;
       if (resolved.decryptError || !resolved.rawKey) {
@@ -9032,18 +9372,20 @@ var AIProviderRouter = class {
         });
         const now = (/* @__PURE__ */ new Date()).toISOString();
         if (cred.id !== "env-gemini-default" && cred.id !== "env-grok-default") {
-          db.upsertAiProvider(
-            {
-              ...cred,
-              connectionStatus: "connected",
-              generationTestStatus: "ok",
-              lastTestStatus: "connected",
-              lastSuccessfulGenerationAt: now,
-              lastLatencyMs: execResult.latencyMs,
-              updatedAt: now
-            },
-            actor
-          );
+          const updatedCred = {
+            ...cred,
+            connectionStatus: "connected",
+            generationTestStatus: "ok",
+            lastTestStatus: "connected",
+            lastSuccessfulGenerationAt: now,
+            lastLatencyMs: execResult.latencyMs,
+            updatedAt: now
+          };
+          db.upsertAiProvider(updatedCred, actor);
+          if (isSupabaseConfigured()) {
+            upsertSupabaseAiCredential(updatedCred).catch(() => {
+            });
+          }
         }
         AIUsageTracker.record({
           task: params.task,
@@ -9073,27 +9415,43 @@ var AIProviderRouter = class {
           model: modelToUse,
           stage: "inference",
           authenticated: cred.modelListStatus === "ok",
-          secretToRedact: rawKey
+          secretToRedact: rawKey,
+          timeoutWindowMs: getInferenceTimeoutMs()
         });
         lastDiagnostic = diag;
         errors.push(`[${cred.label} | ${diag.correlationId}] ${diag.diagnosis}`);
+        if (isBackgroundAutomation) {
+          let pauseMs = 10 * 60 * 1e3;
+          if (diag.category === "quota_429") {
+            pauseMs = Math.min(Math.max(diag.retryAfterSeconds || 900, 60), 24 * 3600) * 1e3;
+          } else if (diag.category === "billing_required" || diag.category === "auth_failed_401" || diag.category === "permission_denied_403") {
+            pauseMs = 60 * 60 * 1e3;
+          }
+          this.automationCooldowns.set(cred.id, {
+            untilMs: Date.now() + pauseMs,
+            reason: diag.diagnosis,
+            category: diag.category
+          });
+        }
         if (cred.id !== "env-gemini-default" && cred.id !== "env-grok-default") {
           const now = (/* @__PURE__ */ new Date()).toISOString();
           const nextStatus = cred.modelListStatus === "ok" && diag.connectionStatus !== "auth_failed" ? "authenticated_generation_unavailable" : diag.connectionStatus;
-          db.upsertAiProvider(
-            {
-              ...cred,
-              connectionStatus: nextStatus,
-              generationTestStatus: "error",
-              lastFailureAt: now,
-              lastTestStatus: "error",
-              lastTestMessage: diag.diagnosis,
-              lastDiagnostic: diag,
-              lastCorrelationId: diag.correlationId,
-              updatedAt: now
-            },
-            actor
-          );
+          const failedCred = {
+            ...cred,
+            connectionStatus: nextStatus,
+            generationTestStatus: "error",
+            lastFailureAt: now,
+            lastTestStatus: "error",
+            lastTestMessage: diag.diagnosis,
+            lastDiagnostic: diag,
+            lastCorrelationId: diag.correlationId,
+            updatedAt: now
+          };
+          db.upsertAiProvider(failedCred, actor);
+          if (isSupabaseConfigured()) {
+            upsertSupabaseAiCredential(failedCred).catch(() => {
+            });
+          }
         }
         AIUsageTracker.record({
           task: params.task,
@@ -9285,18 +9643,36 @@ ${strictJsonSuffix}` : strictJsonSuffix;
 };
 
 // src/server/automation/aiContentEngine.ts
+var isDraftGenerationRunning = false;
+var enginePausedUntilMs = 0;
+function resetAiContentEngineCooldown() {
+  enginePausedUntilMs = 0;
+}
 async function processDataChangeWithGemini(category, triggerReason, snapshot) {
   const settings = db.getAutomationSettings();
   if (!settings.aiDraftsEnabled) {
     return null;
   }
-  const now = /* @__PURE__ */ new Date();
+  const nowMs = Date.now();
+  if (nowMs < enginePausedUntilMs) {
+    return null;
+  }
+  if (isDraftGenerationRunning) {
+    return null;
+  }
+  const now = new Date(nowMs);
   if (settings.lastGeminiCallAt) {
-    const elapsedMinutes = (now.getTime() - new Date(settings.lastGeminiCallAt).getTime()) / (1e3 * 60);
+    const elapsedMinutes = (nowMs - new Date(settings.lastGeminiCallAt).getTime()) / (1e3 * 60);
     if (elapsedMinutes < settings.geminiCooldownMin) {
       return null;
     }
   }
+  const availableCreds = AIProviderRouter.getAllCredentialsSanitized().filter((c) => c.enabled);
+  if (availableCreds.length === 0) {
+    return null;
+  }
+  isDraftGenerationRunning = true;
+  db.updateAutomationSettings({ lastGeminiCallAt: now.toISOString() }, "AI Automation Engine");
   try {
     const prompt = `You are the Senior Chief Editor for "360Khabarnama", a premier Pakistani bilingual news publication.
 A verified factual data change has occurred in our persistent data gateway:
@@ -9317,9 +9693,9 @@ STRICT EDITORIAL RULES:
     const { data: rawParsed } = await AIProviderRouter.executeJsonTask({
       task: "breaking_alerts",
       prompt,
-      systemInstruction: "You are a bilingual Urdu/English newsroom editor. Output ONLY a single valid JSON object with keys titleEn, titleUr, summaryEn, summaryUr, contentEn, contentUr, seoTags.",
+      systemInstruction: "You are a bilingual Urdu/English newsroom editor. Output ONLY a single valid JSON object with keys titleEn, titleUr, summaryEn, summaryUr, contentEn, contentUr, seoTags. Keep total JSON response concise (under 900 words).",
       temperature: 0.2,
-      maxTokens: 4096,
+      maxTokens: 2048,
       actor: "Automated Data Engine"
     });
     const parsed = Array.isArray(rawParsed) ? rawParsed[0] : rawParsed?.article || rawParsed?.data || rawParsed;
@@ -9342,11 +9718,22 @@ STRICT EDITORIAL RULES:
       seoTags: Array.isArray(parsed.seoTags) ? parsed.seoTags : [category, "PakistanNews", "VerifiedRates"]
     };
     db.saveAiDraft(draft);
-    db.updateAutomationSettings({ lastGeminiCallAt: now.toISOString() }, "AI Automation Engine");
+    enginePausedUntilMs = 0;
     return draft;
   } catch (error) {
-    console.error("[AI Engine] Automated draft skipped/failed:", error.message);
+    const diag = error instanceof AIUnavailableError ? error.diagnostic : void 0;
+    if (diag?.category === "quota_429") {
+      const pauseSec = Math.min(Math.max(diag.retryAfterSeconds || 1800, 60), 24 * 3600);
+      enginePausedUntilMs = Date.now() + pauseSec * 1e3;
+    } else if (diag?.category === "billing_required" || diag?.category === "auth_failed_401" || diag?.category === "permission_denied_403" || error instanceof AIUnavailableError && error.code === "NO_AI_KEY") {
+      enginePausedUntilMs = Date.now() + 60 * 60 * 1e3;
+    } else if (diag?.category === "timeout" || diag?.category === "server_error_5xx") {
+      enginePausedUntilMs = Date.now() + 10 * 60 * 1e3;
+    }
+    console.warn("[AI Engine] Automated draft skipped:", error?.message || String(error));
     return null;
+  } finally {
+    isDraftGenerationRunning = false;
   }
 }
 
@@ -12391,7 +12778,11 @@ async function authenticateAdminWithFirebase(idToken, ipAddress, userAgent) {
     if (!email || !decoded.email_verified) {
       return { success: false, error: "Verified Google email is required for admin access." };
     }
-    const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+    let staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+    if (!staffUser && isSupabaseConfigured()) {
+      const sbUser = await findSupabaseAdminUserByEmail(email);
+      if (sbUser) staffUser = sbUser;
+    }
     const isAuthorized = email === BOOTSTRAPPED_ADMIN_EMAIL || staffUser && staffUser.status === "active";
     if (!isAuthorized) {
       db.logAudit(email, "Blocked Firebase Admin Login", `Unauthorized Google sign-in attempt from IP ${ipAddress}`);
@@ -12441,7 +12832,11 @@ async function resolveOptionalAdminSession(req) {
     try {
       const decoded = await adminAuth.verifyIdToken(bearerToken);
       const email = (decoded.email || "").trim().toLowerCase();
-      const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      let staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      if (!staffUser && isSupabaseConfigured()) {
+        const sbUser = await findSupabaseAdminUserByEmail(email);
+        if (sbUser) staffUser = sbUser;
+      }
       if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || staffUser && staffUser.status === "active")) {
         const assignedRole = normalizeRole(staffUser?.role || "Super Admin");
         return {
@@ -17136,18 +17531,21 @@ app.get("/api/admin/reports/:reportId", requirePermission("reports:view"), (req,
   }
 });
 app.get("/api/v1/admin/ai/connection-status", requireAnyPermission(["ai:use", "ai:keys"]), async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const session = req.adminSession;
     const all = await AIProviderRouter.listCredentialsAuthoritative();
     const connected = all.find((c) => c.enabled && c.connectionStatus === "connected");
     const active = connected || all.find((c) => c.enabled) || all[0] || null;
-    const geminiCred = all.find((c) => c.providerType === "gemini" && c.enabled);
-    const grokCred = all.find((c) => c.providerType === "grok" && c.enabled);
+    const geminiCred = all.find((c) => c.providerType === "gemini" && c.enabled && c.connectionStatus === "connected") || all.find((c) => c.providerType === "gemini" && c.enabled);
+    const grokCred = all.find((c) => c.providerType === "grok" && c.enabled && c.connectionStatus === "connected") || all.find((c) => c.providerType === "grok" && c.enabled);
     const supabaseConfigured = isSupabaseConfigured();
     const recentTests = db.getAiConnectionTests(void 0, 10);
     const latestTest = recentTests[0] || null;
+    const storageBackend = AIProviderManager.getStorageBackendMode();
     res.json({
       success: true,
+      buildVersion: AI_VAULT_BUILD_VERSION,
       connected: Boolean(connected),
       activeProvider: active,
       geminiStatus: geminiCred?.connectionStatus === "connected" ? "Connected" : geminiCred?.connectionStatus || "Not Connected",
@@ -17156,12 +17554,14 @@ app.get("/api/v1/admin/ai/connection-status", requireAnyPermission(["ai:use", "a
       isSuperAdmin: session?.role === "Super Admin",
       totalCredentials: all.length,
       connectedCount: all.filter((c) => c.enabled && c.connectionStatus === "connected").length,
-      storageBackend: supabaseConfigured ? "supabase+local_encrypted" : "local_encrypted",
+      storageBackend,
       supabaseConfigured,
+      ephemeralServerlessWarning: isServerlessRuntime() && !supabaseConfigured,
       envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || "development",
         nodeVersion: process.version,
+        isServerless: isServerlessRuntime(),
         generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45e3),
         discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12e3)
       },
@@ -17193,9 +17593,11 @@ app.post("/api/v1/admin/ai/discover-auto", requireSuperAdmin, async (req, res) =
     );
     return res.json({ success: result.ok, result });
   } catch (err) {
-    return res.status(500).json({
+    const msg = err?.message || "AI credential verification step failed.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || "AI credential verification step failed."
+      error: msg
     });
   }
 });
@@ -17229,9 +17631,11 @@ app.post("/api/v1/admin/ai/verify-generation-auto", requireSuperAdmin, async (re
     );
     return res.json({ success: result.ok, result });
   } catch (err) {
-    return res.status(500).json({
+    const msg = err?.message || "AI generation test failed.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || "AI generation test failed."
+      error: msg
     });
   }
 });
@@ -17255,11 +17659,17 @@ app.post("/api/v1/admin/ai/connect-auto", requireSuperAdmin, async (req, res) =>
       getActor(req, "Super Admin"),
       controller.signal
     );
+    if (result.ok) {
+      AIProviderRouter.clearAutomationCooldowns();
+      resetAiContentEngineCooldown();
+    }
     return res.json({ success: result.ok, result });
   } catch (err) {
-    return res.status(500).json({
+    const msg = err?.message || "Automatic AI connection failed.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    return res.status(status).json({
       success: false,
-      error: err?.message || "Automatic AI connection failed."
+      error: msg
     });
   }
 });
@@ -17272,6 +17682,7 @@ async function handleResetPreview(_req, res) {
   }
 }
 async function handleResetAll(req, res) {
+  const correlationId = generateCorrelationId("ai-reset");
   try {
     const body = req.body || {};
     if (body.confirmReset !== "RESET_ALL_AI_KEYS") {
@@ -17281,11 +17692,39 @@ async function handleResetAll(req, res) {
       });
     }
     const report = await AIProviderManager.resetAllCredentials(getActor(req, "Super Admin"));
-    return res.json({ success: true, ...report });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const affected = isSupabaseConfigured() ? report.removedSupabaseCount : report.removedLocalCount;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "reset_all",
+      handler: "handleResetAll",
+      endpoint: req.path,
+      httpStatus: 200,
+      table: "ai_provider_credentials",
+      targetId: "provider_type IN (gemini, grok)",
+      affectedCount: affected,
+      verifiedAfterMutation: Boolean(report.verifiedAfterMutation)
+    });
+    return res.json({ success: true, ...report, receipt });
   } catch (err) {
-    return res.status(500).json({
+    const msg = err?.message || "Failed to reset AI API credentials.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "reset_all",
+      handler: "handleResetAll",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: "provider_type IN (gemini, grok)",
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({
       success: false,
-      error: err?.message || "Failed to reset AI API credentials."
+      error: msg
     });
   }
 }
@@ -17296,18 +17735,48 @@ app.post("/api/v1/admin/ai/providers/reset", requireSuperAdmin, handleResetAll);
 app.post("/api/admin/ai/reset-all", requireSuperAdmin, handleResetAll);
 app.post("/api/admin/ai/providers/reset", requireSuperAdmin, handleResetAll);
 async function handleDisconnect(req, res) {
+  const correlationId = generateCorrelationId("ai-disc");
+  const targetId = req.body?.credentialId ? String(req.body.credentialId) : "active";
   try {
     const body = req.body || {};
     const out = await AIProviderManager.disconnectCredential(
       body.credentialId ? String(body.credentialId) : void 0,
       getActor(req, "Super Admin")
     );
+    const status = out.ok ? 200 : out.notFound ? 404 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "delete_credential",
+      handler: "handleDisconnect",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: out.disconnectedId || targetId,
+      affectedCount: out.deletedCount ?? 0,
+      verifiedAfterMutation: Boolean(out.verifiedAfterMutation),
+      rlsError: out.rlsError || null,
+      note: out.message
+    });
     if (!out.ok) {
-      return res.status(out.notFound ? 404 : 500).json({ success: false, error: out.message, ...out });
+      return res.status(status).json({ success: false, error: out.message, ...out, receipt });
     }
-    return res.json({ success: true, ...out });
+    return res.json({ success: true, ...out, receipt });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err?.message || "Failed to disconnect AI provider." });
+    const msg = err?.message || "Failed to disconnect AI provider.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "delete_credential",
+      handler: "handleDisconnect",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 app.post("/api/v1/admin/ai/disconnect", requireSuperAdmin, handleDisconnect);
@@ -17341,6 +17810,7 @@ app.post("/api/v1/admin/ai/providers/validate", requireSuperAdmin, handleValidat
 app.post("/api/admin/ai/providers/validate", requireSuperAdmin, handleValidateCandidate);
 app.post("/api/admin/ai/validate", requireSuperAdmin, handleValidateCandidate);
 async function handleGetDiagnostics(_req, res) {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const diagnostics = await AIProviderManager.getDiagnostics();
     return res.json({ success: true, ...diagnostics });
@@ -17365,6 +17835,7 @@ app.post("/api/v1/admin/ai/providers/diagnostics/crud-test", requireSuperAdmin, 
 app.post("/api/admin/ai/diagnostics/crud-test", requireSuperAdmin, handleRunCrudSelfTest);
 app.post("/api/admin/ai/providers/diagnostics/crud-test", requireSuperAdmin, handleRunCrudSelfTest);
 async function handleListProviders(_req, res) {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const providers = await AIProviderRouter.listCredentialsAuthoritative();
     return res.json({ success: true, providers });
@@ -17373,50 +17844,137 @@ async function handleListProviders(_req, res) {
   }
 }
 async function handleCreateOrUpsertProvider(req, res) {
+  const correlationId = generateCorrelationId("ai-add");
+  const action = req.body?.id ? "edit_credential" : "add_credential";
+  const expectedStatus = req.body?.id ? 200 : 201;
   try {
     const saved = await AIProviderManager.addOrUpdateCredential(req.body || {}, getActor(req, "Super Admin"));
-    return res.status(req.body?.id ? 200 : 201).json({ success: true, provider: saved });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: "handleCreateOrUpsertProvider",
+      endpoint: req.path,
+      httpStatus: expectedStatus,
+      table: "ai_provider_credentials",
+      targetId: saved.id,
+      affectedCount: 1,
+      verifiedAfterMutation: true
+    });
+    return res.status(expectedStatus).json({ success: true, provider: saved, receipt });
   } catch (err) {
     const msg = err?.message || "Failed saving AI credential.";
-    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: "handleCreateOrUpsertProvider",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: req.body?.id ? String(req.body.id) : "new",
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 async function handlePatchProvider(req, res) {
+  const correlationId = generateCorrelationId("ai-edit");
+  const action = req.body && Object.keys(req.body).length === 1 && "enabled" in req.body ? "toggle_credential" : "edit_credential";
   try {
     const updated = await AIProviderManager.updateCredentialPartial(
       req.params.id,
       req.body || {},
       getActor(req, "Super Admin")
     );
-    return res.json({ success: true, provider: updated });
+    AIProviderRouter.clearAutomationCooldowns();
+    resetAiContentEngineCooldown();
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: "handlePatchProvider",
+      endpoint: req.path,
+      httpStatus: 200,
+      table: "ai_provider_credentials",
+      targetId: updated.id,
+      affectedCount: 1,
+      verifiedAfterMutation: true
+    });
+    return res.json({ success: true, provider: updated, receipt });
   } catch (err) {
     const msg = err?.message || "Failed updating AI credential.";
-    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action,
+      handler: "handlePatchProvider",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: req.params.id,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 async function handleDeleteProvider(req, res) {
+  const correlationId = generateCorrelationId("ai-del");
   try {
     const out = await AIProviderManager.disconnectCredential(req.params.id, getActor(req, "Super Admin"));
-    if (!out.ok) {
-      return res.status(out.notFound ? 404 : 500).json({
+    const status = out.ok && (out.deletedCount ?? 0) >= 1 && out.verifiedAfterMutation !== false ? 200 : out.notFound ? 404 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "delete_credential",
+      handler: "handleDeleteProvider",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: req.params.id,
+      affectedCount: out.deletedCount ?? 0,
+      verifiedAfterMutation: Boolean(out.verifiedAfterMutation),
+      rlsError: out.rlsError || null,
+      note: out.message
+    });
+    if (status !== 200) {
+      return res.status(status).json({
         success: false,
         error: out.message,
-        deletedCount: out.deletedCount ?? 0
+        deletedCount: out.deletedCount ?? 0,
+        receipt
       });
     }
     return res.json({
       success: true,
       deletedCount: out.deletedCount ?? 1,
       disconnectedId: out.disconnectedId,
-      message: out.message
+      message: out.message,
+      receipt
     });
   } catch (err) {
-    return res.status(500).json({
+    const msg = err?.message || "Failed deleting AI credential.";
+    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "delete_credential",
+      handler: "handleDeleteProvider",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_provider_credentials",
+      targetId: req.params.id,
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({
       success: false,
-      error: err?.message || "Failed deleting AI credential.",
-      deletedCount: 0
+      error: msg,
+      deletedCount: 0,
+      receipt
     });
   }
 }
@@ -17426,7 +17984,7 @@ async function handleTestProviderById(req, res) {
     return res.json({ success: result.ok, result });
   } catch (err) {
     const msg = err?.message || "Provider test failed.";
-    const status = msg.toLowerCase().includes("not found") ? 404 : 400;
+    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
     return res.status(status).json({ success: false, error: msg });
   }
 }
@@ -17458,6 +18016,7 @@ app.get("/api/v1/admin/ai/providers/:id/logs", requirePermission("ai:keys"), (re
   res.json({ success: true, ...logs });
 });
 async function handleGetTaskRoutes(_req, res) {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const routes = await AIProviderRouter.getTaskRoutesAuthoritative();
     return res.json({ success: true, routes });
@@ -17466,6 +18025,7 @@ async function handleGetTaskRoutes(_req, res) {
   }
 }
 async function handleSaveTaskRoutes(req, res) {
+  const correlationId = generateCorrelationId("ai-route");
   try {
     const body = req.body || {};
     const actor = getActor(req, "Super Admin");
@@ -17474,11 +18034,34 @@ async function handleSaveTaskRoutes(req, res) {
       return res.status(400).json({ success: false, error: "Task routing payload is required." });
     }
     const routes = await AIProviderManager.saveTaskRoutes(payload, actor);
-    return res.json({ success: true, routes });
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "save_task_routes",
+      handler: "handleSaveTaskRoutes",
+      endpoint: req.path,
+      httpStatus: 200,
+      table: "ai_task_routes",
+      targetId: Array.isArray(payload) ? "all_routes" : String(payload.task),
+      affectedCount: Array.isArray(payload) ? payload.length : 1,
+      verifiedAfterMutation: true
+    });
+    return res.json({ success: true, routes, receipt });
   } catch (err) {
     const msg = err?.message || "Failed saving AI task routes.";
-    const status = msg.toLowerCase().includes("database") ? 500 : 400;
-    return res.status(status).json({ success: false, error: msg });
+    const status = msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") ? 500 : 400;
+    const receipt = AIProviderManager.recordMutationDebugLog({
+      correlationId,
+      action: "save_task_routes",
+      handler: "handleSaveTaskRoutes",
+      endpoint: req.path,
+      httpStatus: status,
+      table: "ai_task_routes",
+      targetId: "task_routes",
+      affectedCount: 0,
+      verifiedAfterMutation: false,
+      note: msg
+    });
+    return res.status(status).json({ success: false, error: msg, receipt });
   }
 }
 app.get("/api/v1/admin/ai/task-routes", requirePermission("ai:keys"), handleGetTaskRoutes);
@@ -17925,8 +18508,9 @@ app.post("/api/v1/admin/ai/gemini/test", requireSuperAdmin, async (req, res) => 
   }
 });
 app.get("/api/v1/admin/ai/models", requireAnyPermission(["ai:use", "ai:keys"]), async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
-    const creds = AIProviderRouter.getAllCredentialsSanitized();
+    const creds = await AIProviderRouter.listCredentialsAuthoritative();
     const credentialId = req.query.credentialId;
     if (credentialId) {
       const discovery = await AIProviderManager.discoverModelsForCredential(credentialId, getActor(req, "Super Admin"));

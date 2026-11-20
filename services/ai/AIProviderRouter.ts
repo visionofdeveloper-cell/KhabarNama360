@@ -25,6 +25,7 @@ import { AIUsageTracker } from './AIUsageTracker.ts';
 import { AIProviderManager, AI_TASK_CATALOG } from './AIProviderManager.ts';
 import {
   classifyProviderError,
+  getInferenceTimeoutMs,
   ProviderExecutionError,
 } from './AIConnectionValidator.ts';
 import { maskSecret } from '../../src/server/crypto.ts';
@@ -52,6 +53,22 @@ export class AIUnavailableError extends Error {
 }
 
 export class AIProviderRouter {
+  private static automationCooldowns = new Map<string, { untilMs: number; reason: string; category: string }>();
+
+  public static clearAutomationCooldowns(): void {
+    this.automationCooldowns.clear();
+  }
+
+  public static getAutomationCooldownStatus(credId: string): { active: boolean; untilMs?: number; reason?: string } {
+    const entry = this.automationCooldowns.get(credId);
+    if (!entry) return { active: false };
+    if (Date.now() >= entry.untilMs) {
+      this.automationCooldowns.delete(credId);
+      return { active: false };
+    }
+    return { active: true, untilMs: entry.untilMs, reason: entry.reason };
+  }
+
   public static getAllCredentialsSanitized() {
     const dbCreds = db.getAiProviders();
     const routes = this.getTaskRoutesRaw(dbCreds);
@@ -258,11 +275,20 @@ export class AIProviderRouter {
       }
     }
 
+    const isBackgroundAutomation = actor === 'Automated Data Engine';
     const attemptedProjectKeys = new Set<string>();
     const errors: string[] = [];
     let lastDiagnostic: AIDiagnosticError | undefined;
 
     for (const spec of candidateSpecs) {
+      if (isBackgroundAutomation) {
+        const cd = this.getAutomationCooldownStatus(spec.credId);
+        if (cd.active) {
+          errors.push(`[${spec.credId}] Background automation paused: ${cd.reason}`);
+          continue;
+        }
+      }
+
       const resolved = AIProviderManager.resolveRawCredentialDetailed(spec.credId);
       if (!resolved || !resolved.cred.enabled) continue;
       if (resolved.decryptError || !resolved.rawKey) {
@@ -367,10 +393,29 @@ export class AIProviderRouter {
                 stage: 'inference',
                 authenticated: cred.modelListStatus === 'ok',
                 secretToRedact: rawKey,
+                timeoutWindowMs: getInferenceTimeoutMs(),
               });
 
         lastDiagnostic = diag;
         errors.push(`[${cred.label} | ${diag.correlationId}] ${diag.diagnosis}`);
+
+        if (isBackgroundAutomation) {
+          let pauseMs = 10 * 60 * 1000;
+          if (diag.category === 'quota_429') {
+            pauseMs = Math.min(Math.max(diag.retryAfterSeconds || 900, 60), 24 * 3600) * 1000;
+          } else if (
+            diag.category === 'billing_required' ||
+            diag.category === 'auth_failed_401' ||
+            diag.category === 'permission_denied_403'
+          ) {
+            pauseMs = 60 * 60 * 1000;
+          }
+          this.automationCooldowns.set(cred.id, {
+            untilMs: Date.now() + pauseMs,
+            reason: diag.diagnosis,
+            category: diag.category,
+          });
+        }
 
         if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
           const now = new Date().toISOString();

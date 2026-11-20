@@ -72,8 +72,8 @@ export function getInferenceTimeoutMs(): number {
   if (typeof runtimeAiTimeouts.inferenceMs === 'number') {
     return runtimeAiTimeouts.inferenceMs;
   }
-  const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 50000);
-  if (!Number.isFinite(raw)) return 50000;
+  const raw = Number(process.env.AI_INFERENCE_TIMEOUT_MS || 55000);
+  if (!Number.isFinite(raw)) return 55000;
   return Math.max(15000, Math.min(60000, Math.round(raw)));
 }
 
@@ -168,6 +168,92 @@ export async function fetchWithTimeout(
   }
 }
 
+function formatRetryDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'shortly';
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const mins = Math.ceil(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+}
+
+function parseUpstreamQuotaMetadata(rawMsg: string): {
+  conciseMessage: string;
+  retryAfterSeconds?: number;
+  quotaLimit?: number;
+  isFreeTierCap: boolean;
+} {
+  let cleanText = rawMsg || '';
+  let retryAfterSeconds: number | undefined;
+  let quotaLimit: number | undefined;
+  const lower = rawMsg.toLowerCase();
+  let isFreeTierCap =
+    lower.includes('free_tier') ||
+    lower.includes('freetier') ||
+    lower.includes('generaterequestsperdayperprojectpermodel-freetier');
+
+  try {
+    const firstBrace = rawMsg.indexOf('{');
+    const lastBrace = rawMsg.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const jsonSlice = rawMsg.slice(firstBrace, lastBrace + 1);
+      const parsed = JSON.parse(jsonSlice);
+      const errObj = parsed?.error || parsed;
+      if (typeof errObj?.message === 'string' && errObj.message.trim()) {
+        cleanText = errObj.message.split('\n')[0].trim();
+      }
+      const details = Array.isArray(errObj?.details) ? errObj.details : [];
+      for (const d of details) {
+        if (typeof d?.retryDelay === 'string') {
+          const m = d.retryDelay.match(/([\d.]+)s/i);
+          if (m) retryAfterSeconds = Math.ceil(Number(m[1]));
+        }
+        if (Array.isArray(d?.violations)) {
+          for (const v of d.violations) {
+            if (v?.quotaValue !== undefined && Number.isFinite(Number(v.quotaValue))) {
+              quotaLimit = Number(v.quotaValue);
+            }
+            if (String(v?.quotaId || '').toLowerCase().includes('freetier')) {
+              isFreeTierCap = true;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Fallback to regex extraction below
+  }
+
+  if (retryAfterSeconds === undefined) {
+    const delayMatch = rawMsg.match(/retryDelay["']?\s*:\s*["']?(\d+(?:\.\d+)?)s/i);
+    if (delayMatch) {
+      retryAfterSeconds = Math.ceil(Number(delayMatch[1]));
+    } else {
+      const hmsMatch = rawMsg.match(/retry in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+      if (hmsMatch && (hmsMatch[1] || hmsMatch[2] || hmsMatch[3])) {
+        retryAfterSeconds = Math.ceil(
+          Number(hmsMatch[1] || 0) * 3600 +
+            Number(hmsMatch[2] || 0) * 60 +
+            Number(hmsMatch[3] || 0)
+        );
+      }
+    }
+  }
+
+  if (quotaLimit === undefined) {
+    const limitMatch = rawMsg.match(/limit:\s*(\d+)/i) || rawMsg.match(/quotaValue["']?\s*:\s*["']?(\d+)/i);
+    if (limitMatch) quotaLimit = Number(limitMatch[1]);
+  }
+
+  return {
+    conciseMessage: cleanText.replace(/\s+/g, ' ').trim().slice(0, 220),
+    retryAfterSeconds,
+    quotaLimit,
+    isFreeTierCap,
+  };
+}
+
 function defaultProviderSource(providerType: AIProviderType): AIFailureSource {
   if (providerType === 'gemini') return 'Google API';
   if (providerType === 'grok') return 'xAI API';
@@ -216,7 +302,9 @@ export function classifyProviderError(params: {
     errCode === 'UND_ERR_HEADERS_TIMEOUT';
 
   if (isTimeoutSignal) {
-    const windowMs = params.timeoutWindowMs || getGenerationTimeoutMs();
+    const windowMs =
+      params.timeoutWindowMs ||
+      (params.stage === 'inference' ? getInferenceTimeoutMs() : getGenerationTimeoutMs());
     const isGeminiAuthGen = params.providerType === 'gemini' && Boolean(params.authenticated) && params.stage === 'generation_test';
     const isGrokAuthGen = params.providerType === 'grok' && Boolean(params.authenticated) && params.stage === 'generation_test';
     return {
@@ -281,20 +369,33 @@ export function classifyProviderError(params: {
     };
   }
 
-  // 4. Explicit Billing / Credit exhaustion checks (before generic 403/429)
-  const isBillingSignal =
+  const quotaMeta = parseUpstreamQuotaMetadata(rawMsg);
+  const isRateOrDailyQuota =
+    status === 429 ||
+    lower.includes('resource_exhausted') ||
+    lower.includes('rate limit') ||
+    lower.includes('exceeded your current quota');
+
+  // 4. Explicit Billing / Credit exhaustion checks vs Free Tier Rate/Daily Quota
+  // Note: Google's 429 RESOURCE_EXHAUSTED boilerplate says "check your plan and billing details"
+  // even on Free Tier limits (e.g. 20 req/day). Only treat as billing_required when credits/zero-limit
+  // or explicit billing/402 indicates billing is disabled/empty.
+  const isStrictBillingSignal =
     status === 402 ||
     lower.includes('credit') ||
-    lower.includes('billing') ||
     lower.includes('payment') ||
     lower.includes('balance') ||
     lower.includes('spending limit') ||
     lower.includes('insufficient_quota') ||
     lower.includes('prepaid') ||
     lower.includes('free tier is not available') ||
-    lower.includes('limit: 0');
+    lower.includes('billing account') ||
+    lower.includes('enable billing') ||
+    quotaMeta.quotaLimit === 0 ||
+    (!isRateOrDailyQuota && lower.includes('billing'));
 
-  if (isBillingSignal) {
+  if (isStrictBillingSignal) {
+    const cleanReason = quotaMeta.conciseMessage || rawMsg;
     return {
       correlationId,
       httpStatus: status,
@@ -302,13 +403,13 @@ export function classifyProviderError(params: {
       connectionStatus: 'billing_required',
       title: 'Billing Required',
       diagnosis: params.authenticated
-        ? `Your ${providerLabel} key authenticated, but generation requires billing or prepaid credits (${rawMsg}).`
-        : `${providerLabel} requires billing or prepaid credits for this key (${rawMsg}).`,
+        ? `Your ${providerLabel} key authenticated, but generation requires billing or prepaid credits (${cleanReason}).`
+        : `${providerLabel} requires billing or prepaid credits for this key (${cleanReason}).`,
       suggestedAction:
         params.providerType === 'grok'
-          ? 'Open console.x.ai → Billing & Credits, add prepaid credits or raise your spending limit, then click Retry Test.'
-          : 'Enable billing in Google AI Studio / Google Cloud Billing, or use a free-tier eligible AI Studio key.',
-      providerMessage: rawMsg || undefined,
+          ? 'Open console.x.ai -> Billing & Credits, add prepaid credits or raise your spending limit, then click Retry Test.'
+          : 'Enable billing in Google AI Studio / Google Cloud Billing, or switch to a free-tier eligible model.',
+      providerMessage: cleanReason || undefined,
       failureSource: apiSource,
     };
   }
@@ -385,7 +486,14 @@ export function classifyProviderError(params: {
   }
 
   // 8. 429 Quota Exhausted / Rate Limit
-  if (status === 429 || lower.includes('resource_exhausted') || lower.includes('rate limit') || lower.includes('quota')) {
+  if (isRateOrDailyQuota || lower.includes('quota')) {
+    const retryText = quotaMeta.retryAfterSeconds
+      ? `Retry in ${formatRetryDuration(quotaMeta.retryAfterSeconds)}`
+      : 'Wait for quota reset before retrying';
+    const tierNote = quotaMeta.isFreeTierCap
+      ? `Free-tier${quotaMeta.quotaLimit ? ` (${quotaMeta.quotaLimit}/day)` : ''} quota exhausted`
+      : 'Quota or rate limit exhausted';
+    const cleanReason = quotaMeta.conciseMessage || rawMsg;
     return {
       correlationId,
       httpStatus: status || 429,
@@ -393,11 +501,14 @@ export function classifyProviderError(params: {
       connectionStatus: 'quota_exhausted',
       title: 'Quota Exceeded',
       diagnosis: params.authenticated
-        ? `Key verified, but quota or rate limit is currently exhausted (${rawMsg}).`
-        : `${providerLabel} quota exceeded / rate limited (429): ${rawMsg}`,
-      suggestedAction: 'Wait a minute for RPM/TPM quota reset, then click Retry Test.',
-      providerMessage: rawMsg || undefined,
+        ? `Key verified, but ${tierNote.toLowerCase()} on ${params.model || 'selected model'}. ${retryText}.`
+        : `${providerLabel} ${tierNote.toLowerCase()} on ${params.model || 'selected model'} (429). ${retryText}.`,
+      suggestedAction: quotaMeta.isFreeTierCap
+        ? `${retryText}, lower background AI automation frequency, or select another project/paid API tier in AI Studio.`
+        : `${retryText}, then click Retry Test.`,
+      providerMessage: cleanReason || undefined,
       failureSource: apiSource,
+      retryAfterSeconds: quotaMeta.retryAfterSeconds,
     };
   }
 

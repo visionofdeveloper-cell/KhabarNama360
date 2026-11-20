@@ -312,8 +312,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       }
       if (logRes.success) setLogs(logRes.logs || []);
       if (catRes.success) setCategoryPages(catRes.categories || []);
-      const aiRes = await safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }).catch(() => null);
-      if (aiRes?.success) setAiProviders(aiRes.providers || []);
+      const aiRes = await safeFetchJson('/api/v1/admin/ai/providers', {
+        credentials: 'include',
+        cache: 'no-store',
+      }).catch(() => null);
+      if (aiRes?.success) {
+        const freshList: AIProviderCredential[] = aiRes.providers || [];
+        setAiProviders(freshList);
+        setComposerCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
+        setStudioCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
+      }
     } catch {
       // ignore initial non-blocking error
     }
@@ -347,11 +355,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         if (nRes.success) setNotificationsList(nRes.notifications || []);
       } else if (mod === 'ai-studio' || mod === 'composer') {
         const [pRes, dRes, mRes] = await Promise.all([
-          safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }),
-          safeFetchJson('/api/admin/ai/editorial-drafts', { credentials: 'include' }),
+          safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include', cache: 'no-store' }),
+          safeFetchJson('/api/admin/ai/editorial-drafts', { credentials: 'include', cache: 'no-store' }),
           safeFetchJson('/api/admin/media', { credentials: 'include' }).catch(() => null),
         ]);
-        if (pRes.success) setAiProviders(pRes.providers || []);
+        if (pRes.success) {
+          const freshList: AIProviderCredential[] = pRes.providers || [];
+          setAiProviders(freshList);
+          setComposerCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
+          setStudioCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
+        }
         if (dRes.success) setSavedDrafts(dRes.drafts || []);
         if (mRes?.success) setMediaAssets(mRes.assets || []);
       } else if (mod === 'health') {
