@@ -21,10 +21,22 @@ export interface SupabaseEnvConfig {
   url: string;
   publishableKey: string;
   secretKey: string;
-  secretKeyMode: 'sb_secret' | 'legacy_service_role' | 'missing';
+  secretKeyMode: 'sb_secret' | 'legacy_service_role' | 'misconfigured_anon_or_publishable' | 'missing';
   publishableKeyMode: 'sb_publishable' | 'legacy_anon' | 'missing';
+  secretKeyMisconfiguration?: string;
   configured: boolean;
   projectHost: string | null;
+}
+
+function inspectJwtRoleClaim(token: string): string | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload?.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
@@ -38,11 +50,26 @@ export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
   const sbSecret = (process.env.SUPABASE_SECRET_KEY || '').trim();
   const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const secretKey = sbSecret || legacyService;
-  const secretKeyMode: SupabaseEnvConfig['secretKeyMode'] = sbSecret
+  let secretKeyMisconfiguration: string | undefined;
+  let secretKeyMode: SupabaseEnvConfig['secretKeyMode'] = sbSecret
     ? 'sb_secret'
     : legacyService
     ? 'legacy_service_role'
     : 'missing';
+
+  if (secretKey) {
+    if (secretKey.startsWith('sb_publishable_')) {
+      secretKeyMode = 'misconfigured_anon_or_publishable';
+      secretKeyMisconfiguration =
+        'SUPABASE_SECRET_KEY holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a secret/service_role key is used.';
+    } else {
+      const jwtRole = inspectJwtRoleClaim(secretKey);
+      if (jwtRole && jwtRole !== 'service_role') {
+        secretKeyMode = 'misconfigured_anon_or_publishable';
+        secretKeyMisconfiguration = `SUPABASE_SECRET_KEY/SERVICE_ROLE_KEY JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
+      }
+    }
+  }
 
   const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || '').trim();
   const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -68,6 +95,7 @@ export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
     secretKey,
     secretKeyMode,
     publishableKeyMode,
+    secretKeyMisconfiguration,
     configured: Boolean(url && secretKey && projectHost && projectHost !== 'invalid-url'),
     projectHost,
   };
@@ -957,9 +985,39 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
     rlsStatus: {
       credentialsAnonBlocked,
       taskRoutesAnonBlocked,
-      detail: rlsDetail,
+      detail: envCfg.secretKeyMisconfiguration ? `${envCfg.secretKeyMisconfiguration} ${rlsDetail}` : rlsDetail,
     },
+    ...(envCfg.secretKeyMisconfiguration ? { error: envCfg.secretKeyMisconfiguration } : {}),
   };
+}
+
+export async function findSupabaseAdminUserByEmail(email: string): Promise<{
+  id: string;
+  email: string;
+  nameEn: string;
+  role: string;
+  status: string;
+} | null> {
+  const client = getSupabaseAdminClient();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!client || !cleanEmail) return null;
+  try {
+    const { data, error } = await client
+      .from('admin_users')
+      .select('id, email, name_en, role, status')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      id: String(data.id),
+      email: String(data.email).toLowerCase(),
+      nameEn: String(data.name_en || data.email),
+      role: String(data.role || 'Read-only Analyst'),
+      status: String(data.status || 'active'),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function runSupabaseAiCrudSelfTest(): Promise<{

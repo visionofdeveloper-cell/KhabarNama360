@@ -123,6 +123,7 @@ export class AIProviderManager {
   private static lastSuccessfulSaveAt: string | null = null;
   private static lastSuccessfulDeleteAt: string | null = null;
   private static lastProviderValidationAt: string | null = null;
+  private static hydrationPromise: Promise<{ ok: boolean; error?: string; code?: string }> | null = null;
 
   private static recordDbFailure(operation: string, message: string, code?: string) {
     this.lastDbError = {
@@ -343,8 +344,8 @@ export class AIProviderManager {
       );
     }
 
-    if (isSupabaseConfigured() && input.id) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
 
     const existing = input.id ? db.getAiProviders().find(p => p.id === input.id) : undefined;
@@ -487,7 +488,9 @@ export class AIProviderManager {
       if (updatedRoutes.length > 0 && isSupabaseConfigured()) {
         const routeRes = await upsertSupabaseAiTaskRoutes(updatedRoutes);
         if (!routeRes.ok) {
-          this.recordDbFailure('upsertSupabaseAiTaskRoutes', routeRes.error || 'Task route sync failed', routeRes.code);
+          const msg = routeRes.error || 'Task route sync failed';
+          this.recordDbFailure('upsertSupabaseAiTaskRoutes', msg, routeRes.code);
+          throw new Error(`Database route sync failed: ${msg}`);
         }
       }
     }
@@ -514,7 +517,7 @@ export class AIProviderManager {
     actor: string
   ): Promise<AIProviderCredential> {
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
     const existing = db.getAiProviders().find(p => p.id === id);
     if (!existing) {
@@ -542,6 +545,9 @@ export class AIProviderManager {
   }
 
   public static async testSavedCredential(credId: string, actor: string): Promise<AIValidationResult> {
+    if (isSupabaseConfigured() && !credId.startsWith('env-')) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const resolved = this.resolveRawCredentialDetailed(credId);
     if (!resolved) {
       throw new Error('AI credential not found.');
@@ -566,40 +572,46 @@ export class AIProviderManager {
 
     const now = new Date().toISOString();
     if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
-      const updatedCred = db.upsertAiProvider(
-        {
-          ...cred,
-          model: cred.model || result.selectedModel,
-          availableModels:
-            result.availableModels.length > 0 ? result.availableModels : cred.availableModels,
-          connectionStatus: cred.enabled ? result.connectionStatus : 'disabled',
-          modelListStatus: result.authenticated ? 'ok' : 'error',
-          generationTestStatus: result.generationVerified ? 'ok' : result.authenticated ? 'error' : 'untested',
-          lastTestedAt: now,
-          lastSuccessfulVerificationAt: result.authenticated ? now : cred.lastSuccessfulVerificationAt,
-          lastSuccessfulGenerationAt: result.generationVerified ? now : cred.lastSuccessfulGenerationAt,
-          lastFailureAt: !result.ok ? now : cred.lastFailureAt,
-          lastTestStatus: result.ok ? 'connected' : 'error',
-          lastTestMessage: result.message,
-          lastDiagnostic: result.diagnostic || null,
-          lastLatencyMs: result.latencyMs,
-          lastCorrelationId: result.correlationId,
-          updatedAt: now,
-        },
-        actor
-      );
+      const nextCred: AIProviderCredential = {
+        ...cred,
+        model: cred.model || result.selectedModel,
+        availableModels:
+          result.availableModels.length > 0 ? result.availableModels : cred.availableModels,
+        connectionStatus: cred.enabled ? result.connectionStatus : 'disabled',
+        modelListStatus: result.authenticated ? 'ok' : 'error',
+        generationTestStatus: result.generationVerified ? 'ok' : result.authenticated ? 'error' : 'untested',
+        lastTestedAt: now,
+        lastSuccessfulVerificationAt: result.authenticated ? now : cred.lastSuccessfulVerificationAt,
+        lastSuccessfulGenerationAt: result.generationVerified ? now : cred.lastSuccessfulGenerationAt,
+        lastFailureAt: !result.ok ? now : cred.lastFailureAt,
+        lastTestStatus: result.ok ? 'connected' : 'error',
+        lastTestMessage: result.message,
+        lastDiagnostic: result.diagnostic || null,
+        lastLatencyMs: result.latencyMs,
+        lastCorrelationId: result.correlationId,
+        updatedAt: now,
+      };
       if (isSupabaseConfigured()) {
-        const sbRes = await upsertSupabaseAiCredential(updatedCred);
+        const sbRes = await upsertSupabaseAiCredential(nextCred);
         if (!sbRes.ok) {
-          this.recordDbFailure('upsertSupabaseAiCredential', sbRes.error || 'Failed persisting test status', sbRes.code);
+          const msg = sbRes.error || 'Failed persisting test status to Supabase.';
+          this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);
+          throw new Error(`Database status save failed: ${msg}`);
         }
+        db.upsertAiProvider(sbRes.credential || nextCred, actor);
+      } else {
+        db.upsertAiProvider(nextCred, actor);
       }
+      this.lastSuccessfulSaveAt = now;
     }
 
     return result;
   }
 
   public static async discoverModelsForCredential(credId: string, actor: string) {
+    if (isSupabaseConfigured() && !credId.startsWith('env-')) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const resolved = this.resolveRawCredential(credId);
     if (!resolved) {
       throw new Error('AI credential not found.');
@@ -612,17 +624,25 @@ export class AIProviderManager {
 
     if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
       const now = new Date().toISOString();
-      db.upsertAiProvider(
-        {
-          ...cred,
-          availableModels: discovery.models,
-          modelListStatus: 'ok',
-          lastSuccessfulVerificationAt: now,
-          rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
-          updatedAt: now,
-        },
-        actor
-      );
+      const updatedCred: AIProviderCredential = {
+        ...cred,
+        availableModels: discovery.models,
+        modelListStatus: 'ok',
+        lastSuccessfulVerificationAt: now,
+        rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
+        updatedAt: now,
+      };
+      if (isSupabaseConfigured()) {
+        const sbRes = await upsertSupabaseAiCredential(updatedCred);
+        if (!sbRes.ok) {
+          const msg = sbRes.error || 'Failed persisting discovered models to Supabase.';
+          this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);
+          throw new Error(`Database model list sync failed: ${msg}`);
+        }
+        db.upsertAiProvider(sbRes.credential || updatedCred, actor);
+      } else {
+        db.upsertAiProvider(updatedCred, actor);
+      }
     }
 
     return discovery;
@@ -639,6 +659,9 @@ export class AIProviderManager {
    * (zero paid inference requests) + validates outbound HTTPS connectivity to provider hosts.
    */
   public static async runLightweightHealthCheck(actor: string = 'Health Monitor') {
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const creds = db.getAiProviders().filter(c => c.enabled);
     const connectivity = await checkOutboundConnectivity();
     const checks: any[] = [];
@@ -661,23 +684,27 @@ export class AIProviderManager {
         const prevConnected = cred.generationTestStatus === 'ok' || cred.lastTestStatus === 'connected';
         const nextStatus: AIConnectionStatus = prevConnected ? 'connected' : 'untested';
 
-        db.upsertAiProvider(
-          {
-            ...cred,
-            availableModels: discovery.models,
-            modelListStatus: 'ok',
-            connectionStatus: nextStatus,
-            lastTestedAt: now,
-            lastSuccessfulVerificationAt: now,
-            lastLatencyMs: discovery.latencyMs,
-            lastCorrelationId: discovery.correlationId,
-            rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
-            updatedAt: now,
-          },
-          actor
-        );
+        const healthyCred: AIProviderCredential = {
+          ...cred,
+          availableModels: discovery.models,
+          modelListStatus: 'ok',
+          connectionStatus: nextStatus,
+          lastTestedAt: now,
+          lastSuccessfulVerificationAt: now,
+          lastLatencyMs: discovery.latencyMs,
+          lastCorrelationId: discovery.correlationId,
+          rateLimitInfo: discovery.rateLimitInfo || cred.rateLimitInfo,
+          updatedAt: now,
+        };
+        db.upsertAiProvider(healthyCred, actor);
+        if (isSupabaseConfigured()) {
+          const sbRes = await upsertSupabaseAiCredential(healthyCred);
+          if (!sbRes.ok) {
+            this.recordDbFailure('upsertSupabaseAiCredential', sbRes.error || 'Health status sync failed', sbRes.code);
+          }
+        }
 
-        db.recordAiConnectionTest({
+        const hcRecord: AIConnectionTestRecord = {
           id: `aitest-hc-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           credentialId: cred.id,
           providerType: cred.providerType,
@@ -691,7 +718,11 @@ export class AIProviderManager {
           latencyMs: discovery.latencyMs,
           actor,
           timestamp: now,
-        });
+        };
+        db.recordAiConnectionTest(hcRecord);
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(hcRecord).catch(() => {});
+        }
 
         checks.push({
           credentialId: cred.id,
@@ -715,24 +746,28 @@ export class AIProviderManager {
               });
         const now = new Date().toISOString();
 
-        db.upsertAiProvider(
-          {
-            ...cred,
-            modelListStatus: 'error',
-            connectionStatus: diag.connectionStatus,
-            lastTestedAt: now,
-            lastFailureAt: now,
-            lastTestStatus: 'error',
-            lastTestMessage: diag.diagnosis,
-            lastDiagnostic: diag,
-            lastLatencyMs: Date.now() - start,
-            lastCorrelationId: diag.correlationId,
-            updatedAt: now,
-          },
-          actor
-        );
+        const failedCred: AIProviderCredential = {
+          ...cred,
+          modelListStatus: 'error',
+          connectionStatus: diag.connectionStatus,
+          lastTestedAt: now,
+          lastFailureAt: now,
+          lastTestStatus: 'error',
+          lastTestMessage: diag.diagnosis,
+          lastDiagnostic: diag,
+          lastLatencyMs: Date.now() - start,
+          lastCorrelationId: diag.correlationId,
+          updatedAt: now,
+        };
+        db.upsertAiProvider(failedCred, actor);
+        if (isSupabaseConfigured()) {
+          const sbRes = await upsertSupabaseAiCredential(failedCred);
+          if (!sbRes.ok) {
+            this.recordDbFailure('upsertSupabaseAiCredential', sbRes.error || 'Health error sync failed', sbRes.code);
+          }
+        }
 
-        db.recordAiConnectionTest({
+        const errRecord: AIConnectionTestRecord = {
           id: `aitest-hc-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           credentialId: cred.id,
           providerType: cred.providerType,
@@ -747,7 +782,11 @@ export class AIProviderManager {
           diagnostic: diag,
           actor,
           timestamp: now,
-        });
+        };
+        db.recordAiConnectionTest(errRecord);
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(errRecord).catch(() => {});
+        }
 
         checks.push({
           credentialId: cred.id,
@@ -1076,6 +1115,10 @@ export class AIProviderManager {
       throw new Error('At least one task route entry is required.');
     }
 
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
+
     const validCredIds = new Set(db.getAiProviders().map(p => p.id));
     const envSuppressed = db.getAiEnvSuppressed();
     if (!envSuppressed.gemini && process.env.GEMINI_API_KEY?.trim()) validCredIds.add('env-gemini-default');
@@ -1147,6 +1190,9 @@ export class AIProviderManager {
     model: string,
     actor: string
   ): Promise<AITaskRouting[]> {
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
+    }
     const existingRoutes = db.getAiTaskRoutes();
     const updatedRoutes: AITaskRouting[] = AI_TASK_CATALOG.map(spec => {
       const prev = existingRoutes[spec.task];
@@ -1173,7 +1219,9 @@ export class AIProviderManager {
     if (isSupabaseConfigured()) {
       const sbRes = await upsertSupabaseAiTaskRoutes(updatedRoutes);
       if (!sbRes.ok) {
-        this.recordDbFailure('upsertSupabaseAiTaskRoutes', sbRes.error || 'Route sync failed', sbRes.code);
+        const msg = sbRes.error || 'Route sync failed';
+        this.recordDbFailure('upsertSupabaseAiTaskRoutes', msg, sbRes.code);
+        throw new Error(`Database route sync failed: ${msg}`);
       }
     }
     for (const next of updatedRoutes) {
@@ -1182,59 +1230,85 @@ export class AIProviderManager {
     return updatedRoutes;
   }
 
-  public static async hydrateFromSupabaseIfConfigured(actor: string = 'System'): Promise<void> {
-    if (!isSupabaseConfigured()) return;
-    try {
-      const [credRes, routeRes, flagRes] = await Promise.all([
-        listSupabaseAiCredentials(),
-        listSupabaseAiTaskRoutes(),
-        getSupabaseAiEnvSuppression(),
-      ]);
+  public static async hydrateFromSupabaseIfConfigured(
+    actor: string = 'System',
+    opts?: { requireSuccess?: boolean }
+  ): Promise<{ ok: boolean; error?: string; code?: string }> {
+    if (!isSupabaseConfigured()) return { ok: true };
 
-      if (credRes.ok) {
-        // Authoritatively replace local active cache so deletions & edits in Supabase always reflect cleanly (even 0 rows!)
-        db.replaceAiProvidersFromSupabase(credRes.credentials);
-      } else if (credRes.error) {
-        this.recordDbFailure('listSupabaseAiCredentials', credRes.error, credRes.code);
-      }
+    if (!this.hydrationPromise) {
+      this.hydrationPromise = (async () => {
+        try {
+          const [credRes, routeRes, flagRes] = await Promise.all([
+            listSupabaseAiCredentials(),
+            listSupabaseAiTaskRoutes(),
+            getSupabaseAiEnvSuppression(),
+          ]);
 
-      if (flagRes.ok && flagRes.suppressed) {
-        db.setAiEnvSuppressed(flagRes.suppressed);
-      }
-
-      if (routeRes.ok) {
-        if (routeRes.routes.length > 0 || (credRes.ok && credRes.credentials.length === 0)) {
-          db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
-        }
-      }
-
-      // Clean any local route references to deleted credentials
-      if (credRes.ok) {
-        const validIds = new Set(credRes.credentials.map(c => c.id));
-        const localRoutes = db.getAiTaskRoutes();
-        for (const taskKey of Object.keys(localRoutes)) {
-          const r = localRoutes[taskKey];
-          if (!r) continue;
-          const badPrimary = r.primaryCredentialId && !r.primaryCredentialId.startsWith('env-') && !validIds.has(r.primaryCredentialId);
-          const badFallback = r.fallbackCredentialId && !r.fallbackCredentialId.startsWith('env-') && !validIds.has(r.fallbackCredentialId);
-          if (badPrimary || badFallback) {
-            db.setAiTaskRoute(
-              r.task,
-              {
-                ...r,
-                primaryCredentialId: badPrimary ? '' : r.primaryCredentialId,
-                primaryModel: badPrimary ? '' : r.primaryModel,
-                fallbackCredentialId: badFallback ? '' : r.fallbackCredentialId,
-                fallbackModel: badFallback ? '' : r.fallbackModel,
-              },
-              actor
-            );
+          if (!credRes.ok) {
+            const msg = credRes.error || 'Failed reading AI credentials from Supabase.';
+            this.recordDbFailure('listSupabaseAiCredentials', msg, credRes.code);
+            return { ok: false, error: msg, code: credRes.code };
           }
+
+          // Authoritatively replace local active cache so deletions & edits in Supabase always reflect cleanly (even 0 rows!)
+          db.replaceAiProvidersFromSupabase(credRes.credentials);
+
+          if (flagRes.ok && flagRes.suppressed) {
+            db.setAiEnvSuppressed(flagRes.suppressed);
+          } else if (!flagRes.ok && flagRes.error) {
+            this.recordDbFailure('getSupabaseAiEnvSuppression', flagRes.error);
+          }
+
+          if (routeRes.ok) {
+            if (routeRes.routes.length > 0 || credRes.credentials.length === 0) {
+              db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
+            }
+          } else if (routeRes.error) {
+            this.recordDbFailure('listSupabaseAiTaskRoutes', routeRes.error);
+          }
+
+          // Clean any local route references to deleted credentials
+          const validIds = new Set(credRes.credentials.map(c => c.id));
+          const localRoutes = db.getAiTaskRoutes();
+          for (const taskKey of Object.keys(localRoutes)) {
+            const r = localRoutes[taskKey];
+            if (!r) continue;
+            const badPrimary =
+              r.primaryCredentialId && !r.primaryCredentialId.startsWith('env-') && !validIds.has(r.primaryCredentialId);
+            const badFallback =
+              r.fallbackCredentialId && !r.fallbackCredentialId.startsWith('env-') && !validIds.has(r.fallbackCredentialId);
+            if (badPrimary || badFallback) {
+              db.setAiTaskRoute(
+                r.task,
+                {
+                  ...r,
+                  primaryCredentialId: badPrimary ? '' : r.primaryCredentialId,
+                  primaryModel: badPrimary ? '' : r.primaryModel,
+                  fallbackCredentialId: badFallback ? '' : r.fallbackCredentialId,
+                  fallbackModel: badFallback ? '' : r.fallbackModel,
+                },
+                actor
+              );
+            }
+          }
+
+          return { ok: true };
+        } catch (err: any) {
+          const msg = err?.message || 'Supabase AI hydration failed';
+          this.recordDbFailure('hydrateFromSupabaseIfConfigured', msg);
+          return { ok: false, error: msg, code: 'HYDRATION_EXCEPTION' };
+        } finally {
+          this.hydrationPromise = null;
         }
-      }
-    } catch (err: any) {
-      this.recordDbFailure('hydrateFromSupabaseIfConfigured', err?.message || 'Hydration failed');
+      })();
     }
+
+    const result = await this.hydrationPromise;
+    if (!result.ok && opts?.requireSuccess) {
+      throw new Error(`Database read failed: ${result.error || 'Could not load AI configuration from Supabase.'}`);
+    }
+    return result;
   }
 
   /**
@@ -2011,6 +2085,9 @@ export class AIProviderManager {
     now: string;
     actor: string;
   }): Promise<AIProviderCredential> {
+    if (isSupabaseConfigured()) {
+      await this.hydrateFromSupabaseIfConfigured(params.actor, { requireSuccess: true });
+    }
     const existingList = db.getAiProviders();
     const masked = maskSecret(params.rawKey);
 
@@ -2071,7 +2148,13 @@ export class AIProviderManager {
       if (prev.id !== cred.id && (prev.priority || 10) <= 1) {
         const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
         db.upsertAiProvider(demoted, params.actor);
-        if (isSupabaseConfigured()) upsertSupabaseAiCredential(demoted).catch(() => {});
+        if (isSupabaseConfigured()) {
+          upsertSupabaseAiCredential(demoted)
+            .then(res => {
+              if (!res.ok) this.recordDbFailure('upsertSupabaseAiCredential', res.error || 'Priority demotion failed', res.code);
+            })
+            .catch(() => {});
+        }
       }
     }
 
@@ -2137,7 +2220,7 @@ export class AIProviderManager {
     actor: string = 'Super Admin'
   ): Promise<{ ok: boolean; notFound?: boolean; deletedCount?: number; disconnectedId?: string; message: string }> {
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured(actor);
+      await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
     }
 
     // Handle server environment fallback key removal via suppression
@@ -2238,6 +2321,11 @@ export class AIProviderManager {
           routeClearRes.error || 'Failed clearing dependent task routes before delete',
           routeClearRes.code
         );
+        return {
+          ok: false,
+          deletedCount: 0,
+          message: `Failed clearing dependent task routes in Supabase: ${routeClearRes.error || 'Unknown database error'}`,
+        };
       }
     }
 

@@ -218,6 +218,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
     try {
       const statusRes = await safeFetchJson('/api/v1/admin/ai/connection-status', {
         credentials: 'include',
+        cache: 'no-store',
       });
       if (statusRes?.success) {
         setActiveProvider(statusRes.activeProvider || null);
@@ -231,6 +232,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
 
       const diagRes = await safeFetchJson('/api/v1/admin/ai/diagnostics', {
         credentials: 'include',
+        cache: 'no-store',
       });
       if (diagRes?.success) {
         setDiagReport(diagRes);
@@ -255,6 +257,7 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
       try {
         const res = await safeFetchJson('/api/v1/admin/ai/reset-preview', {
           credentials: 'include',
+          cache: 'no-store',
         });
         if (res?.success && res.preview) {
           setResetPreview(res.preview);
@@ -566,10 +569,13 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
     setRetesting(true);
     setProgressStage('Testing Generation');
     try {
-      const res = await safeFetchJson(`/api/v1/admin/ai/providers/${activeProvider.id}/test`, {
-        method: 'POST',
-        credentials: 'include',
-      });
+      const res = await safeFetchJson(
+        `/api/v1/admin/ai/providers/${encodeURIComponent(activeProvider.id)}/test`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
       const r = res?.result;
       if (r) {
         setLastResult({
@@ -594,7 +600,44 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
         });
         onProvidersChanged?.();
         await loadStatusAndDiagnostics(false);
+      } else {
+        setLastResult({
+          ok: false,
+          authenticated: false,
+          generationVerified: false,
+          status: 'server_error',
+          detectedProvider: activeProvider.providerType,
+          selectedModel: activeProvider.model,
+          billingStatus: activeProvider.billingStatus || 'unknown',
+          billingNote: activeProvider.billingNote || 'Retest failed',
+          lastChecked: new Date().toISOString(),
+          availableModels: activeProvider.availableModels || [],
+          errorClassification: 'Connection Test Error',
+          failureSource: 'Browser-to-backend request',
+          message: res?.error || 'Failed running connection test on saved credential.',
+          correlationId: 'retest-err',
+          canRetryGeneration: true,
+        });
+        await loadStatusAndDiagnostics(false);
       }
+    } catch (err: any) {
+      setLastResult({
+        ok: false,
+        authenticated: false,
+        generationVerified: false,
+        status: 'network_error',
+        detectedProvider: activeProvider.providerType,
+        selectedModel: activeProvider.model,
+        billingStatus: activeProvider.billingStatus || 'unknown',
+        billingNote: activeProvider.billingNote || 'Network error',
+        lastChecked: new Date().toISOString(),
+        availableModels: activeProvider.availableModels || [],
+        errorClassification: 'Network Error',
+        failureSource: 'Browser-to-backend request',
+        message: err?.message || 'Unable to reach provider test endpoint.',
+        correlationId: 'retest-net',
+        canRetryGeneration: true,
+      });
     } finally {
       setProgressStage('idle');
       setRetesting(false);

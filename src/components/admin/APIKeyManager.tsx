@@ -171,18 +171,20 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
     setLoading(true);
     try {
       const [provRes, routeRes, useRes, diagRes] = await Promise.all([
-        safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include' }),
-        safeFetchJson('/api/v1/admin/ai/task-routes', { credentials: 'include' }),
-        safeFetchJson('/api/v1/admin/ai/usage', { credentials: 'include' }),
-        safeFetchJson('/api/v1/admin/ai/diagnostics', { credentials: 'include' }),
+        safeFetchJson('/api/v1/admin/ai/providers', { credentials: 'include', cache: 'no-store' }),
+        safeFetchJson('/api/v1/admin/ai/task-routes', { credentials: 'include', cache: 'no-store' }),
+        safeFetchJson('/api/v1/admin/ai/usage', { credentials: 'include', cache: 'no-store' }),
+        safeFetchJson('/api/v1/admin/ai/diagnostics', { credentials: 'include', cache: 'no-store' }),
       ]);
       if (provRes.success) setCredentials(provRes.providers || []);
       if (routeRes.success) setRoutes(routeRes.routes || []);
       if (useRes.success) setUsageSummary(useRes.usage || null);
       if (diagRes.success) setDiagnostics(diagRes);
-      const firstErr = provRes.error || routeRes.error || useRes.error;
-      if (firstErr && !provRes.success) {
-        setStatusBanner({ ok: false, text: firstErr });
+      if (!provRes.success || !routeRes.success) {
+        setStatusBanner({
+          ok: false,
+          text: provRes.error || routeRes.error || 'Failed to load AI provider settings.',
+        });
       }
     } catch (e: any) {
       setStatusBanner({ ok: false, text: e?.message || 'Failed to load AI provider settings.' });

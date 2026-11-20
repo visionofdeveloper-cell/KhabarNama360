@@ -10,6 +10,7 @@ import { db } from './db.ts';
 import { adminAuth } from '../lib/firebase-admin.ts';
 import { AdminPermission, UserRole } from '../types/index.ts';
 import { encryptSecret, decryptSecret, generateTotpSecret, verifyTotpToken } from './crypto.ts';
+import { findSupabaseAdminUserByEmail, isSupabaseConfigured } from './supabaseAdmin.ts';
 
 const BOOTSTRAPPED_ADMIN_EMAIL = 'visionofdeveloper@gmail.com';
 
@@ -568,7 +569,12 @@ export async function authenticateAdminWithFirebase(
       return { success: false, error: 'Verified Google email is required for admin access.' };
     }
 
-    const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+    let staffUser: { id?: string; email: string; nameEn?: string; role?: string; status?: string } | undefined =
+      db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+    if (!staffUser && isSupabaseConfigured()) {
+      const sbUser = await findSupabaseAdminUserByEmail(email);
+      if (sbUser) staffUser = sbUser;
+    }
     const isAuthorized = email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active');
 
     if (!isAuthorized) {
@@ -623,7 +629,12 @@ export async function resolveOptionalAdminSession(req: Request): Promise<AdminSe
     try {
       const decoded = await adminAuth.verifyIdToken(bearerToken);
       const email = (decoded.email || '').trim().toLowerCase();
-      const staffUser = db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      let staffUser: { id?: string; email: string; nameEn?: string; role?: string; status?: string } | undefined =
+        db.getAdminUsers().find((u) => u.email.toLowerCase() === email);
+      if (!staffUser && isSupabaseConfigured()) {
+        const sbUser = await findSupabaseAdminUserByEmail(email);
+        if (sbUser) staffUser = sbUser;
+      }
       if (decoded.email_verified && (email === BOOTSTRAPPED_ADMIN_EMAIL || (staffUser && staffUser.status === 'active'))) {
         const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
         return {

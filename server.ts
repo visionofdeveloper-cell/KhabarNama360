@@ -2978,6 +2978,7 @@ app.get('/api/admin/reports/:reportId', requirePermission('reports:view'), (req,
 
 // --- Simplified One-Click AI API Connection Endpoints ---
 app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const session: AdminSession | undefined = (req as any).adminSession;
     const all = await AIProviderRouter.listCredentialsAuthoritative();
@@ -3208,6 +3209,7 @@ app.post('/api/admin/ai/providers/validate', requireSuperAdmin, handleValidateCa
 app.post('/api/admin/ai/validate', requireSuperAdmin, handleValidateCandidate);
 
 async function handleGetDiagnostics(_req: Request, res: Response) {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const diagnostics = await AIProviderManager.getDiagnostics();
     return res.json({ success: true, ...diagnostics });
@@ -3237,6 +3239,7 @@ app.post('/api/admin/ai/providers/diagnostics/crud-test', requireSuperAdmin, han
 
 // --- Standardized v1 & /api/admin/ai Provider CRUD ---
 async function handleListProviders(_req: Request, res: Response) {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const providers = await AIProviderRouter.listCredentialsAuthoritative();
     return res.json({ success: true, providers });
@@ -3310,7 +3313,11 @@ async function handleTestProviderById(req: Request, res: Response) {
     return res.json({ success: result.ok, result });
   } catch (err: any) {
     const msg = err?.message || 'Provider test failed.';
-    const status = msg.toLowerCase().includes('not found') ? 404 : 400;
+    const status = msg.toLowerCase().includes('not found')
+      ? 404
+      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      ? 500
+      : 400;
     return res.status(status).json({ success: false, error: msg });
   }
 }
@@ -3350,6 +3357,7 @@ app.get('/api/v1/admin/ai/providers/:id/logs', requirePermission('ai:keys'), (re
 });
 
 async function handleGetTaskRoutes(_req: Request, res: Response) {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const routes = await AIProviderRouter.getTaskRoutesAuthoritative();
     return res.json({ success: true, routes });
@@ -3870,8 +3878,9 @@ app.post('/api/v1/admin/ai/gemini/test', requireSuperAdmin, async (req, res) => 
 });
 
 app.get('/api/v1/admin/ai/models', requireAnyPermission(['ai:use', 'ai:keys']), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
-    const creds = AIProviderRouter.getAllCredentialsSanitized();
+    const creds = await AIProviderRouter.listCredentialsAuthoritative();
     const credentialId = req.query.credentialId as string | undefined;
     if (credentialId) {
       const discovery = await AIProviderManager.discoverModelsForCredential(credentialId, getActor(req, 'Super Admin'));

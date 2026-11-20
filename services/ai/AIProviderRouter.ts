@@ -28,6 +28,7 @@ import {
   ProviderExecutionError,
 } from './AIConnectionValidator.ts';
 import { maskSecret } from '../../src/server/crypto.ts';
+import { isSupabaseConfigured, upsertSupabaseAiCredential } from '../../src/server/supabaseAdmin.ts';
 
 export { AI_TASK_CATALOG };
 
@@ -153,7 +154,7 @@ export class AIProviderRouter {
   }
 
   public static async listCredentialsAuthoritative() {
-    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    await AIProviderManager.hydrateFromSupabaseIfConfigured('System', { requireSuccess: true });
     return this.getAllCredentialsSanitized();
   }
 
@@ -169,7 +170,7 @@ export class AIProviderRouter {
   }
 
   public static async getTaskRoutesAuthoritative(): Promise<AITaskRouting[]> {
-    await AIProviderManager.hydrateFromSupabaseIfConfigured();
+    await AIProviderManager.hydrateFromSupabaseIfConfigured('System', { requireSuccess: true });
     return this.getTaskRoutes();
   }
 
@@ -212,6 +213,7 @@ export class AIProviderRouter {
     signal?: AbortSignal;
   }): Promise<AIExecutionResponse & { credentialId: string; providerType: AIProviderType; projectId: string }> {
     const actor = params.actor || 'System';
+    await AIProviderManager.hydrateFromSupabaseIfConfigured(actor);
     const routes = this.getTaskRoutes();
     const route = routes.find(r => r.task === params.task);
     const allSanitized = this.getAllCredentialsSanitized().filter((c: any) => c.enabled);
@@ -316,18 +318,19 @@ export class AIProviderRouter {
 
         const now = new Date().toISOString();
         if (cred.id !== 'env-gemini-default' && cred.id !== 'env-grok-default') {
-          db.upsertAiProvider(
-            {
-              ...cred,
-              connectionStatus: 'connected',
-              generationTestStatus: 'ok',
-              lastTestStatus: 'connected',
-              lastSuccessfulGenerationAt: now,
-              lastLatencyMs: execResult.latencyMs,
-              updatedAt: now,
-            },
-            actor
-          );
+          const updatedCred: AIProviderCredential = {
+            ...cred,
+            connectionStatus: 'connected',
+            generationTestStatus: 'ok',
+            lastTestStatus: 'connected',
+            lastSuccessfulGenerationAt: now,
+            lastLatencyMs: execResult.latencyMs,
+            updatedAt: now,
+          };
+          db.upsertAiProvider(updatedCred, actor);
+          if (isSupabaseConfigured()) {
+            upsertSupabaseAiCredential(updatedCred).catch(() => {});
+          }
         }
 
         AIUsageTracker.record({
@@ -375,20 +378,21 @@ export class AIProviderRouter {
             cred.modelListStatus === 'ok' && diag.connectionStatus !== 'auth_failed'
               ? 'authenticated_generation_unavailable'
               : diag.connectionStatus;
-          db.upsertAiProvider(
-            {
-              ...cred,
-              connectionStatus: nextStatus,
-              generationTestStatus: 'error',
-              lastFailureAt: now,
-              lastTestStatus: 'error',
-              lastTestMessage: diag.diagnosis,
-              lastDiagnostic: diag,
-              lastCorrelationId: diag.correlationId,
-              updatedAt: now,
-            },
-            actor
-          );
+          const failedCred: AIProviderCredential = {
+            ...cred,
+            connectionStatus: nextStatus,
+            generationTestStatus: 'error',
+            lastFailureAt: now,
+            lastTestStatus: 'error',
+            lastTestMessage: diag.diagnosis,
+            lastDiagnostic: diag,
+            lastCorrelationId: diag.correlationId,
+            updatedAt: now,
+          };
+          db.upsertAiProvider(failedCred, actor);
+          if (isSupabaseConfigured()) {
+            upsertSupabaseAiCredential(failedCred).catch(() => {});
+          }
         }
 
         AIUsageTracker.record({
