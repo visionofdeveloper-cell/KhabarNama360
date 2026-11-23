@@ -3495,11 +3495,6 @@ var DatabaseManager = class {
   }
 };
 var db = new DatabaseManager();
-function isServerlessRuntime() {
-  return Boolean(
-    IS_SERVERLESS || process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION
-  );
-}
 
 // src/server/crypto.ts
 import crypto from "crypto";
@@ -6222,20 +6217,43 @@ function getServerErrorLogs(limit = 50) {
 // src/server/supabaseAdmin.ts
 function detectBackendRuntimeInfo() {
   if (process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_REGION || process.env.NOW_REGION) {
+    const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    const deploymentEnv = isProd ? "Production" : process.env.VERCEL_ENV === "preview" ? "Preview" : "Development";
     return {
       runtime: "vercel_serverless",
+      shortName: "Vercel",
+      deploymentEnv,
       label: "Vercel Serverless Function",
       isServerless: true,
-      isProduction: process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production",
+      isGoogleAiStudio: false,
+      isProduction: isProd,
       region: process.env.VERCEL_REGION || process.env.NOW_REGION || void 0,
       envHint: "Vercel Dashboard \u2192 Project Settings \u2192 Environment Variables (Production Scope) \u2192 Redeploy"
+    };
+  }
+  if (process.env.K_SERVICE || process.env.K_REVISION || process.env.K_CONFIGURATION || process.env.GOOGLE_RUNTIME) {
+    const isProd = process.env.NODE_ENV === "production";
+    const deploymentEnv = isProd ? "Production" : "Preview";
+    return {
+      runtime: "google_ai_studio",
+      shortName: "Google AI Studio",
+      deploymentEnv,
+      label: "Google AI Studio (Cloud Run Backend)",
+      isServerless: false,
+      isGoogleAiStudio: true,
+      isProduction: isProd,
+      region: process.env.GOOGLE_CLOUD_REGION || void 0,
+      envHint: "Google AI Studio \u2192 Settings / Secrets (add SUPABASE_URL & SUPABASE_SECRET_KEY) \u2192 Restart / Reload App"
     };
   }
   if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return {
       runtime: "aws_lambda",
+      shortName: "Other",
+      deploymentEnv: "Production",
       label: "AWS Lambda Serverless",
       isServerless: true,
+      isGoogleAiStudio: false,
       isProduction: true,
       region: process.env.AWS_REGION || void 0,
       envHint: "Lambda / Hosting Environment Variables \u2192 Redeploy"
@@ -6244,16 +6262,22 @@ function detectBackendRuntimeInfo() {
   if (process.env.NODE_ENV === "production") {
     return {
       runtime: "namecheap_node_production",
+      shortName: "Other",
+      deploymentEnv: "Production",
       label: "Namecheap Node.js Production",
       isServerless: false,
+      isGoogleAiStudio: false,
       isProduction: true,
       envHint: "cPanel \u2192 Setup Node.js App \u2192 Environment Variables (or .env at app root) \u2192 Restart App"
     };
   }
   return {
     runtime: "local_dev_preview",
+    shortName: "Other",
+    deploymentEnv: "Development",
     label: "Development / Preview Node.js Server",
     isServerless: false,
+    isGoogleAiStudio: false,
     isProduction: false,
     envHint: "Environment Secrets / .env file"
   };
@@ -7030,11 +7054,15 @@ async function inspectSupabaseAiInfrastructure() {
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
       urlEnvName: envCfg.urlEnvName,
       secretEnvName: envCfg.secretEnvName,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       isServerless: runtimeInfo.isServerless,
+      isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
       isProduction: runtimeInfo.isProduction,
       connectionTestOk: false,
+      databaseQueryOk: false,
       credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       secretKeyMode: envCfg.secretKeyMode,
@@ -7089,20 +7117,26 @@ async function inspectSupabaseAiInfrastructure() {
   }
   const credTable = tables.find((t) => t.table === "ai_provider_credentials");
   const credentialTableAccessible = Boolean(credTable?.available);
-  const connectionTestOk = tables.some((t) => t.available);
+  const databaseQueryOk = tables.some((t) => t.available);
   const firstTableError = credTable?.error || tables.find((t) => t.error)?.error;
+  const isConnFailure = !databaseQueryOk && Boolean(firstTableError && /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(firstTableError));
+  const connectionTestOk = databaseQueryOk || !isConnFailure;
   return {
-    connected: connectionTestOk && credentialTableAccessible,
+    connected: connectionTestOk && databaseQueryOk && credentialTableAccessible,
     configured: true,
     supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
     supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
     urlEnvName: envCfg.urlEnvName,
     secretEnvName: envCfg.secretEnvName,
+    currentRuntime: runtimeInfo.shortName,
+    deploymentEnvironment: runtimeInfo.deploymentEnv,
     actualRuntime: runtimeInfo.label,
     runtimeId: runtimeInfo.runtime,
     isServerless: runtimeInfo.isServerless,
+    isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
     isProduction: runtimeInfo.isProduction,
     connectionTestOk,
+    databaseQueryOk,
     credentialTableAccessible,
     projectHost: envCfg.projectHost,
     secretKeyMode: envCfg.secretKeyMode,
@@ -7167,9 +7201,12 @@ async function runSupabaseAiCrudSelfTest() {
       configured: false,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk: false,
+      databaseQueryOk: false,
       credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
@@ -7178,6 +7215,7 @@ async function runSupabaseAiCrudSelfTest() {
     };
   }
   let connectionTestOk = false;
+  let databaseQueryOk = false;
   let credentialTableAccessible = false;
   try {
     const probe = await client.from("ai_provider_credentials").select("id", { count: "exact", head: true });
@@ -7185,6 +7223,7 @@ async function runSupabaseAiCrudSelfTest() {
       const msg = probe.error.message || "Cannot access ai_provider_credentials table.";
       const isNetworkOrAuth = /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(msg);
       connectionTestOk = !isNetworkOrAuth;
+      databaseQueryOk = false;
       credentialTableAccessible = false;
       padRemainingStages(msg);
       return {
@@ -7192,9 +7231,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7203,6 +7245,7 @@ async function runSupabaseAiCrudSelfTest() {
       };
     }
     connectionTestOk = true;
+    databaseQueryOk = true;
     credentialTableAccessible = true;
     let t0 = Date.now();
     const { data: inserted, error: insErr } = await client.from("ai_provider_credentials").insert({
@@ -7232,9 +7275,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7265,9 +7311,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7299,9 +7348,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7333,9 +7385,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7365,9 +7420,12 @@ async function runSupabaseAiCrudSelfTest() {
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -7386,9 +7444,12 @@ async function runSupabaseAiCrudSelfTest() {
       configured: true,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk,
+      databaseQueryOk,
       credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
@@ -7402,9 +7463,12 @@ async function runSupabaseAiCrudSelfTest() {
       configured: true,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk,
+      databaseQueryOk,
       credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
@@ -7492,6 +7556,7 @@ var AIProviderManager = class {
     if (isSupabaseConfigured()) return "supabase+local_encrypted";
     const runtime = detectBackendRuntimeInfo();
     if (runtime.isServerless) return "ephemeral_tmp_unconfigured";
+    if (runtime.isGoogleAiStudio) return "aistudio_supabase_missing";
     if (runtime.isProduction) return "production_supabase_missing";
     return "local_encrypted";
   }
@@ -7527,7 +7592,7 @@ var AIProviderManager = class {
   }
   static assertPersistentMutationBackend(operation) {
     const runtime = detectBackendRuntimeInfo();
-    if ((runtime.isServerless || runtime.isProduction) && !isSupabaseConfigured()) {
+    if ((runtime.isServerless || runtime.isProduction || runtime.isGoogleAiStudio) && !isSupabaseConfigured()) {
       const msg = getMissingSupabaseConfigGuidance();
       this.recordDbFailure(operation, msg, "SUPABASE_CONFIG_REQUIRED");
       throw new Error(msg);
@@ -8226,8 +8291,22 @@ var AIProviderManager = class {
     const envCfg = resolveSupabaseEnvConfig();
     const runtimeInfo = detectBackendRuntimeInfo();
     const backendMode = this.getStorageBackendMode();
+    const unconfiguredMode = backendMode === "ephemeral_tmp_unconfigured" || backendMode === "production_supabase_missing" || backendMode === "aistudio_supabase_missing";
+    const lastDbErrorText = supabase.error || this.lastDbError?.message || null;
     return {
       buildVersion: AI_VAULT_BUILD_VERSION,
+      configurationDiagnostic: {
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured ? "Yes" : "No",
+        supabaseSecretKeyConfigured: envCfg.supabaseSecretConfigured ? "Yes" : "No",
+        supabaseConnection: supabase.connectionTestOk ? "Pass" : "Fail",
+        databaseQuery: supabase.databaseQueryOk ? "Pass" : "Fail",
+        aiCredentialTable: supabase.credentialTableAccessible ? "Accessible" : "Inaccessible",
+        currentRuntime: runtimeInfo.shortName,
+        actualRuntime: runtimeInfo.label,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
+        applicationBuildVersion: AI_VAULT_BUILD_VERSION,
+        lastDatabaseError: lastDbErrorText
+      },
       connectivity,
       supabase,
       lastHealthCheck: cachedHealth,
@@ -8238,12 +8317,15 @@ var AIProviderManager = class {
         nodeEnv: process.env.NODE_ENV || "development",
         nodeVersion: process.version,
         isServerless: runtimeInfo.isServerless,
+        isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
         isProduction: runtimeInfo.isProduction,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         runtimeRegion: runtimeInfo.region || null,
         runtimeEnvHint: runtimeInfo.envHint,
-        ephemeralServerlessWarning: backendMode === "ephemeral_tmp_unconfigured" || backendMode === "production_supabase_missing",
+        ephemeralServerlessWarning: unconfiguredMode,
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
         supabaseConfigured: envCfg.configured,
@@ -8255,7 +8337,7 @@ var AIProviderManager = class {
       },
       runtimeTelemetry: {
         storageBackend: backendMode,
-        configSource: backendMode === "supabase+local_encrypted" ? "Supabase PostgreSQL (authoritative)" : backendMode === "ephemeral_tmp_unconfigured" || backendMode === "production_supabase_missing" ? `Supabase Unconfigured (${runtimeInfo.label} \u2014 set SUPABASE_URL & SUPABASE_SECRET_KEY)` : "Local Development Encrypted Vault (data/portal_database.json)",
+        configSource: backendMode === "supabase+local_encrypted" ? "Supabase PostgreSQL (authoritative)" : unconfiguredMode ? `Supabase Unconfigured (${runtimeInfo.label} \u2014 set SUPABASE_URL & SUPABASE_SECRET_KEY)` : "Local Development Encrypted Vault (data/portal_database.json)",
         storedCredentialCount: providers.length,
         enabledCredentialCount: providers.filter((p) => p.enabled).length,
         activeConnectedCount: providers.filter((p) => p.enabled && p.connectionStatus === "connected").length,
@@ -8290,6 +8372,7 @@ var AIProviderManager = class {
     }
     return {
       ...res,
+      applicationBuildVersion: AI_VAULT_BUILD_VERSION,
       mode: res.configured ? "supabase" : "unconfigured",
       lastDatabaseError: res.ok ? null : res.error || this.lastDbError?.message || null
     };
@@ -17814,6 +17897,7 @@ app.get("/api/v1/admin/ai/connection-status", requireAnyPermission(["ai:use", "a
     const recentTests = db.getAiConnectionTests(void 0, 10);
     const latestTest = recentTests[0] || null;
     const storageBackend = AIProviderManager.getStorageBackendMode();
+    const runtimeInfo = detectBackendRuntimeInfo();
     res.json({
       success: true,
       buildVersion: AI_VAULT_BUILD_VERSION,
@@ -17827,13 +17911,17 @@ app.get("/api/v1/admin/ai/connection-status", requireAnyPermission(["ai:use", "a
       connectedCount: all.filter((c) => c.enabled && c.connectionStatus === "connected").length,
       storageBackend,
       supabaseConfigured,
-      ephemeralServerlessWarning: isServerlessRuntime() && !supabaseConfigured,
+      ephemeralServerlessWarning: (runtimeInfo.isServerless || runtimeInfo.isGoogleAiStudio || runtimeInfo.isProduction) && !supabaseConfigured,
       envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || "development",
         nodeVersion: process.version,
-        isServerless: isServerlessRuntime(),
-        generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45e3),
+        isServerless: runtimeInfo.isServerless,
+        isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
+        actualRuntime: runtimeInfo.label,
+        generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 55e3),
         discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12e3)
       },
       latestTest
@@ -18102,10 +18190,11 @@ async function handleRunCrudSelfTest(req, res) {
     return res.status(500).json({ success: false, error: err?.message || "CRUD self-test failed." });
   }
 }
-app.get("/api/v1/admin/ai/diagnostics", requirePermission("ai:keys"), handleGetDiagnostics);
-app.get("/api/v1/admin/ai/providers/diagnostics", requirePermission("ai:keys"), handleGetDiagnostics);
-app.get("/api/admin/ai/diagnostics", requirePermission("ai:keys"), handleGetDiagnostics);
-app.get("/api/admin/ai/providers/diagnostics", requirePermission("ai:keys"), handleGetDiagnostics);
+app.get("/api/v1/admin/ai/diagnostics", requireSuperAdmin, handleGetDiagnostics);
+app.get("/api/v1/admin/ai/providers/diagnostics", requireSuperAdmin, handleGetDiagnostics);
+app.get("/api/v1/admin/supabase/diagnostics", requireSuperAdmin, handleGetDiagnostics);
+app.get("/api/admin/ai/diagnostics", requireSuperAdmin, handleGetDiagnostics);
+app.get("/api/admin/ai/providers/diagnostics", requireSuperAdmin, handleGetDiagnostics);
 app.post("/api/v1/admin/ai/diagnostics/crud-test", requireSuperAdmin, handleRunCrudSelfTest);
 app.post("/api/v1/admin/ai/providers/diagnostics/crud-test", requireSuperAdmin, handleRunCrudSelfTest);
 app.post("/api/admin/ai/diagnostics/crud-test", requireSuperAdmin, handleRunCrudSelfTest);

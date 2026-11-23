@@ -33,7 +33,11 @@ import { ArticleService } from './src/server/articleService.ts';
 import { checkFirestoreHealth, ensureTestConnectionDoc, FirestoreAuthContext } from './src/server/firestore.ts';
 import { firebaseProjectConfig, hasServiceAccountConfigured } from './src/lib/firebase-admin.ts';
 import { checkSupabaseHealth } from './src/server/databaseHealth.ts';
-import { isSupabaseConfigured, resolveSupabaseEnvConfig } from './src/server/supabaseAdmin.ts';
+import {
+  detectBackendRuntimeInfo,
+  isSupabaseConfigured,
+  resolveSupabaseEnvConfig,
+} from './src/server/supabaseAdmin.ts';
 import { getServerErrorLogs, recordServerError } from './src/server/errorTracker.ts';
 import { SEOEngine } from './services/seo/SEOEngine.ts';
 import { SEOAuditService } from './services/seo/SEOAuditService.ts';
@@ -3007,6 +3011,7 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
     const latestTest = recentTests[0] || null;
 
     const storageBackend = AIProviderManager.getStorageBackendMode();
+    const runtimeInfo = detectBackendRuntimeInfo();
     res.json({
       success: true,
       buildVersion: AI_VAULT_BUILD_VERSION,
@@ -3026,13 +3031,18 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
       connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
       storageBackend,
       supabaseConfigured,
-      ephemeralServerlessWarning: isServerlessRuntime() && !supabaseConfigured,
+      ephemeralServerlessWarning:
+        (runtimeInfo.isServerless || runtimeInfo.isGoogleAiStudio || runtimeInfo.isProduction) && !supabaseConfigured,
       envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || 'development',
         nodeVersion: process.version,
-        isServerless: isServerlessRuntime(),
-        generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 45000),
+        isServerless: runtimeInfo.isServerless,
+        isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
+        actualRuntime: runtimeInfo.label,
+        generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 55000),
         discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
       },
       latestTest,
@@ -3321,10 +3331,11 @@ async function handleRunCrudSelfTest(req: Request, res: Response) {
   }
 }
 
-app.get('/api/v1/admin/ai/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
-app.get('/api/v1/admin/ai/providers/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
-app.get('/api/admin/ai/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
-app.get('/api/admin/ai/providers/diagnostics', requirePermission('ai:keys'), handleGetDiagnostics);
+app.get('/api/v1/admin/ai/diagnostics', requireSuperAdmin, handleGetDiagnostics);
+app.get('/api/v1/admin/ai/providers/diagnostics', requireSuperAdmin, handleGetDiagnostics);
+app.get('/api/v1/admin/supabase/diagnostics', requireSuperAdmin, handleGetDiagnostics);
+app.get('/api/admin/ai/diagnostics', requireSuperAdmin, handleGetDiagnostics);
+app.get('/api/admin/ai/providers/diagnostics', requireSuperAdmin, handleGetDiagnostics);
 
 app.post('/api/v1/admin/ai/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);
 app.post('/api/v1/admin/ai/providers/diagnostics/crud-test', requireSuperAdmin, handleRunCrudSelfTest);

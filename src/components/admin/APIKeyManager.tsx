@@ -186,7 +186,11 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
       if (provRes.success) setCredentials(nextProviders);
       if (routeRes.success) setRoutes(nextRoutes);
       if (useRes.success) setUsageSummary(useRes.usage || null);
-      if (diagRes.success) setDiagnostics(diagRes);
+      if (diagRes?.success) {
+        setDiagnostics(diagRes);
+      } else if (diagRes?._httpStatus === 403) {
+        setDiagnostics({ superAdminRestricted: true, error: diagRes.error });
+      }
       if (!provRes.success || !routeRes.success) {
         const errText = provRes.error || routeRes.error || 'Failed to load AI provider settings.';
         setStatusBanner({ ok: false, text: errText });
@@ -1263,15 +1267,38 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               </button>
             </div>
 
-            {(() => {
+            {diagnostics?.superAdminRestricted ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+                Server configuration diagnostics are restricted to <strong>Super Admin</strong> accounts.
+              </div>
+            ) : (() => {
               const sb = diagnostics?.supabase || {};
               const env = diagnostics?.serverEnvironment || {};
+              const cfgDiag = diagnostics?.configurationDiagnostic || {};
               const urlOk = Boolean(crudTestResult?.supabaseUrlConfigured ?? sb.supabaseUrlConfigured ?? env.supabaseUrlConfigured);
               const secretOk = Boolean(crudTestResult?.supabaseSecretConfigured ?? sb.supabaseSecretConfigured ?? env.supabaseSecretConfigured);
+              const runtimeShort =
+                crudTestResult?.currentRuntime ||
+                cfgDiag.currentRuntime ||
+                env.currentRuntime ||
+                (env.isServerless ? 'Vercel' : env.isGoogleAiStudio ? 'Google AI Studio' : 'Other');
               const runtimeLabel =
                 crudTestResult?.actualRuntime || sb.actualRuntime || env.actualRuntime || 'Node.js Server';
+              const deploymentEnv =
+                crudTestResult?.deploymentEnvironment ||
+                cfgDiag.deploymentEnvironment ||
+                env.deploymentEnvironment ||
+                (env.nodeEnv === 'production' ? 'Production' : 'Development');
+              const buildVer =
+                crudTestResult?.applicationBuildVersion ||
+                cfgDiag.applicationBuildVersion ||
+                diagnostics?.buildVersion ||
+                '—';
               const connPass = Boolean(
                 crudTestResult ? crudTestResult.connectionTestOk : sb.connectionTestOk ?? sb.connected
+              );
+              const queryPass = Boolean(
+                crudTestResult ? crudTestResult.databaseQueryOk : sb.databaseQueryOk ?? sb.connected
               );
               const tablePass = Boolean(
                 crudTestResult ? crudTestResult.credentialTableAccessible : sb.credentialTableAccessible
@@ -1279,6 +1306,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               const lastDbErrorText =
                 crudTestResult?.lastDatabaseError ||
                 crudTestResult?.error ||
+                cfgDiag.lastDatabaseError ||
                 diagnostics?.runtimeTelemetry?.lastDbError?.message ||
                 sb.error ||
                 null;
@@ -1294,11 +1322,11 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
                       <div className="text-[10px] font-bold uppercase text-gray-500">Supabase Configuration</div>
                       <div className="font-mono">
-                        Supabase URL configured:{' '}
+                        SUPABASE_URL configured:{' '}
                         <strong className={urlOk ? 'text-emerald-700' : 'text-rose-700'}>{urlOk ? 'Yes' : 'No'}</strong>
                       </div>
                       <div className="font-mono">
-                        Supabase secret configured:{' '}
+                        SUPABASE_SECRET_KEY configured:{' '}
                         <strong className={secretOk ? 'text-emerald-700' : 'text-rose-700'}>{secretOk ? 'Yes' : 'No'}</strong>
                       </div>
                       <div className="font-mono text-[10px] text-gray-500 truncate">
@@ -1307,25 +1335,34 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                     </div>
 
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
-                      <div className="text-[10px] font-bold uppercase text-gray-500">Actual Backend Runtime</div>
-                      <div className="font-black text-gray-900">{runtimeLabel}</div>
-                      <div className="font-mono text-[10px] text-gray-600">
-                        {env.nodeEnv || 'development'} • {env.nodeVersion || ''}
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Runtime &amp; Deployment</div>
+                      <div className="font-mono">
+                        Current runtime: <strong className="text-gray-900">{runtimeShort}</strong>
+                      </div>
+                      <div className="font-mono">
+                        Deployment env: <strong className="text-gray-900">{deploymentEnv}</strong>
+                      </div>
+                      <div className="font-mono text-[10px] text-gray-600 truncate" title={runtimeLabel}>
+                        {runtimeLabel} • {env.nodeVersion || ''}
                       </div>
                       <div className="font-mono text-[10px] text-gray-600 truncate">
-                        AI_MASTER_KEY: {env.masterKeyConfigured ? 'Set' : 'Missing (Fallback)'}
+                        Build: {buildVer} • AI_MASTER_KEY: {env.masterKeyConfigured ? 'Set' : 'Fallback'}
                       </div>
                     </div>
 
                     <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
                       <div className="text-[10px] font-bold uppercase text-gray-500">Connection &amp; Table Health</div>
                       <div className="font-mono">
-                        Connection test:{' '}
+                        Supabase connection:{' '}
                         <strong className={connPass ? 'text-emerald-700' : 'text-rose-700'}>{connPass ? 'Pass' : 'Fail'}</strong>
                       </div>
                       <div className="font-mono">
-                        Credential table accessible:{' '}
-                        <strong className={tablePass ? 'text-emerald-700' : 'text-rose-700'}>{tablePass ? 'Pass' : 'Fail'}</strong>
+                        Database query:{' '}
+                        <strong className={queryPass ? 'text-emerald-700' : 'text-rose-700'}>{queryPass ? 'Pass' : 'Fail'}</strong>
+                      </div>
+                      <div className="font-mono">
+                        AI credential table:{' '}
+                        <strong className={tablePass ? 'text-emerald-700' : 'text-rose-700'}>{tablePass ? 'Accessible' : 'Inaccessible'}</strong>
                       </div>
                       <div className="font-mono text-[10px] text-gray-600">
                         RLS: {sb.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked' : 'Check Policies'}
@@ -1363,9 +1400,9 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               );
             })()}
 
-            {diagnostics?.buildVersion && (
+            {diagnostics?.buildVersion && !diagnostics?.superAdminRestricted && (
               <div className="text-[10px] font-mono text-gray-500">
-                Backend AI Vault Build: {diagnostics.buildVersion} • Storage Mode: {diagnostics?.runtimeTelemetry?.storageBackend || 'unknown'}
+                Application Build Version: {diagnostics.buildVersion} • Storage Mode: {diagnostics?.runtimeTelemetry?.storageBackend || 'unknown'}
               </div>
             )}
 

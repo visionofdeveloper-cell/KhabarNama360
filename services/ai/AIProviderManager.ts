@@ -138,7 +138,7 @@ export interface AIMutationDebugEntry {
   handler: string;
   endpoint: string;
   httpStatus: number;
-  storageBackend: 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing';
+  storageBackend: 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing' | 'aistudio_supabase_missing';
   table: string;
   targetId: string;
   affectedCount: number;
@@ -166,10 +166,11 @@ export class AIProviderManager {
     };
   }
 
-  public static getStorageBackendMode(): 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing' {
+  public static getStorageBackendMode(): 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing' | 'aistudio_supabase_missing' {
     if (isSupabaseConfigured()) return 'supabase+local_encrypted';
     const runtime = detectBackendRuntimeInfo();
     if (runtime.isServerless) return 'ephemeral_tmp_unconfigured';
+    if (runtime.isGoogleAiStudio) return 'aistudio_supabase_missing';
     if (runtime.isProduction) return 'production_supabase_missing';
     return 'local_encrypted';
   }
@@ -213,7 +214,7 @@ export class AIProviderManager {
 
   private static assertPersistentMutationBackend(operation: string): void {
     const runtime = detectBackendRuntimeInfo();
-    if ((runtime.isServerless || runtime.isProduction) && !isSupabaseConfigured()) {
+    if ((runtime.isServerless || runtime.isProduction || runtime.isGoogleAiStudio) && !isSupabaseConfigured()) {
       const msg = getMissingSupabaseConfigGuidance();
       this.recordDbFailure(operation, msg, 'SUPABASE_CONFIG_REQUIRED');
       throw new Error(msg);
@@ -1057,8 +1058,25 @@ export class AIProviderManager {
     const envCfg = resolveSupabaseEnvConfig();
     const runtimeInfo = detectBackendRuntimeInfo();
     const backendMode = this.getStorageBackendMode();
+    const unconfiguredMode =
+      backendMode === 'ephemeral_tmp_unconfigured' ||
+      backendMode === 'production_supabase_missing' ||
+      backendMode === 'aistudio_supabase_missing';
+    const lastDbErrorText = supabase.error || this.lastDbError?.message || null;
     return {
       buildVersion: AI_VAULT_BUILD_VERSION,
+      configurationDiagnostic: {
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured ? 'Yes' : 'No',
+        supabaseSecretKeyConfigured: envCfg.supabaseSecretConfigured ? 'Yes' : 'No',
+        supabaseConnection: supabase.connectionTestOk ? 'Pass' : 'Fail',
+        databaseQuery: supabase.databaseQueryOk ? 'Pass' : 'Fail',
+        aiCredentialTable: supabase.credentialTableAccessible ? 'Accessible' : 'Inaccessible',
+        currentRuntime: runtimeInfo.shortName,
+        actualRuntime: runtimeInfo.label,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
+        applicationBuildVersion: AI_VAULT_BUILD_VERSION,
+        lastDatabaseError: lastDbErrorText,
+      },
       connectivity,
       supabase,
       lastHealthCheck: cachedHealth,
@@ -1069,13 +1087,15 @@ export class AIProviderManager {
         nodeEnv: process.env.NODE_ENV || 'development',
         nodeVersion: process.version,
         isServerless: runtimeInfo.isServerless,
+        isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
         isProduction: runtimeInfo.isProduction,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         runtimeRegion: runtimeInfo.region || null,
         runtimeEnvHint: runtimeInfo.envHint,
-        ephemeralServerlessWarning:
-          backendMode === 'ephemeral_tmp_unconfigured' || backendMode === 'production_supabase_missing',
+        ephemeralServerlessWarning: unconfiguredMode,
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
         supabaseConfigured: envCfg.configured,
@@ -1090,7 +1110,7 @@ export class AIProviderManager {
         configSource:
           backendMode === 'supabase+local_encrypted'
             ? 'Supabase PostgreSQL (authoritative)'
-            : backendMode === 'ephemeral_tmp_unconfigured' || backendMode === 'production_supabase_missing'
+            : unconfiguredMode
             ? `Supabase Unconfigured (${runtimeInfo.label} — set SUPABASE_URL & SUPABASE_SECRET_KEY)`
             : 'Local Development Encrypted Vault (data/portal_database.json)',
         storedCredentialCount: providers.length,
@@ -1134,6 +1154,7 @@ export class AIProviderManager {
     }
     return {
       ...res,
+      applicationBuildVersion: AI_VAULT_BUILD_VERSION,
       mode: res.configured ? ('supabase' as const) : ('unconfigured' as const),
       lastDatabaseError: res.ok ? null : res.error || this.lastDbError?.message || null,
     };

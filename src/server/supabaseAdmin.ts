@@ -35,9 +35,17 @@ export interface SupabaseEnvConfig {
 }
 
 export interface BackendRuntimeInfo {
-  runtime: 'vercel_serverless' | 'aws_lambda' | 'namecheap_node_production' | 'local_dev_preview';
+  runtime:
+    | 'vercel_serverless'
+    | 'google_ai_studio'
+    | 'aws_lambda'
+    | 'namecheap_node_production'
+    | 'local_dev_preview';
+  shortName: 'Vercel' | 'Google AI Studio' | 'Other';
+  deploymentEnv: 'Production' | 'Preview' | 'Development';
   label: string;
   isServerless: boolean;
+  isGoogleAiStudio: boolean;
   isProduction: boolean;
   region?: string;
   envHint: string;
@@ -50,20 +58,54 @@ export function detectBackendRuntimeInfo(): BackendRuntimeInfo {
     process.env.VERCEL_REGION ||
     process.env.NOW_REGION
   ) {
+    const isProd = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+    const deploymentEnv: BackendRuntimeInfo['deploymentEnv'] = isProd
+      ? 'Production'
+      : process.env.VERCEL_ENV === 'preview'
+      ? 'Preview'
+      : 'Development';
     return {
       runtime: 'vercel_serverless',
+      shortName: 'Vercel',
+      deploymentEnv,
       label: 'Vercel Serverless Function',
       isServerless: true,
-      isProduction: process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production',
+      isGoogleAiStudio: false,
+      isProduction: isProd,
       region: process.env.VERCEL_REGION || process.env.NOW_REGION || undefined,
       envHint: 'Vercel Dashboard → Project Settings → Environment Variables (Production Scope) → Redeploy',
+    };
+  }
+  if (
+    process.env.K_SERVICE ||
+    process.env.K_REVISION ||
+    process.env.K_CONFIGURATION ||
+    process.env.GOOGLE_RUNTIME
+  ) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const deploymentEnv: BackendRuntimeInfo['deploymentEnv'] = isProd
+      ? 'Production'
+      : 'Preview';
+    return {
+      runtime: 'google_ai_studio',
+      shortName: 'Google AI Studio',
+      deploymentEnv,
+      label: 'Google AI Studio (Cloud Run Backend)',
+      isServerless: false,
+      isGoogleAiStudio: true,
+      isProduction: isProd,
+      region: process.env.GOOGLE_CLOUD_REGION || undefined,
+      envHint: 'Google AI Studio → Settings / Secrets (add SUPABASE_URL & SUPABASE_SECRET_KEY) → Restart / Reload App',
     };
   }
   if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return {
       runtime: 'aws_lambda',
+      shortName: 'Other',
+      deploymentEnv: 'Production',
       label: 'AWS Lambda Serverless',
       isServerless: true,
+      isGoogleAiStudio: false,
       isProduction: true,
       region: process.env.AWS_REGION || undefined,
       envHint: 'Lambda / Hosting Environment Variables → Redeploy',
@@ -72,16 +114,22 @@ export function detectBackendRuntimeInfo(): BackendRuntimeInfo {
   if (process.env.NODE_ENV === 'production') {
     return {
       runtime: 'namecheap_node_production',
+      shortName: 'Other',
+      deploymentEnv: 'Production',
       label: 'Namecheap Node.js Production',
       isServerless: false,
+      isGoogleAiStudio: false,
       isProduction: true,
       envHint: 'cPanel → Setup Node.js App → Environment Variables (or .env at app root) → Restart App',
     };
   }
   return {
     runtime: 'local_dev_preview',
+    shortName: 'Other',
+    deploymentEnv: 'Development',
     label: 'Development / Preview Node.js Server',
     isServerless: false,
+    isGoogleAiStudio: false,
     isProduction: false,
     envHint: 'Environment Secrets / .env file',
   };
@@ -1077,11 +1125,15 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
   supabaseSecretConfigured: boolean;
   urlEnvName: string | null;
   secretEnvName: string | null;
+  currentRuntime: BackendRuntimeInfo['shortName'];
+  deploymentEnvironment: BackendRuntimeInfo['deploymentEnv'];
   actualRuntime: string;
   runtimeId: BackendRuntimeInfo['runtime'];
   isServerless: boolean;
+  isGoogleAiStudio: boolean;
   isProduction: boolean;
   connectionTestOk: boolean;
+  databaseQueryOk: boolean;
   credentialTableAccessible: boolean;
   projectHost: string | null;
   secretKeyMode: string;
@@ -1113,11 +1165,15 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
       urlEnvName: envCfg.urlEnvName,
       secretEnvName: envCfg.secretEnvName,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       isServerless: runtimeInfo.isServerless,
+      isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
       isProduction: runtimeInfo.isProduction,
       connectionTestOk: false,
+      databaseQueryOk: false,
       credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       secretKeyMode: envCfg.secretKeyMode,
@@ -1181,21 +1237,29 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
 
   const credTable = tables.find(t => t.table === 'ai_provider_credentials');
   const credentialTableAccessible = Boolean(credTable?.available);
-  const connectionTestOk = tables.some(t => t.available);
+  const databaseQueryOk = tables.some(t => t.available);
   const firstTableError = credTable?.error || tables.find(t => t.error)?.error;
+  const isConnFailure =
+    !databaseQueryOk &&
+    Boolean(firstTableError && /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(firstTableError));
+  const connectionTestOk = databaseQueryOk || !isConnFailure;
 
   return {
-    connected: connectionTestOk && credentialTableAccessible,
+    connected: connectionTestOk && databaseQueryOk && credentialTableAccessible,
     configured: true,
     supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
     supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
     urlEnvName: envCfg.urlEnvName,
     secretEnvName: envCfg.secretEnvName,
+    currentRuntime: runtimeInfo.shortName,
+    deploymentEnvironment: runtimeInfo.deploymentEnv,
     actualRuntime: runtimeInfo.label,
     runtimeId: runtimeInfo.runtime,
     isServerless: runtimeInfo.isServerless,
+    isGoogleAiStudio: runtimeInfo.isGoogleAiStudio,
     isProduction: runtimeInfo.isProduction,
     connectionTestOk,
+    databaseQueryOk,
     credentialTableAccessible,
     projectHost: envCfg.projectHost,
     secretKeyMode: envCfg.secretKeyMode,
@@ -1247,9 +1311,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
   configured: boolean;
   supabaseUrlConfigured: boolean;
   supabaseSecretConfigured: boolean;
+  currentRuntime: BackendRuntimeInfo['shortName'];
+  deploymentEnvironment: BackendRuntimeInfo['deploymentEnv'];
   actualRuntime: string;
   runtimeId: BackendRuntimeInfo['runtime'];
   connectionTestOk: boolean;
+  databaseQueryOk: boolean;
   credentialTableAccessible: boolean;
   projectHost: string | null;
   testRecordId: string;
@@ -1303,9 +1370,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       configured: false,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk: false,
+      databaseQueryOk: false,
       credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
@@ -1315,6 +1385,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
   }
 
   let connectionTestOk = false;
+  let databaseQueryOk = false;
   let credentialTableAccessible = false;
 
   try {
@@ -1326,6 +1397,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       const msg = probe.error.message || 'Cannot access ai_provider_credentials table.';
       const isNetworkOrAuth = /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(msg);
       connectionTestOk = !isNetworkOrAuth;
+      databaseQueryOk = false;
       credentialTableAccessible = false;
       padRemainingStages(msg);
       return {
@@ -1333,9 +1405,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1344,6 +1419,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       };
     }
     connectionTestOk = true;
+    databaseQueryOk = true;
     credentialTableAccessible = true;
 
     // 1. INSERT isolated synthetic row (enabled: false, dummy ciphertext — never usable for generation)
@@ -1380,9 +1456,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1419,9 +1498,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1460,9 +1542,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1500,9 +1585,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1538,9 +1626,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         configured: true,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        currentRuntime: runtimeInfo.shortName,
+        deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
         runtimeId: runtimeInfo.runtime,
         connectionTestOk,
+        databaseQueryOk,
         credentialTableAccessible,
         projectHost: envCfg.projectHost,
         testRecordId: testId,
@@ -1560,9 +1651,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       configured: true,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk,
+      databaseQueryOk,
       credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
@@ -1576,9 +1670,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       configured: true,
       supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
       supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      currentRuntime: runtimeInfo.shortName,
+      deploymentEnvironment: runtimeInfo.deploymentEnv,
       actualRuntime: runtimeInfo.label,
       runtimeId: runtimeInfo.runtime,
       connectionTestOk,
+      databaseQueryOk,
       credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
