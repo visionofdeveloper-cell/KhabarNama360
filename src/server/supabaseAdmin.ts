@@ -21,11 +21,112 @@ export interface SupabaseEnvConfig {
   url: string;
   publishableKey: string;
   secretKey: string;
+  urlEnvName: string | null;
+  secretEnvName: string | null;
+  publishableEnvName: string | null;
+  supabaseUrlConfigured: boolean;
+  supabaseSecretConfigured: boolean;
   secretKeyMode: 'sb_secret' | 'legacy_service_role' | 'misconfigured_anon_or_publishable' | 'missing';
   publishableKeyMode: 'sb_publishable' | 'legacy_anon' | 'missing';
   secretKeyMisconfiguration?: string;
+  urlMisconfiguration?: string;
   configured: boolean;
   projectHost: string | null;
+}
+
+export interface BackendRuntimeInfo {
+  runtime: 'vercel_serverless' | 'aws_lambda' | 'namecheap_node_production' | 'local_dev_preview';
+  label: string;
+  isServerless: boolean;
+  isProduction: boolean;
+  region?: string;
+  envHint: string;
+}
+
+export function detectBackendRuntimeInfo(): BackendRuntimeInfo {
+  if (
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.VERCEL_REGION ||
+    process.env.NOW_REGION
+  ) {
+    return {
+      runtime: 'vercel_serverless',
+      label: 'Vercel Serverless Function',
+      isServerless: true,
+      isProduction: process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production',
+      region: process.env.VERCEL_REGION || process.env.NOW_REGION || undefined,
+      envHint: 'Vercel Dashboard → Project Settings → Environment Variables (Production Scope) → Redeploy',
+    };
+  }
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return {
+      runtime: 'aws_lambda',
+      label: 'AWS Lambda Serverless',
+      isServerless: true,
+      isProduction: true,
+      region: process.env.AWS_REGION || undefined,
+      envHint: 'Lambda / Hosting Environment Variables → Redeploy',
+    };
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return {
+      runtime: 'namecheap_node_production',
+      label: 'Namecheap Node.js Production',
+      isServerless: false,
+      isProduction: true,
+      envHint: 'cPanel → Setup Node.js App → Environment Variables (or .env at app root) → Restart App',
+    };
+  }
+  return {
+    runtime: 'local_dev_preview',
+    label: 'Development / Preview Node.js Server',
+    isServerless: false,
+    isProduction: false,
+    envHint: 'Environment Secrets / .env file',
+  };
+}
+
+function cleanEnvValue(raw?: string): string {
+  if (!raw) return '';
+  let trimmed = String(raw).trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function pickEnvVar(
+  preferredNames: string[],
+  fallbackPattern?: RegExp
+): { value: string; envName: string | null } {
+  for (const name of preferredNames) {
+    const val = cleanEnvValue(process.env[name]);
+    if (val) return { value: val, envName: name };
+  }
+  if (fallbackPattern) {
+    const dynamicNames = Object.keys(process.env)
+      .filter(k => fallbackPattern.test(k))
+      .sort();
+    for (const name of dynamicNames) {
+      const val = cleanEnvValue(process.env[name]);
+      if (val) return { value: val, envName: name };
+    }
+  }
+  return { value: '', envName: null };
+}
+
+function normalizeSupabaseUrl(raw: string): string {
+  if (!raw) return '';
+  let normalized = raw.replace(/\/+$/, '');
+  if (normalized && !/^https?:\/\//i.test(normalized)) {
+    const scheme = /^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(normalized) ? 'http://' : 'https://';
+    normalized = `${scheme}${normalized}`;
+  }
+  return normalized;
 }
 
 function inspectJwtRoleClaim(token: string): string | null {
@@ -40,65 +141,140 @@ function inspectJwtRoleClaim(token: string): string | null {
 }
 
 export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
-  const url = (
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    ''
-  ).trim();
+  const urlPick = pickEnvVar(
+    [
+      'SUPABASE_URL',
+      'NEXT_PUBLIC_SUPABASE_URL',
+      'VITE_SUPABASE_URL',
+      'STORAGE_SUPABASE_URL',
+      'STORAGE_NEXT_PUBLIC_SUPABASE_URL',
+      'SUPABASE_PROJECT_URL',
+      'VITE_SUPABASE_PROJECT_URL',
+    ],
+    /^[A-Z0-9_]+_SUPABASE_URL$/
+  );
+  const url = normalizeSupabaseUrl(urlPick.value);
 
-  const sbSecret = (process.env.SUPABASE_SECRET_KEY || '').trim();
-  const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const secretKey = sbSecret || legacyService;
+  const sbSecretPick = pickEnvVar(
+    [
+      'SUPABASE_SECRET_KEY',
+      'STORAGE_SUPABASE_SECRET_KEY',
+    ],
+    /^[A-Z0-9_]+_SUPABASE_SECRET_KEY$/
+  );
+  const legacyServicePick = pickEnvVar(
+    [
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'SUPABASE_SERVICE_KEY',
+      'STORAGE_SUPABASE_SERVICE_ROLE_KEY',
+    ],
+    /^[A-Z0-9_]+_SUPABASE_SERVICE_ROLE_KEY$/
+  );
+
+  const secretKey = sbSecretPick.value || legacyServicePick.value;
+  const secretEnvName = sbSecretPick.value ? sbSecretPick.envName : legacyServicePick.envName;
   let secretKeyMisconfiguration: string | undefined;
-  let secretKeyMode: SupabaseEnvConfig['secretKeyMode'] = sbSecret
+  let secretKeyMode: SupabaseEnvConfig['secretKeyMode'] = sbSecretPick.value
     ? 'sb_secret'
-    : legacyService
+    : legacyServicePick.value
     ? 'legacy_service_role'
     : 'missing';
 
   if (secretKey) {
     if (secretKey.startsWith('sb_publishable_')) {
       secretKeyMode = 'misconfigured_anon_or_publishable';
-      secretKeyMisconfiguration =
-        'SUPABASE_SECRET_KEY holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a secret/service_role key is used.';
+      secretKeyMisconfiguration = `${secretEnvName || 'SUPABASE_SECRET_KEY'} holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a server secret/service_role key is set.`;
     } else {
       const jwtRole = inspectJwtRoleClaim(secretKey);
       if (jwtRole && jwtRole !== 'service_role') {
         secretKeyMode = 'misconfigured_anon_or_publishable';
-        secretKeyMisconfiguration = `SUPABASE_SECRET_KEY/SERVICE_ROLE_KEY JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
+        secretKeyMisconfiguration = `${secretEnvName || 'SUPABASE_SECRET_KEY'} JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
       }
     }
   }
 
-  const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || '').trim();
-  const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  const publishableKey = sbPub || legacyAnon;
-  const publishableKeyMode: SupabaseEnvConfig['publishableKeyMode'] = sbPub
+  const sbPubPick = pickEnvVar(
+    [
+      'SUPABASE_PUBLISHABLE_KEY',
+      'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+      'VITE_SUPABASE_PUBLISHABLE_KEY',
+    ],
+    /^[A-Z0-9_]+_SUPABASE_PUBLISHABLE_KEY$/
+  );
+  const legacyAnonPick = pickEnvVar(
+    [
+      'SUPABASE_ANON_KEY',
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+      'VITE_SUPABASE_ANON_KEY',
+      'STORAGE_SUPABASE_ANON_KEY',
+      'STORAGE_NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    ],
+    /^[A-Z0-9_]+_SUPABASE_ANON_KEY$/
+  );
+  const publishableKey = sbPubPick.value || legacyAnonPick.value;
+  const publishableEnvName = sbPubPick.value ? sbPubPick.envName : legacyAnonPick.envName;
+  const publishableKeyMode: SupabaseEnvConfig['publishableKeyMode'] = sbPubPick.value
     ? 'sb_publishable'
-    : legacyAnon
+    : legacyAnonPick.value
     ? 'legacy_anon'
     : 'missing';
 
   let projectHost: string | null = null;
+  let urlMisconfiguration: string | undefined;
   if (url) {
     try {
-      projectHost = new URL(url).hostname;
+      const parsed = new URL(url);
+      projectHost = parsed.hostname;
+      if (!projectHost || !projectHost.includes('.')) {
+        projectHost = 'invalid-url';
+        urlMisconfiguration = `${urlEnvNameLabel(urlPick.envName)} is not a valid HTTPS Supabase project URL.`;
+      }
     } catch {
       projectHost = 'invalid-url';
+      urlMisconfiguration = `${urlEnvNameLabel(urlPick.envName)} could not be parsed as a valid URL.`;
     }
   }
+
+  const supabaseUrlConfigured = Boolean(url && projectHost && projectHost !== 'invalid-url');
+  const supabaseSecretConfigured = Boolean(secretKey && secretKeyMode !== 'misconfigured_anon_or_publishable');
 
   return {
     url,
     publishableKey,
     secretKey,
+    urlEnvName: urlPick.envName,
+    secretEnvName,
+    publishableEnvName,
+    supabaseUrlConfigured,
+    supabaseSecretConfigured,
     secretKeyMode,
     publishableKeyMode,
     secretKeyMisconfiguration,
-    configured: Boolean(url && secretKey && projectHost && projectHost !== 'invalid-url'),
+    urlMisconfiguration,
+    configured: supabaseUrlConfigured && supabaseSecretConfigured,
     projectHost,
   };
+}
+
+function urlEnvNameLabel(name: string | null): string {
+  return name || 'SUPABASE_URL';
+}
+
+export function getMissingSupabaseConfigGuidance(): string {
+  const cfg = resolveSupabaseEnvConfig();
+  const runtime = detectBackendRuntimeInfo();
+  const issues: string[] = [];
+  if (!cfg.supabaseUrlConfigured) {
+    issues.push(cfg.urlMisconfiguration || 'SUPABASE_URL is missing');
+  }
+  if (!cfg.supabaseSecretConfigured) {
+    issues.push(
+      cfg.secretKeyMisconfiguration ||
+        'SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) is missing'
+    );
+  }
+  if (issues.length === 0) return '';
+  return `Persistent database unavailable (${runtime.label}): ${issues.join('; ')}. Configure SUPABASE_URL and SUPABASE_SECRET_KEY in ${runtime.envHint}. Ephemeral /tmp writes are disabled in production.`;
 }
 
 export function isSupabaseConfigured(): boolean {
@@ -897,6 +1073,16 @@ export async function resetSupabaseAiCredentials(): Promise<{
 export async function inspectSupabaseAiInfrastructure(): Promise<{
   connected: boolean;
   configured: boolean;
+  supabaseUrlConfigured: boolean;
+  supabaseSecretConfigured: boolean;
+  urlEnvName: string | null;
+  secretEnvName: string | null;
+  actualRuntime: string;
+  runtimeId: BackendRuntimeInfo['runtime'];
+  isServerless: boolean;
+  isProduction: boolean;
+  connectionTestOk: boolean;
+  credentialTableAccessible: boolean;
   projectHost: string | null;
   secretKeyMode: string;
   tables: { table: string; available: boolean; rowCount: number | null; error?: string }[];
@@ -908,6 +1094,7 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
   error?: string;
 }> {
   const envCfg = resolveSupabaseEnvConfig();
+  const runtimeInfo = detectBackendRuntimeInfo();
   const tablesToCheck = [
     'ai_providers',
     'ai_provider_credentials',
@@ -918,18 +1105,34 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
 
   const client = getSupabaseAdminClient();
   if (!envCfg.configured || !client) {
+    const guidance = getMissingSupabaseConfigGuidance();
     return {
       connected: false,
       configured: false,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      urlEnvName: envCfg.urlEnvName,
+      secretEnvName: envCfg.secretEnvName,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      isServerless: runtimeInfo.isServerless,
+      isProduction: runtimeInfo.isProduction,
+      connectionTestOk: false,
+      credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       secretKeyMode: envCfg.secretKeyMode,
-      tables: tablesToCheck.map(t => ({ table: t, available: false, rowCount: null, error: 'Supabase not configured' })),
+      tables: tablesToCheck.map(t => ({
+        table: t,
+        available: false,
+        rowCount: null,
+        error: envCfg.secretKeyMisconfiguration || envCfg.urlMisconfiguration || 'Supabase not configured',
+      })),
       rlsStatus: {
         credentialsAnonBlocked: true,
         taskRoutesAnonBlocked: true,
-        detail: 'Supabase environment variables missing; running in local encrypted vault fallback.',
+        detail: guidance,
       },
-      error: 'SUPABASE_URL and SUPABASE_SECRET_KEY are required for live Supabase inspection.',
+      error: guidance,
     };
   }
 
@@ -976,9 +1179,24 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
     rlsDetail = 'SUPABASE_PUBLISHABLE_KEY not set; server-side SUPABASE_SECRET_KEY isolation active.';
   }
 
+  const credTable = tables.find(t => t.table === 'ai_provider_credentials');
+  const credentialTableAccessible = Boolean(credTable?.available);
+  const connectionTestOk = tables.some(t => t.available);
+  const firstTableError = credTable?.error || tables.find(t => t.error)?.error;
+
   return {
-    connected: tables.some(t => t.available),
+    connected: connectionTestOk && credentialTableAccessible,
     configured: true,
+    supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+    supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+    urlEnvName: envCfg.urlEnvName,
+    secretEnvName: envCfg.secretEnvName,
+    actualRuntime: runtimeInfo.label,
+    runtimeId: runtimeInfo.runtime,
+    isServerless: runtimeInfo.isServerless,
+    isProduction: runtimeInfo.isProduction,
+    connectionTestOk,
+    credentialTableAccessible,
     projectHost: envCfg.projectHost,
     secretKeyMode: envCfg.secretKeyMode,
     tables,
@@ -987,7 +1205,11 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
       taskRoutesAnonBlocked,
       detail: envCfg.secretKeyMisconfiguration ? `${envCfg.secretKeyMisconfiguration} ${rlsDetail}` : rlsDetail,
     },
-    ...(envCfg.secretKeyMisconfiguration ? { error: envCfg.secretKeyMisconfiguration } : {}),
+    ...(envCfg.secretKeyMisconfiguration
+      ? { error: envCfg.secretKeyMisconfiguration }
+      : firstTableError
+      ? { error: firstTableError }
+      : {}),
   };
 }
 
@@ -1023,6 +1245,12 @@ export async function findSupabaseAdminUserByEmail(email: string): Promise<{
 export async function runSupabaseAiCrudSelfTest(): Promise<{
   ok: boolean;
   configured: boolean;
+  supabaseUrlConfigured: boolean;
+  supabaseSecretConfigured: boolean;
+  actualRuntime: string;
+  runtimeId: BackendRuntimeInfo['runtime'];
+  connectionTestOk: boolean;
+  credentialTableAccessible: boolean;
   projectHost: string | null;
   testRecordId: string;
   stages: {
@@ -1035,7 +1263,15 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
   error?: string;
 }> {
   const envCfg = resolveSupabaseEnvConfig();
+  const runtimeInfo = detectBackendRuntimeInfo();
   const testId = `__diag_ai_crud_${Date.now()}`;
+  const allStagesOrder: ('INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED')[] = [
+    'INSERT',
+    'SELECT',
+    'UPDATE',
+    'DELETE',
+    'VERIFY_DELETED',
+  ];
   const stages: {
     stage: 'INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED';
     ok: boolean;
@@ -1044,27 +1280,72 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     error?: string;
   }[] = [];
 
+  const padRemainingStages = (reason: string) => {
+    for (const s of allStagesOrder) {
+      if (!stages.some(existing => existing.stage === s)) {
+        stages.push({
+          stage: s,
+          ok: false,
+          latencyMs: 0,
+          detail: reason,
+          error: reason,
+        });
+      }
+    }
+  };
+
   const client = getSupabaseAdminClient();
   if (!envCfg.configured || !client) {
+    const guidance = getMissingSupabaseConfigGuidance();
+    padRemainingStages(guidance);
     return {
       ok: false,
       configured: false,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk: false,
+      credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
-      stages: [
-        {
-          stage: 'INSERT',
-          ok: false,
-          latencyMs: 0,
-          detail: 'Supabase not configured in environment.',
-          error: 'SUPABASE_URL and SUPABASE_SECRET_KEY missing.',
-        },
-      ],
-      error: 'Supabase environment variables are not configured on this server.',
+      stages,
+      error: guidance,
     };
   }
 
+  let connectionTestOk = false;
+  let credentialTableAccessible = false;
+
   try {
+    // 0. Connection + Table Accessibility Probe
+    const probe = await client
+      .from('ai_provider_credentials')
+      .select('id', { count: 'exact', head: true });
+    if (probe.error) {
+      const msg = probe.error.message || 'Cannot access ai_provider_credentials table.';
+      const isNetworkOrAuth = /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(msg);
+      connectionTestOk = !isNetworkOrAuth;
+      credentialTableAccessible = false;
+      padRemainingStages(msg);
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
+    }
+    connectionTestOk = true;
+    credentialTableAccessible = true;
+
     // 1. INSERT isolated synthetic row (enabled: false, dummy ciphertext — never usable for generation)
     let t0 = Date.now();
     const { data: inserted, error: insErr } = await client
@@ -1085,14 +1366,29 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       .single();
 
     if (insErr || !inserted) {
+      const msg = insErr?.message || 'No record returned from INSERT.';
       stages.push({
         stage: 'INSERT',
         ok: false,
         latencyMs: Date.now() - t0,
         detail: 'Failed inserting isolated test record into ai_provider_credentials.',
-        error: insErr?.message || 'No record returned from INSERT.',
+        error: msg,
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: insErr?.message };
+      padRemainingStages('Skipped because INSERT failed.');
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
     }
     stages.push({
       stage: 'INSERT',
@@ -1109,14 +1405,29 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       .eq('id', testId)
       .single();
     if (selErr || !selected) {
+      const msg = selErr?.message || 'Record not found.';
       stages.push({
         stage: 'SELECT',
         ok: false,
         latencyMs: Date.now() - t0,
         detail: 'Failed reading back test record by ID.',
-        error: selErr?.message || 'Record not found.',
+        error: msg,
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: selErr?.message };
+      padRemainingStages('Skipped because SELECT failed.');
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
     }
     stages.push({
       stage: 'SELECT',
@@ -1135,14 +1446,29 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       .select('id, label')
       .single();
     if (updErr || !updated || updated.label !== updatedLabel) {
+      const msg = updErr?.message || 'Updated row mismatch or zero rows affected.';
       stages.push({
         stage: 'UPDATE',
         ok: false,
         latencyMs: Date.now() - t0,
         detail: 'Failed updating test record label.',
-        error: updErr?.message || 'Updated row mismatch or zero rows affected.',
+        error: msg,
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: updErr?.message };
+      padRemainingStages('Skipped because UPDATE failed.');
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
     }
     stages.push({
       stage: 'UPDATE',
@@ -1160,14 +1486,29 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       .select('id');
     const delCount = Array.isArray(delRows) ? delRows.length : 0;
     if (delErr || delCount !== 1) {
+      const msg = delErr?.message || 'Zero rows deleted.';
       stages.push({
         stage: 'DELETE',
         ok: false,
         latencyMs: Date.now() - t0,
         detail: `Delete affected ${delCount} rows (expected 1).`,
-        error: delErr?.message || 'Zero rows deleted.',
+        error: msg,
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: delErr?.message };
+      padRemainingStages('Skipped because DELETE failed.');
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
     }
     stages.push({
       stage: 'DELETE',
@@ -1184,14 +1525,28 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       .eq('id', testId)
       .maybeSingle();
     if (verifyErr || verifyAfter !== null) {
+      const msg = verifyErr?.message || 'Residual test row detected.';
       stages.push({
         stage: 'VERIFY_DELETED',
         ok: false,
         latencyMs: Date.now() - t0,
         detail: 'Record still existed or failed verification query after deletion.',
-        error: verifyErr?.message || 'Residual test row detected.',
+        error: msg,
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: verifyErr?.message };
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg,
+      };
     }
     stages.push({
       stage: 'VERIFY_DELETED',
@@ -1203,18 +1558,32 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     return {
       ok: true,
       configured: true,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk,
+      credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
       stages,
     };
   } catch (err: any) {
+    const msg = err?.message || 'Unexpected error during AI CRUD self-test';
+    padRemainingStages(msg);
     return {
       ok: false,
       configured: true,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk,
+      credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
       stages,
-      error: err?.message || 'Unexpected error during AI CRUD self-test',
+      error: msg,
     };
   } finally {
     // Safety cleanup in case any mid-stage aborted before DELETE

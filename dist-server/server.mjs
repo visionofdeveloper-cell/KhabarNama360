@@ -6220,6 +6220,75 @@ function getServerErrorLogs(limit = 50) {
 }
 
 // src/server/supabaseAdmin.ts
+function detectBackendRuntimeInfo() {
+  if (process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_REGION || process.env.NOW_REGION) {
+    return {
+      runtime: "vercel_serverless",
+      label: "Vercel Serverless Function",
+      isServerless: true,
+      isProduction: process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production",
+      region: process.env.VERCEL_REGION || process.env.NOW_REGION || void 0,
+      envHint: "Vercel Dashboard \u2192 Project Settings \u2192 Environment Variables (Production Scope) \u2192 Redeploy"
+    };
+  }
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return {
+      runtime: "aws_lambda",
+      label: "AWS Lambda Serverless",
+      isServerless: true,
+      isProduction: true,
+      region: process.env.AWS_REGION || void 0,
+      envHint: "Lambda / Hosting Environment Variables \u2192 Redeploy"
+    };
+  }
+  if (process.env.NODE_ENV === "production") {
+    return {
+      runtime: "namecheap_node_production",
+      label: "Namecheap Node.js Production",
+      isServerless: false,
+      isProduction: true,
+      envHint: "cPanel \u2192 Setup Node.js App \u2192 Environment Variables (or .env at app root) \u2192 Restart App"
+    };
+  }
+  return {
+    runtime: "local_dev_preview",
+    label: "Development / Preview Node.js Server",
+    isServerless: false,
+    isProduction: false,
+    envHint: "Environment Secrets / .env file"
+  };
+}
+function cleanEnvValue(raw) {
+  if (!raw) return "";
+  let trimmed = String(raw).trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2 || trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+function pickEnvVar(preferredNames, fallbackPattern) {
+  for (const name of preferredNames) {
+    const val = cleanEnvValue(process.env[name]);
+    if (val) return { value: val, envName: name };
+  }
+  if (fallbackPattern) {
+    const dynamicNames = Object.keys(process.env).filter((k) => fallbackPattern.test(k)).sort();
+    for (const name of dynamicNames) {
+      const val = cleanEnvValue(process.env[name]);
+      if (val) return { value: val, envName: name };
+    }
+  }
+  return { value: "", envName: null };
+}
+function normalizeSupabaseUrl(raw) {
+  if (!raw) return "";
+  let normalized = raw.replace(/\/+$/, "");
+  if (normalized && !/^https?:\/\//i.test(normalized)) {
+    const scheme = /^(localhost|127\.0\.0\.1)(:|\/|$)/i.test(normalized) ? "http://" : "https://";
+    normalized = `${scheme}${normalized}`;
+  }
+  return normalized;
+}
 function inspectJwtRoleClaim(token) {
   try {
     const parts = token.split(".");
@@ -6231,46 +6300,122 @@ function inspectJwtRoleClaim(token) {
   }
 }
 function resolveSupabaseEnvConfig() {
-  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
-  const sbSecret = (process.env.SUPABASE_SECRET_KEY || "").trim();
-  const legacyService = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-  const secretKey = sbSecret || legacyService;
+  const urlPick = pickEnvVar(
+    [
+      "SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "VITE_SUPABASE_URL",
+      "STORAGE_SUPABASE_URL",
+      "STORAGE_NEXT_PUBLIC_SUPABASE_URL",
+      "SUPABASE_PROJECT_URL",
+      "VITE_SUPABASE_PROJECT_URL"
+    ],
+    /^[A-Z0-9_]+_SUPABASE_URL$/
+  );
+  const url = normalizeSupabaseUrl(urlPick.value);
+  const sbSecretPick = pickEnvVar(
+    [
+      "SUPABASE_SECRET_KEY",
+      "STORAGE_SUPABASE_SECRET_KEY"
+    ],
+    /^[A-Z0-9_]+_SUPABASE_SECRET_KEY$/
+  );
+  const legacyServicePick = pickEnvVar(
+    [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_SERVICE_KEY",
+      "STORAGE_SUPABASE_SERVICE_ROLE_KEY"
+    ],
+    /^[A-Z0-9_]+_SUPABASE_SERVICE_ROLE_KEY$/
+  );
+  const secretKey = sbSecretPick.value || legacyServicePick.value;
+  const secretEnvName = sbSecretPick.value ? sbSecretPick.envName : legacyServicePick.envName;
   let secretKeyMisconfiguration;
-  let secretKeyMode = sbSecret ? "sb_secret" : legacyService ? "legacy_service_role" : "missing";
+  let secretKeyMode = sbSecretPick.value ? "sb_secret" : legacyServicePick.value ? "legacy_service_role" : "missing";
   if (secretKey) {
     if (secretKey.startsWith("sb_publishable_")) {
       secretKeyMode = "misconfigured_anon_or_publishable";
-      secretKeyMisconfiguration = "SUPABASE_SECRET_KEY holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a secret/service_role key is used.";
+      secretKeyMisconfiguration = `${secretEnvName || "SUPABASE_SECRET_KEY"} holds a publishable key (sb_publishable_*); RLS blocks AI vault reads/writes unless a server secret/service_role key is set.`;
     } else {
       const jwtRole = inspectJwtRoleClaim(secretKey);
       if (jwtRole && jwtRole !== "service_role") {
         secretKeyMode = "misconfigured_anon_or_publishable";
-        secretKeyMisconfiguration = `SUPABASE_SECRET_KEY/SERVICE_ROLE_KEY JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
+        secretKeyMisconfiguration = `${secretEnvName || "SUPABASE_SECRET_KEY"} JWT has role="${jwtRole}" instead of "service_role"; RLS blocks AI vault operations.`;
       }
     }
   }
-  const sbPub = (process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
-  const legacyAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
-  const publishableKey = sbPub || legacyAnon;
-  const publishableKeyMode = sbPub ? "sb_publishable" : legacyAnon ? "legacy_anon" : "missing";
+  const sbPubPick = pickEnvVar(
+    [
+      "SUPABASE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "VITE_SUPABASE_PUBLISHABLE_KEY"
+    ],
+    /^[A-Z0-9_]+_SUPABASE_PUBLISHABLE_KEY$/
+  );
+  const legacyAnonPick = pickEnvVar(
+    [
+      "SUPABASE_ANON_KEY",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "VITE_SUPABASE_ANON_KEY",
+      "STORAGE_SUPABASE_ANON_KEY",
+      "STORAGE_NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    ],
+    /^[A-Z0-9_]+_SUPABASE_ANON_KEY$/
+  );
+  const publishableKey = sbPubPick.value || legacyAnonPick.value;
+  const publishableEnvName = sbPubPick.value ? sbPubPick.envName : legacyAnonPick.envName;
+  const publishableKeyMode = sbPubPick.value ? "sb_publishable" : legacyAnonPick.value ? "legacy_anon" : "missing";
   let projectHost = null;
+  let urlMisconfiguration;
   if (url) {
     try {
-      projectHost = new URL(url).hostname;
+      const parsed = new URL(url);
+      projectHost = parsed.hostname;
+      if (!projectHost || !projectHost.includes(".")) {
+        projectHost = "invalid-url";
+        urlMisconfiguration = `${urlEnvNameLabel(urlPick.envName)} is not a valid HTTPS Supabase project URL.`;
+      }
     } catch {
       projectHost = "invalid-url";
+      urlMisconfiguration = `${urlEnvNameLabel(urlPick.envName)} could not be parsed as a valid URL.`;
     }
   }
+  const supabaseUrlConfigured = Boolean(url && projectHost && projectHost !== "invalid-url");
+  const supabaseSecretConfigured = Boolean(secretKey && secretKeyMode !== "misconfigured_anon_or_publishable");
   return {
     url,
     publishableKey,
     secretKey,
+    urlEnvName: urlPick.envName,
+    secretEnvName,
+    publishableEnvName,
+    supabaseUrlConfigured,
+    supabaseSecretConfigured,
     secretKeyMode,
     publishableKeyMode,
     secretKeyMisconfiguration,
-    configured: Boolean(url && secretKey && projectHost && projectHost !== "invalid-url"),
+    urlMisconfiguration,
+    configured: supabaseUrlConfigured && supabaseSecretConfigured,
     projectHost
   };
+}
+function urlEnvNameLabel(name) {
+  return name || "SUPABASE_URL";
+}
+function getMissingSupabaseConfigGuidance() {
+  const cfg = resolveSupabaseEnvConfig();
+  const runtime = detectBackendRuntimeInfo();
+  const issues = [];
+  if (!cfg.supabaseUrlConfigured) {
+    issues.push(cfg.urlMisconfiguration || "SUPABASE_URL is missing");
+  }
+  if (!cfg.supabaseSecretConfigured) {
+    issues.push(
+      cfg.secretKeyMisconfiguration || "SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) is missing"
+    );
+  }
+  if (issues.length === 0) return "";
+  return `Persistent database unavailable (${runtime.label}): ${issues.join("; ")}. Configure SUPABASE_URL and SUPABASE_SECRET_KEY in ${runtime.envHint}. Ephemeral /tmp writes are disabled in production.`;
 }
 function isSupabaseConfigured() {
   return resolveSupabaseEnvConfig().configured;
@@ -6867,6 +7012,7 @@ async function resetSupabaseAiCredentials() {
 }
 async function inspectSupabaseAiInfrastructure() {
   const envCfg = resolveSupabaseEnvConfig();
+  const runtimeInfo = detectBackendRuntimeInfo();
   const tablesToCheck = [
     "ai_providers",
     "ai_provider_credentials",
@@ -6876,18 +7022,34 @@ async function inspectSupabaseAiInfrastructure() {
   ];
   const client = getSupabaseAdminClient();
   if (!envCfg.configured || !client) {
+    const guidance = getMissingSupabaseConfigGuidance();
     return {
       connected: false,
       configured: false,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      urlEnvName: envCfg.urlEnvName,
+      secretEnvName: envCfg.secretEnvName,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      isServerless: runtimeInfo.isServerless,
+      isProduction: runtimeInfo.isProduction,
+      connectionTestOk: false,
+      credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       secretKeyMode: envCfg.secretKeyMode,
-      tables: tablesToCheck.map((t) => ({ table: t, available: false, rowCount: null, error: "Supabase not configured" })),
+      tables: tablesToCheck.map((t) => ({
+        table: t,
+        available: false,
+        rowCount: null,
+        error: envCfg.secretKeyMisconfiguration || envCfg.urlMisconfiguration || "Supabase not configured"
+      })),
       rlsStatus: {
         credentialsAnonBlocked: true,
         taskRoutesAnonBlocked: true,
-        detail: "Supabase environment variables missing; running in local encrypted vault fallback."
+        detail: guidance
       },
-      error: "SUPABASE_URL and SUPABASE_SECRET_KEY are required for live Supabase inspection."
+      error: guidance
     };
   }
   const tables = await Promise.all(
@@ -6925,9 +7087,23 @@ async function inspectSupabaseAiInfrastructure() {
   } else {
     rlsDetail = "SUPABASE_PUBLISHABLE_KEY not set; server-side SUPABASE_SECRET_KEY isolation active.";
   }
+  const credTable = tables.find((t) => t.table === "ai_provider_credentials");
+  const credentialTableAccessible = Boolean(credTable?.available);
+  const connectionTestOk = tables.some((t) => t.available);
+  const firstTableError = credTable?.error || tables.find((t) => t.error)?.error;
   return {
-    connected: tables.some((t) => t.available),
+    connected: connectionTestOk && credentialTableAccessible,
     configured: true,
+    supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+    supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+    urlEnvName: envCfg.urlEnvName,
+    secretEnvName: envCfg.secretEnvName,
+    actualRuntime: runtimeInfo.label,
+    runtimeId: runtimeInfo.runtime,
+    isServerless: runtimeInfo.isServerless,
+    isProduction: runtimeInfo.isProduction,
+    connectionTestOk,
+    credentialTableAccessible,
     projectHost: envCfg.projectHost,
     secretKeyMode: envCfg.secretKeyMode,
     tables,
@@ -6936,7 +7112,7 @@ async function inspectSupabaseAiInfrastructure() {
       taskRoutesAnonBlocked,
       detail: envCfg.secretKeyMisconfiguration ? `${envCfg.secretKeyMisconfiguration} ${rlsDetail}` : rlsDetail
     },
-    ...envCfg.secretKeyMisconfiguration ? { error: envCfg.secretKeyMisconfiguration } : {}
+    ...envCfg.secretKeyMisconfiguration ? { error: envCfg.secretKeyMisconfiguration } : firstTableError ? { error: firstTableError } : {}
   };
 }
 async function findSupabaseAdminUserByEmail(email) {
@@ -6959,28 +7135,75 @@ async function findSupabaseAdminUserByEmail(email) {
 }
 async function runSupabaseAiCrudSelfTest() {
   const envCfg = resolveSupabaseEnvConfig();
+  const runtimeInfo = detectBackendRuntimeInfo();
   const testId = `__diag_ai_crud_${Date.now()}`;
+  const allStagesOrder = [
+    "INSERT",
+    "SELECT",
+    "UPDATE",
+    "DELETE",
+    "VERIFY_DELETED"
+  ];
   const stages = [];
+  const padRemainingStages = (reason) => {
+    for (const s of allStagesOrder) {
+      if (!stages.some((existing) => existing.stage === s)) {
+        stages.push({
+          stage: s,
+          ok: false,
+          latencyMs: 0,
+          detail: reason,
+          error: reason
+        });
+      }
+    }
+  };
   const client = getSupabaseAdminClient();
   if (!envCfg.configured || !client) {
+    const guidance = getMissingSupabaseConfigGuidance();
+    padRemainingStages(guidance);
     return {
       ok: false,
       configured: false,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk: false,
+      credentialTableAccessible: false,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
-      stages: [
-        {
-          stage: "INSERT",
-          ok: false,
-          latencyMs: 0,
-          detail: "Supabase not configured in environment.",
-          error: "SUPABASE_URL and SUPABASE_SECRET_KEY missing."
-        }
-      ],
-      error: "Supabase environment variables are not configured on this server."
+      stages,
+      error: guidance
     };
   }
+  let connectionTestOk = false;
+  let credentialTableAccessible = false;
   try {
+    const probe = await client.from("ai_provider_credentials").select("id", { count: "exact", head: true });
+    if (probe.error) {
+      const msg = probe.error.message || "Cannot access ai_provider_credentials table.";
+      const isNetworkOrAuth = /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(msg);
+      connectionTestOk = !isNetworkOrAuth;
+      credentialTableAccessible = false;
+      padRemainingStages(msg);
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
+    }
+    connectionTestOk = true;
+    credentialTableAccessible = true;
     let t0 = Date.now();
     const { data: inserted, error: insErr } = await client.from("ai_provider_credentials").insert({
       id: testId,
@@ -6995,14 +7218,29 @@ async function runSupabaseAiCrudSelfTest() {
       connection_status: "disabled"
     }).select("id, label, enabled").single();
     if (insErr || !inserted) {
+      const msg = insErr?.message || "No record returned from INSERT.";
       stages.push({
         stage: "INSERT",
         ok: false,
         latencyMs: Date.now() - t0,
         detail: "Failed inserting isolated test record into ai_provider_credentials.",
-        error: insErr?.message || "No record returned from INSERT."
+        error: msg
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: insErr?.message };
+      padRemainingStages("Skipped because INSERT failed.");
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
     }
     stages.push({
       stage: "INSERT",
@@ -7013,14 +7251,29 @@ async function runSupabaseAiCrudSelfTest() {
     t0 = Date.now();
     const { data: selected, error: selErr } = await client.from("ai_provider_credentials").select("id, label, enabled").eq("id", testId).single();
     if (selErr || !selected) {
+      const msg = selErr?.message || "Record not found.";
       stages.push({
         stage: "SELECT",
         ok: false,
         latencyMs: Date.now() - t0,
         detail: "Failed reading back test record by ID.",
-        error: selErr?.message || "Record not found."
+        error: msg
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: selErr?.message };
+      padRemainingStages("Skipped because SELECT failed.");
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
     }
     stages.push({
       stage: "SELECT",
@@ -7032,14 +7285,29 @@ async function runSupabaseAiCrudSelfTest() {
     const updatedLabel = "Diagnostic CRUD Probe Updated";
     const { data: updated, error: updErr } = await client.from("ai_provider_credentials").update({ label: updatedLabel, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", testId).select("id, label").single();
     if (updErr || !updated || updated.label !== updatedLabel) {
+      const msg = updErr?.message || "Updated row mismatch or zero rows affected.";
       stages.push({
         stage: "UPDATE",
         ok: false,
         latencyMs: Date.now() - t0,
         detail: "Failed updating test record label.",
-        error: updErr?.message || "Updated row mismatch or zero rows affected."
+        error: msg
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: updErr?.message };
+      padRemainingStages("Skipped because UPDATE failed.");
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
     }
     stages.push({
       stage: "UPDATE",
@@ -7051,14 +7319,29 @@ async function runSupabaseAiCrudSelfTest() {
     const { data: delRows, error: delErr } = await client.from("ai_provider_credentials").delete().eq("id", testId).select("id");
     const delCount = Array.isArray(delRows) ? delRows.length : 0;
     if (delErr || delCount !== 1) {
+      const msg = delErr?.message || "Zero rows deleted.";
       stages.push({
         stage: "DELETE",
         ok: false,
         latencyMs: Date.now() - t0,
         detail: `Delete affected ${delCount} rows (expected 1).`,
-        error: delErr?.message || "Zero rows deleted."
+        error: msg
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: delErr?.message };
+      padRemainingStages("Skipped because DELETE failed.");
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
     }
     stages.push({
       stage: "DELETE",
@@ -7069,14 +7352,28 @@ async function runSupabaseAiCrudSelfTest() {
     t0 = Date.now();
     const { data: verifyAfter, error: verifyErr } = await client.from("ai_provider_credentials").select("id").eq("id", testId).maybeSingle();
     if (verifyErr || verifyAfter !== null) {
+      const msg = verifyErr?.message || "Residual test row detected.";
       stages.push({
         stage: "VERIFY_DELETED",
         ok: false,
         latencyMs: Date.now() - t0,
         detail: "Record still existed or failed verification query after deletion.",
-        error: verifyErr?.message || "Residual test row detected."
+        error: msg
       });
-      return { ok: false, configured: true, projectHost: envCfg.projectHost, testRecordId: testId, stages, error: verifyErr?.message };
+      return {
+        ok: false,
+        configured: true,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        connectionTestOk,
+        credentialTableAccessible,
+        projectHost: envCfg.projectHost,
+        testRecordId: testId,
+        stages,
+        error: msg
+      };
     }
     stages.push({
       stage: "VERIFY_DELETED",
@@ -7087,18 +7384,32 @@ async function runSupabaseAiCrudSelfTest() {
     return {
       ok: true,
       configured: true,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk,
+      credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
       stages
     };
   } catch (err) {
+    const msg = err?.message || "Unexpected error during AI CRUD self-test";
+    padRemainingStages(msg);
     return {
       ok: false,
       configured: true,
+      supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+      supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+      actualRuntime: runtimeInfo.label,
+      runtimeId: runtimeInfo.runtime,
+      connectionTestOk,
+      credentialTableAccessible,
       projectHost: envCfg.projectHost,
       testRecordId: testId,
       stages,
-      error: err?.message || "Unexpected error during AI CRUD self-test"
+      error: msg
     };
   } finally {
     await client.from("ai_provider_credentials").delete().eq("id", testId).then(() => {
@@ -7179,7 +7490,9 @@ var AIProviderManager = class {
   }
   static getStorageBackendMode() {
     if (isSupabaseConfigured()) return "supabase+local_encrypted";
-    if (isServerlessRuntime()) return "ephemeral_tmp_unconfigured";
+    const runtime = detectBackendRuntimeInfo();
+    if (runtime.isServerless) return "ephemeral_tmp_unconfigured";
+    if (runtime.isProduction) return "production_supabase_missing";
     return "local_encrypted";
   }
   static recordMutationDebugLog(entry) {
@@ -7213,11 +7526,17 @@ var AIProviderManager = class {
     return this.mutationDebugLogs.slice(0, 50);
   }
   static assertPersistentMutationBackend(operation) {
-    if (isServerlessRuntime() && !isSupabaseConfigured()) {
-      const msg = "Persistent database unavailable: Serverless production requires SUPABASE_URL and SUPABASE_SECRET_KEY. Ephemeral /tmp writes cannot persist across requests.";
-      this.recordDbFailure(operation, msg, "SERVERLESS_SUPABASE_MISSING");
+    const runtime = detectBackendRuntimeInfo();
+    if ((runtime.isServerless || runtime.isProduction) && !isSupabaseConfigured()) {
+      const msg = getMissingSupabaseConfigGuidance();
+      this.recordDbFailure(operation, msg, "SUPABASE_CONFIG_REQUIRED");
       throw new Error(msg);
     }
+  }
+  static async syncActiveCacheFromSupabase(actor) {
+    if (!isSupabaseConfigured()) return;
+    this.hydrationPromise = null;
+    await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
   }
   static sanitizeCredential(cred, routes) {
     const assignedTasks = routes ? routes.filter((r) => r.primaryCredentialId === cred.id || r.fallbackCredentialId === cred.id).map((r) => r.label) : [];
@@ -7512,8 +7831,15 @@ var AIProviderManager = class {
         }
       }
     }
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
+    const verifySaved = db.getAiProviders().find((p) => p.id === persistedRecord.id);
+    if (!verifySaved) {
+      throw new Error("Credential write verification failed: record missing after authoritative database reload.");
+    }
     const finalRoutes = AI_TASK_CATALOG.map((spec) => db.getAiTaskRoutes()[spec.task]).filter(Boolean);
-    return this.sanitizeCredential(saved, finalRoutes);
+    return this.sanitizeCredential(verifySaved, finalRoutes);
   }
   static async updateCredentialPartial(id, patch, actor) {
     if (isSupabaseConfigured()) {
@@ -7855,6 +8181,9 @@ var AIProviderManager = class {
       }
     }
     const localResult = db.resetAllAiCredentials(actor);
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
     const remainingLocal = db.getAiProviders().filter((p) => p.providerType === "gemini" || p.providerType === "grok");
     if (remainingLocal.length > 0) {
       throw new Error(`Reset verification failed: ${remainingLocal.length} Gemini/Grok credentials remain in storage.`);
@@ -7881,7 +8210,7 @@ var AIProviderManager = class {
   }
   static async getDiagnostics() {
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured();
+      await this.syncActiveCacheFromSupabase("Diagnostics");
     }
     const [connectivity, supabase] = await Promise.all([
       checkOutboundConnectivity(),
@@ -7894,6 +8223,8 @@ var AIProviderManager = class {
     const latestTest = recentTests[0] || null;
     const latestSuccess = recentTests.find((t) => t.ok && t.generationOk) || null;
     const activeCred = providers.find((c) => c.enabled && c.connectionStatus === "connected") || providers.find((c) => c.enabled) || providers[0] || null;
+    const envCfg = resolveSupabaseEnvConfig();
+    const runtimeInfo = detectBackendRuntimeInfo();
     const backendMode = this.getStorageBackendMode();
     return {
       buildVersion: AI_VAULT_BUILD_VERSION,
@@ -7906,16 +8237,25 @@ var AIProviderManager = class {
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || "development",
         nodeVersion: process.version,
-        isServerless: isServerlessRuntime(),
-        ephemeralServerlessWarning: backendMode === "ephemeral_tmp_unconfigured",
+        isServerless: runtimeInfo.isServerless,
+        isProduction: runtimeInfo.isProduction,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        runtimeRegion: runtimeInfo.region || null,
+        runtimeEnvHint: runtimeInfo.envHint,
+        ephemeralServerlessWarning: backendMode === "ephemeral_tmp_unconfigured" || backendMode === "production_supabase_missing",
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
-        supabaseConfigured: isSupabaseConfigured(),
+        supabaseConfigured: envCfg.configured,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        urlEnvName: envCfg.urlEnvName,
+        secretEnvName: envCfg.secretEnvName,
         masterKeyConfigured: Boolean(process.env.AI_MASTER_KEY && process.env.AI_MASTER_KEY.trim())
       },
       runtimeTelemetry: {
         storageBackend: backendMode,
-        configSource: backendMode === "supabase+local_encrypted" ? "Supabase PostgreSQL (authoritative) + Local Encrypted Cache" : backendMode === "ephemeral_tmp_unconfigured" ? "Ephemeral /tmp (NOT persistent in serverless \u2014 set SUPABASE_URL & SUPABASE_SECRET_KEY)" : "Local Encrypted Vault (data/portal_database.json)",
+        configSource: backendMode === "supabase+local_encrypted" ? "Supabase PostgreSQL (authoritative)" : backendMode === "ephemeral_tmp_unconfigured" || backendMode === "production_supabase_missing" ? `Supabase Unconfigured (${runtimeInfo.label} \u2014 set SUPABASE_URL & SUPABASE_SECRET_KEY)` : "Local Development Encrypted Vault (data/portal_database.json)",
         storedCredentialCount: providers.length,
         enabledCredentialCount: providers.filter((p) => p.enabled).length,
         activeConnectedCount: providers.filter((p) => p.enabled && p.connectionStatus === "connected").length,
@@ -7939,108 +8279,20 @@ var AIProviderManager = class {
       }
     };
   }
-  static async runCrudSelfTest(actor = "Super Admin") {
-    if (isSupabaseConfigured()) {
-      const res = await runSupabaseAiCrudSelfTest();
-      if (!res.ok && res.error) {
-        this.recordDbFailure("runSupabaseAiCrudSelfTest", res.error);
-      }
-      return { ...res, mode: "supabase" };
-    }
-    const testId = `__diag_ai_crud_${Date.now()}`;
-    const stages = [];
-    try {
-      let t0 = Date.now();
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      const inserted = db.upsertAiProvider(
-        {
-          id: testId,
-          providerType: "gemini",
-          label: "Diagnostic CRUD Probe (Safe Auto-Deleted)",
-          projectId: "diag-probe-isolated",
-          model: "diag-model",
-          encryptedSecret: encryptSecret("diag-nonfunctional-probe-secret"),
-          maskedKey: "diag\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022test",
-          enabled: false,
-          priority: 999,
-          dailyTokenLimit: 0,
-          dailyTokensUsed: 0,
-          monthlyBudgetUsd: 0,
-          monthlySpendUsd: 0,
-          connectionStatus: "disabled",
-          createdAt: now,
-          updatedAt: now
-        },
-        actor
+  static async runCrudSelfTest(_actor = "Super Admin") {
+    const res = await runSupabaseAiCrudSelfTest();
+    if (!res.ok && res.error) {
+      this.recordDbFailure(
+        "runSupabaseAiCrudSelfTest",
+        res.error,
+        res.configured ? "SUPABASE_CRUD_TEST_FAILED" : "SUPABASE_CONFIG_REQUIRED"
       );
-      stages.push({
-        stage: "INSERT",
-        ok: Boolean(inserted?.id === testId),
-        latencyMs: Date.now() - t0,
-        detail: `Inserted isolated local vault record ${testId}`
-      });
-      t0 = Date.now();
-      const selected = db.getAiProviders().find((p) => p.id === testId);
-      if (!selected) throw new Error("Inserted diagnostic record could not be read back.");
-      stages.push({
-        stage: "SELECT",
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Read back "${selected.label}" (enabled=${selected.enabled})`
-      });
-      t0 = Date.now();
-      const updated = db.upsertAiProvider(
-        { ...selected, label: "Diagnostic CRUD Probe Updated", updatedAt: (/* @__PURE__ */ new Date()).toISOString() },
-        actor
-      );
-      if (updated.label !== "Diagnostic CRUD Probe Updated") throw new Error("Update did not persist.");
-      stages.push({
-        stage: "UPDATE",
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Updated label -> "${updated.label}"`
-      });
-      t0 = Date.now();
-      const deleted = db.deleteAiProvider(testId, actor);
-      if (!deleted) throw new Error("Delete returned false.");
-      stages.push({
-        stage: "DELETE",
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Deleted 1 diagnostic record (${testId})`
-      });
-      t0 = Date.now();
-      const existsAfter = db.getAiProviders().some((p) => p.id === testId);
-      if (existsAfter) throw new Error("Diagnostic record still present after delete.");
-      stages.push({
-        stage: "VERIFY_DELETED",
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: "Confirmed test record absent from local encrypted store."
-      });
-      return {
-        ok: true,
-        configured: false,
-        mode: "local_fallback",
-        projectHost: null,
-        testRecordId: testId,
-        stages
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        configured: false,
-        mode: "local_fallback",
-        projectHost: null,
-        testRecordId: testId,
-        stages,
-        error: err?.message || "Local CRUD self-test failed."
-      };
-    } finally {
-      if (db.getAiProviders().some((p) => p.id === testId)) {
-        db.deleteAiProvider(testId, actor);
-      }
     }
+    return {
+      ...res,
+      mode: res.configured ? "supabase" : "unconfigured",
+      lastDatabaseError: res.ok ? null : res.error || this.lastDbError?.message || null
+    };
   }
   /**
    * Key format hint ONLY — never trusted without server-side API verification.
@@ -8902,10 +9154,10 @@ var AIProviderManager = class {
         const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
         db.upsertAiProvider(demoted, params.actor);
         if (isSupabaseConfigured()) {
-          upsertSupabaseAiCredential(demoted).then((res) => {
-            if (!res.ok) this.recordDbFailure("upsertSupabaseAiCredential", res.error || "Priority demotion failed", res.code);
-          }).catch(() => {
-          });
+          const res = await upsertSupabaseAiCredential(demoted);
+          if (!res.ok) {
+            this.recordDbFailure("upsertSupabaseAiCredential", res.error || "Priority demotion failed", res.code);
+          }
         }
       }
     }
@@ -8935,10 +9187,15 @@ var AIProviderManager = class {
         timestamp: params.now
       };
       db.recordAiConnectionTest(testEntry2);
-      recordSupabaseAiConnectionTest(testEntry2).catch(() => {
+      await recordSupabaseAiConnectionTest(testEntry2).catch(() => {
       });
       await this.syncRoutesForCredential(saved2.id, params.selectedModel, params.actor);
-      return saved2;
+      await this.syncActiveCacheFromSupabase(params.actor);
+      const verified = db.getAiProviders().find((p) => p.id === saved2.id);
+      if (!verified) {
+        throw new Error("Credential write verification failed: record missing after authoritative Supabase reload.");
+      }
+      return verified;
     }
     const saved = db.upsertAiProvider(cred, params.actor);
     this.lastSuccessfulSaveAt = params.now;
@@ -9095,6 +9352,9 @@ var AIProviderManager = class {
       db.setAiTaskRoute(nextRoute.task, nextRoute, actor);
     }
     const localRemoved = db.deleteAiProvider(target.id, actor);
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
     const stillPresentLocally = db.getAiProviders().some((p) => p.id === target.id);
     const danglingRoute = Object.values(db.getAiTaskRoutes()).some(
       (r) => r && (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id)
@@ -11493,9 +11753,9 @@ async function checkSupabaseHealth(options) {
   const started = Date.now();
   const cfg = resolveSupabaseEnvConfig();
   const missingEnvVars = [];
-  if (!cfg.url) missingEnvVars.push("SUPABASE_URL");
+  if (!cfg.supabaseUrlConfigured) missingEnvVars.push("SUPABASE_URL");
   if (!cfg.publishableKey) missingEnvVars.push("SUPABASE_PUBLISHABLE_KEY");
-  if (!cfg.secretKey) missingEnvVars.push("SUPABASE_SECRET_KEY");
+  if (!cfg.supabaseSecretConfigured) missingEnvVars.push("SUPABASE_SECRET_KEY");
   const recentLogs = db.getPublicationLogs(10);
   const recentErrors = getServerErrorLogs(10).filter(
     (e) => e.source === "supabase" || e.source === "publishing" || e.source === "firestore"
@@ -11503,6 +11763,7 @@ async function checkSupabaseHealth(options) {
   const latestSuccessfulSaveAt = recentLogs[0]?.createdAt || null;
   const latestPublishingError = recentErrors[0]?.message || null;
   if (!cfg.configured) {
+    const detailedErr = cfg.secretKeyMisconfiguration || cfg.urlMisconfiguration || `Missing required Supabase environment variable(s): ${missingEnvVars.join(", ")}`;
     return {
       configured: false,
       connected: false,
@@ -11516,9 +11777,9 @@ async function checkSupabaseHealth(options) {
       schemaVersion: "supabase-core-002 (pending migration)",
       articlesTableAvailable: false,
       readTestOk: false,
-      readPermissionDetail: "Skipped: Supabase credentials missing.",
+      readPermissionDetail: "Skipped: Supabase credentials missing or misconfigured.",
       authorizedWriteTestOk: null,
-      writePermissionDetail: "Skipped: Supabase secret key missing.",
+      writePermissionDetail: "Skipped: Supabase secret key missing or invalid.",
       rlsPolicyCheckOk: null,
       rlsPolicyDetail: "Skipped: Supabase credentials are not configured in server environment.",
       publishedCount: 0,
@@ -11527,8 +11788,8 @@ async function checkSupabaseHealth(options) {
       latestPublishingError: latestPublishingError ? sanitizeSupabaseDiagnosticText(latestPublishingError) : null,
       latencyMs: Date.now() - started,
       checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      errorCode: "SUPABASE_ENV_MISSING",
-      errorMessage: `Missing required Supabase environment variable(s): ${missingEnvVars.join(", ")}`,
+      errorCode: cfg.secretKeyMisconfiguration ? "SUPABASE_KEY_MISCONFIGURED" : "SUPABASE_ENV_MISSING",
+      errorMessage: sanitizeSupabaseDiagnosticText(detailedErr),
       missingEnvVars
     };
   }
@@ -14959,6 +15220,16 @@ if (isMain) {
 
 // server.ts
 dotenv2.config();
+for (const envCandidate of [".env.local", "deploy/namecheap/.env", ".env.production"]) {
+  const fullEnvPath = path4.resolve(process.cwd(), envCandidate);
+  if (fs4.existsSync(fullEnvPath)) {
+    dotenv2.config({ path: fullEnvPath, override: false });
+  }
+}
+function isPersistentDbUnavailableMsg(msg) {
+  const lower = (msg || "").toLowerCase();
+  return lower.includes("persistent database unavailable") || lower.includes("serverless");
+}
 var app = express();
 var portArgIdx = process.argv.indexOf("--port");
 var cliPort = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? parseInt(process.argv[portArgIdx + 1], 10) : NaN;
@@ -17594,7 +17865,7 @@ app.post("/api/v1/admin/ai/discover-auto", requireSuperAdmin, async (req, res) =
     return res.json({ success: result.ok, result });
   } catch (err) {
     const msg = err?.message || "AI credential verification step failed.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg
@@ -17629,10 +17900,14 @@ app.post("/api/v1/admin/ai/verify-generation-auto", requireSuperAdmin, async (re
       getActor(req, "Super Admin"),
       controller.signal
     );
+    if (result.ok) {
+      AIProviderRouter.clearAutomationCooldowns();
+      resetAiContentEngineCooldown();
+    }
     return res.json({ success: result.ok, result });
   } catch (err) {
     const msg = err?.message || "AI generation test failed.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg
@@ -17666,7 +17941,7 @@ app.post("/api/v1/admin/ai/connect-auto", requireSuperAdmin, async (req, res) =>
     return res.json({ success: result.ok, result });
   } catch (err) {
     const msg = err?.message || "Automatic AI connection failed.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg
@@ -17709,7 +17984,7 @@ async function handleResetAll(req, res) {
     return res.json({ success: true, ...report, receipt });
   } catch (err) {
     const msg = err?.message || "Failed to reset AI API credentials.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: "reset_all",
@@ -17763,7 +18038,7 @@ async function handleDisconnect(req, res) {
     return res.json({ success: true, ...out, receipt });
   } catch (err) {
     const msg = err?.message || "Failed to disconnect AI provider.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: "delete_credential",
@@ -17821,7 +18096,8 @@ async function handleGetDiagnostics(_req, res) {
 async function handleRunCrudSelfTest(req, res) {
   try {
     const result = await AIProviderManager.runCrudSelfTest(getActor(req, "Super Admin"));
-    return res.status(result.ok ? 200 : 500).json({ success: result.ok, ...result });
+    const status = result.ok ? 200 : !result.configured ? 503 : 500;
+    return res.status(status).json({ success: result.ok, ...result });
   } catch (err) {
     return res.status(500).json({ success: false, error: err?.message || "CRUD self-test failed." });
   }
@@ -17865,7 +18141,7 @@ async function handleCreateOrUpsertProvider(req, res) {
     return res.status(expectedStatus).json({ success: true, provider: saved, receipt });
   } catch (err) {
     const msg = err?.message || "Failed saving AI credential.";
-    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
+    const status = msg.toLowerCase().includes("not found") ? 404 : isPersistentDbUnavailableMsg(msg) ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action,
@@ -17906,7 +18182,7 @@ async function handlePatchProvider(req, res) {
     return res.json({ success: true, provider: updated, receipt });
   } catch (err) {
     const msg = err?.message || "Failed updating AI credential.";
-    const status = msg.toLowerCase().includes("not found") ? 404 : msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
+    const status = msg.toLowerCase().includes("not found") ? 404 : isPersistentDbUnavailableMsg(msg) ? 503 : msg.toLowerCase().includes("database") || msg.toLowerCase().includes("supabase") ? 500 : 400;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action,
@@ -17957,7 +18233,7 @@ async function handleDeleteProvider(req, res) {
     });
   } catch (err) {
     const msg = err?.message || "Failed deleting AI credential.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: "delete_credential",
@@ -18048,7 +18324,7 @@ async function handleSaveTaskRoutes(req, res) {
     return res.json({ success: true, routes, receipt });
   } catch (err) {
     const msg = err?.message || "Failed saving AI task routes.";
-    const status = msg.toLowerCase().includes("serverless") ? 503 : msg.toLowerCase().includes("database") ? 500 : 400;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : msg.toLowerCase().includes("database") ? 500 : 400;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: "save_task_routes",

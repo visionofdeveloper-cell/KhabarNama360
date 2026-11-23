@@ -211,6 +211,8 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
   // Diagnostics panel state
   const [diagReport, setDiagReport] = useState<any>(null);
   const [loadingDiag, setLoadingDiag] = useState(false);
+  const [crudTestResult, setCrudTestResult] = useState<any>(null);
+  const [crudTestBusy, setCrudTestBusy] = useState(false);
 
   const loadStatusAndDiagnostics = async (runOutboundProbe: boolean = false) => {
     if (runOutboundProbe) setLoadingDiag(true);
@@ -250,6 +252,28 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
   useEffect(() => {
     loadStatusAndDiagnostics(false);
   }, [refreshKey]);
+
+  const handleRunDatabaseCrudTest = async () => {
+    if (crudTestBusy) return;
+    setCrudTestBusy(true);
+    setCrudTestResult(null);
+    try {
+      const res = await safeFetchJson('/api/v1/admin/ai/diagnostics/crud-test', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      setCrudTestResult(res);
+      await loadStatusAndDiagnostics(false);
+    } catch (err: any) {
+      setCrudTestResult({
+        ok: false,
+        error: err?.message || 'Failed running database CRUD test.',
+        stages: [],
+      });
+    } finally {
+      setCrudTestBusy(false);
+    }
+  };
 
   const handleToggleResetConfirm = async () => {
     const nextOpen = !resetConfirmOpen;
@@ -1207,16 +1231,129 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
           </div>
 
           <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="text-[10px] font-bold uppercase text-gray-500">Server Environment</div>
-            <div className="font-mono text-gray-900 mt-1">
-              {(diagReport?.serverEnvironment?.nodeEnv || serverEnv?.nodeEnv || 'production')} •{' '}
-              {(diagReport?.serverEnvironment?.nodeVersion || serverEnv?.nodeVersion || '')}
+            <div className="text-[10px] font-bold uppercase text-gray-500">Actual Backend Runtime</div>
+            <div className="font-mono font-bold text-gray-900 mt-1">
+              {diagReport?.serverEnvironment?.actualRuntime ||
+                (diagReport?.serverEnvironment?.isServerless ? 'Serverless Runtime' : 'Node.js Server')}
             </div>
             <div className="font-mono text-[10px] text-gray-600 mt-0.5">
-              Gen Timeout: {(diagReport?.serverEnvironment?.generationTimeoutMs || serverEnv?.generationTimeoutMs || 45000)}ms
+              {(diagReport?.serverEnvironment?.nodeEnv || serverEnv?.nodeEnv || 'production')} •{' '}
+              {(diagReport?.serverEnvironment?.nodeVersion || serverEnv?.nodeVersion || '')} •{' '}
+              Timeout: {(diagReport?.serverEnvironment?.generationTimeoutMs || serverEnv?.generationTimeoutMs || 55000)}ms
             </div>
           </div>
         </div>
+
+        {/* Supabase Persistence & Live CRUD Diagnostics */}
+        {(() => {
+          const sbDiag = diagReport?.supabase || {};
+          const svEnv = diagReport?.serverEnvironment || serverEnv || {};
+          const urlConfigured = Boolean(
+            crudTestResult?.supabaseUrlConfigured ?? sbDiag.supabaseUrlConfigured ?? svEnv.supabaseUrlConfigured
+          );
+          const secretConfigured = Boolean(
+            crudTestResult?.supabaseSecretConfigured ?? sbDiag.supabaseSecretConfigured ?? svEnv.supabaseSecretConfigured
+          );
+          const connOk = Boolean(
+            crudTestResult ? crudTestResult.connectionTestOk : sbDiag.connectionTestOk ?? sbDiag.connected
+          );
+          const tableOk = Boolean(
+            crudTestResult
+              ? crudTestResult.credentialTableAccessible
+              : sbDiag.credentialTableAccessible
+          );
+          const stageStatus = (name: string) => {
+            const found = Array.isArray(crudTestResult?.stages)
+              ? crudTestResult.stages.find((s: any) => s.stage === name)
+              : null;
+            if (!found) return null;
+            return found.ok ? 'Pass' : 'Fail';
+          };
+          const lastDbErr =
+            crudTestResult?.lastDatabaseError ||
+            crudTestResult?.error ||
+            diagReport?.runtimeTelemetry?.lastDbError?.message ||
+            sbDiag.error ||
+            null;
+
+          return (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black text-gray-900">
+                    Database Persistence &amp; Supabase Diagnostics
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    Verifies real Supabase connectivity and isolated non-secret INSERT/SELECT/UPDATE/DELETE persistence on <code className="font-mono">ai_provider_credentials</code>.
+                  </div>
+                </div>
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    disabled={crudTestBusy}
+                    onClick={handleRunDatabaseCrudTest}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1.5"
+                  >
+                    {crudTestBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                    <span>{crudTestBusy ? 'Testing DB CRUD...' : 'Run Database CRUD Test'}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px]">
+                <div className="p-2.5 bg-white border border-gray-200 rounded-lg">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Supabase URL configured</div>
+                  <div className={`font-mono font-black mt-0.5 ${urlConfigured ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {urlConfigured ? 'Yes' : 'No'}
+                  </div>
+                  <div className="font-mono text-[10px] text-gray-500 truncate">
+                    {sbDiag.projectHost || 'Not set'}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white border border-gray-200 rounded-lg">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Supabase secret configured</div>
+                  <div className={`font-mono font-black mt-0.5 ${secretConfigured ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {secretConfigured ? 'Yes' : 'No'}
+                  </div>
+                  <div className="font-mono text-[10px] text-gray-500 truncate">
+                    {sbDiag.secretEnvName || sbDiag.secretKeyMode || 'missing'}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white border border-gray-200 rounded-lg">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Connection test</div>
+                  <div className={`font-mono font-black mt-0.5 ${connOk ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {connOk ? 'Pass' : 'Fail'}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white border border-gray-200 rounded-lg">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Credential table accessible</div>
+                  <div className={`font-mono font-black mt-0.5 ${tableOk ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {tableOk ? 'Pass' : 'Fail'}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white border border-gray-200 rounded-lg">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">CRUD Stages</div>
+                  <div className="font-mono text-[10px] text-gray-800 mt-0.5 space-y-0.5">
+                    <div>INSERT: <strong>{stageStatus('INSERT') || 'Run test'}</strong></div>
+                    <div>SELECT: <strong>{stageStatus('SELECT') || 'Run test'}</strong></div>
+                    <div>UPDATE: <strong>{stageStatus('UPDATE') || 'Run test'}</strong></div>
+                    <div>DELETE: <strong>{stageStatus('DELETE') || 'Run test'}</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              {lastDbErr && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-900 break-words">
+                  <strong>Last database error:</strong> {lastDbErr}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Outbound HTTPS 443 Host Probe Results */}
         {outboundHosts.length > 0 && (

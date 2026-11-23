@@ -1249,7 +1249,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                   <span>Supabase PostgreSQL &amp; Encrypted AI Vault Diagnostics</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Live database schema check, RLS enforcement status, persistence telemetry, and non-destructive CRUD roundtrip verification.
+                  Live database schema check, RLS enforcement status, runtime identification, and non-destructive CRUD roundtrip verification.
                 </p>
               </div>
               <button
@@ -1263,71 +1263,109 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-[10px] font-bold uppercase text-gray-500">Supabase Backend</div>
-                <div className="font-black text-gray-900 mt-1">
-                  {diagnostics?.supabase?.configured
-                    ? diagnostics?.supabase?.connected
-                      ? 'Connected (Live Postgres)'
-                      : 'Configured (Error)'
-                    : 'Local Encrypted Fallback'}
-                </div>
-                <div className="font-mono text-[10px] text-gray-600 mt-0.5 truncate">
-                  {diagnostics?.supabase?.projectHost || 'No SUPABASE_URL set'}
-                </div>
-              </div>
+            {(() => {
+              const sb = diagnostics?.supabase || {};
+              const env = diagnostics?.serverEnvironment || {};
+              const urlOk = Boolean(crudTestResult?.supabaseUrlConfigured ?? sb.supabaseUrlConfigured ?? env.supabaseUrlConfigured);
+              const secretOk = Boolean(crudTestResult?.supabaseSecretConfigured ?? sb.supabaseSecretConfigured ?? env.supabaseSecretConfigured);
+              const runtimeLabel =
+                crudTestResult?.actualRuntime || sb.actualRuntime || env.actualRuntime || 'Node.js Server';
+              const connPass = Boolean(
+                crudTestResult ? crudTestResult.connectionTestOk : sb.connectionTestOk ?? sb.connected
+              );
+              const tablePass = Boolean(
+                crudTestResult ? crudTestResult.credentialTableAccessible : sb.credentialTableAccessible
+              );
+              const lastDbErrorText =
+                crudTestResult?.lastDatabaseError ||
+                crudTestResult?.error ||
+                diagnostics?.runtimeTelemetry?.lastDbError?.message ||
+                sb.error ||
+                null;
 
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-[10px] font-bold uppercase text-gray-500">Encryption &amp; Key Vault</div>
-                <div className="font-bold text-gray-900 mt-1">
-                  AI_MASTER_KEY: {diagnostics?.serverEnvironment?.masterKeyConfigured ? 'Set' : 'Missing (Fallback)'}
-                </div>
-                <div className="font-mono text-[10px] text-gray-600 mt-0.5">
-                  Active: {diagnostics?.runtimeTelemetry?.activeConnectedCount ?? 0} / Enabled: {diagnostics?.runtimeTelemetry?.enabledCredentialCount ?? 0} / Total: {diagnostics?.runtimeTelemetry?.storedCredentialCount ?? 0}
-                </div>
-              </div>
+              const findStage = (stageName: string) =>
+                Array.isArray(crudTestResult?.stages)
+                  ? crudTestResult.stages.find((s: any) => s.stage === stageName)
+                  : null;
 
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-[10px] font-bold uppercase text-gray-500">RLS Access Control</div>
-                <div className="font-bold text-gray-900 mt-1">
-                  {diagnostics?.supabase?.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked (Locked)' : 'Review RLS Rules'}
-                </div>
-                <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={diagnostics?.supabase?.rlsStatus?.detail}>
-                  {diagnostics?.supabase?.rlsStatus?.detail || 'Server secret isolation'}
-                </div>
-              </div>
+              return (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Supabase Configuration</div>
+                      <div className="font-mono">
+                        Supabase URL configured:{' '}
+                        <strong className={urlOk ? 'text-emerald-700' : 'text-rose-700'}>{urlOk ? 'Yes' : 'No'}</strong>
+                      </div>
+                      <div className="font-mono">
+                        Supabase secret configured:{' '}
+                        <strong className={secretOk ? 'text-emerald-700' : 'text-rose-700'}>{secretOk ? 'Yes' : 'No'}</strong>
+                      </div>
+                      <div className="font-mono text-[10px] text-gray-500 truncate">
+                        Host: {sb.projectHost || 'Not configured'}
+                      </div>
+                    </div>
 
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-[10px] font-bold uppercase text-gray-500">Last Save / Delete</div>
-                <div className="font-mono text-[10px] text-gray-700 mt-1">
-                  Save: {diagnostics?.runtimeTelemetry?.lastSuccessfulSave ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulSave).toLocaleTimeString() : 'None yet'}
-                </div>
-                <div className="font-mono text-[10px] text-gray-700 mt-0.5">
-                  Delete: {diagnostics?.runtimeTelemetry?.lastSuccessfulDelete ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulDelete).toLocaleTimeString() : 'None yet'}
-                </div>
-              </div>
-            </div>
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Actual Backend Runtime</div>
+                      <div className="font-black text-gray-900">{runtimeLabel}</div>
+                      <div className="font-mono text-[10px] text-gray-600">
+                        {env.nodeEnv || 'development'} • {env.nodeVersion || ''}
+                      </div>
+                      <div className="font-mono text-[10px] text-gray-600 truncate">
+                        AI_MASTER_KEY: {env.masterKeyConfigured ? 'Set' : 'Missing (Fallback)'}
+                      </div>
+                    </div>
 
-            {diagnostics?.serverEnvironment?.ephemeralServerlessWarning && (
-              <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-xs text-rose-950 font-semibold">
-                Serverless Persistence Warning: SUPABASE_URL / SUPABASE_SECRET_KEY are missing in this serverless environment. Any changes cannot persist across requests until Supabase is configured.
-              </div>
-            )}
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Connection &amp; Table Health</div>
+                      <div className="font-mono">
+                        Connection test:{' '}
+                        <strong className={connPass ? 'text-emerald-700' : 'text-rose-700'}>{connPass ? 'Pass' : 'Fail'}</strong>
+                      </div>
+                      <div className="font-mono">
+                        Credential table accessible:{' '}
+                        <strong className={tablePass ? 'text-emerald-700' : 'text-rose-700'}>{tablePass ? 'Pass' : 'Fail'}</strong>
+                      </div>
+                      <div className="font-mono text-[10px] text-gray-600">
+                        RLS: {sb.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked' : 'Check Policies'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">CRUD Stage Status &amp; Telemetry</div>
+                      <div className="grid grid-cols-2 gap-x-2 font-mono text-[10px]">
+                        {(['INSERT', 'SELECT', 'UPDATE', 'DELETE'] as const).map(st => {
+                          const found = findStage(st);
+                          return (
+                            <div key={st}>
+                              {st}:{' '}
+                              <strong className={!found ? 'text-gray-500' : found.ok ? 'text-emerald-700' : 'text-rose-700'}>
+                                {!found ? 'Not run' : found.ok ? 'Pass' : 'Fail'}
+                              </strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="font-mono text-[10px] text-gray-600 pt-0.5">
+                        Save: {diagnostics?.runtimeTelemetry?.lastSuccessfulSave ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulSave).toLocaleTimeString() : 'None'} •
+                        Del: {diagnostics?.runtimeTelemetry?.lastSuccessfulDelete ? new Date(diagnostics.runtimeTelemetry.lastSuccessfulDelete).toLocaleTimeString() : 'None'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {lastDbErrorText && (
+                    <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-xs text-rose-950 font-semibold break-words">
+                      <strong>Last database error:</strong> {lastDbErrorText}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {diagnostics?.buildVersion && (
               <div className="text-[10px] font-mono text-gray-500">
                 Backend AI Vault Build: {diagnostics.buildVersion} • Storage Mode: {diagnostics?.runtimeTelemetry?.storageBackend || 'unknown'}
-              </div>
-            )}
-
-            {diagnostics?.runtimeTelemetry?.lastDbError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900">
-                <strong>Last DB Error ({diagnostics.runtimeTelemetry.lastDbError.operation}):</strong>{' '}
-                {diagnostics.runtimeTelemetry.lastDbError.message}{' '}
-                <span className="font-mono text-[10px]">
-                  ({new Date(diagnostics.runtimeTelemetry.lastDbError.at).toLocaleString()})
-                </span>
               </div>
             )}
 
@@ -1395,8 +1433,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-black">
                   <span>
-                    AI Credential CRUD Self-Test ({crudTestResult.mode === 'supabase' ? 'Live Supabase Postgres' : 'Local Encrypted Vault'}):{' '}
-                    {crudTestResult.ok ? 'ALL 5 STAGES PASSED' : 'FAILED'}
+                    AI Credential CRUD Self-Test ({crudTestResult.mode === 'supabase' ? 'Live Supabase Postgres' : 'Supabase Required / Unconfigured'}):{' '}
+                    {crudTestResult.ok ? 'ALL STAGES PASSED' : 'FAILED'}
                   </span>
                   <span className="font-mono text-[10px] opacity-80">{crudTestResult.testRecordId}</span>
                 </div>
@@ -1411,7 +1449,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                         }`}
                       >
                         <div className="font-mono font-black flex items-center justify-between">
-                          <span>{s.stage}</span>
+                          <span>{s.stage}: {s.ok ? 'Pass' : 'Fail'}</span>
                           <span>{s.latencyMs}ms</span>
                         </div>
                         <div className="text-[10px] mt-1">{s.error || s.detail}</div>

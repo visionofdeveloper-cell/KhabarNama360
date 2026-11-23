@@ -87,6 +87,17 @@ import {
 } from './src/server/supabaseRepositories.ts';
 
 dotenv.config();
+for (const envCandidate of ['.env.local', 'deploy/namecheap/.env', '.env.production']) {
+  const fullEnvPath = path.resolve(process.cwd(), envCandidate);
+  if (fs.existsSync(fullEnvPath)) {
+    dotenv.config({ path: fullEnvPath, override: false });
+  }
+}
+
+function isPersistentDbUnavailableMsg(msg: string): boolean {
+  const lower = (msg || '').toLowerCase();
+  return lower.includes('persistent database unavailable') || lower.includes('serverless');
+}
 
 const app = express();
 const portArgIdx = process.argv.indexOf('--port');
@@ -3057,7 +3068,7 @@ app.post('/api/v1/admin/ai/discover-auto', requireSuperAdmin, async (req, res) =
     return res.json({ success: result.ok, result });
   } catch (err: any) {
     const msg = err?.message || 'AI credential verification step failed.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg,
@@ -3093,10 +3104,14 @@ app.post('/api/v1/admin/ai/verify-generation-auto', requireSuperAdmin, async (re
       getActor(req, 'Super Admin'),
       controller.signal
     );
+    if (result.ok) {
+      AIProviderRouter.clearAutomationCooldowns();
+      resetAiContentEngineCooldown();
+    }
     return res.json({ success: result.ok, result });
   } catch (err: any) {
     const msg = err?.message || 'AI generation test failed.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg,
@@ -3134,7 +3149,7 @@ app.post('/api/v1/admin/ai/connect-auto', requireSuperAdmin, async (req, res) =>
     return res.json({ success: result.ok, result });
   } catch (err: any) {
     const msg = err?.message || 'Automatic AI connection failed.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     return res.status(status).json({
       success: false,
       error: msg,
@@ -3179,7 +3194,7 @@ async function handleResetAll(req: Request, res: Response) {
     return res.json({ success: true, ...report, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed to reset AI API credentials.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: 'reset_all',
@@ -3235,7 +3250,7 @@ async function handleDisconnect(req: Request, res: Response) {
     return res.json({ success: true, ...out, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed to disconnect AI provider.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: 'delete_credential',
@@ -3299,7 +3314,8 @@ async function handleGetDiagnostics(_req: Request, res: Response) {
 async function handleRunCrudSelfTest(req: Request, res: Response) {
   try {
     const result = await AIProviderManager.runCrudSelfTest(getActor(req, 'Super Admin'));
-    return res.status(result.ok ? 200 : 500).json({ success: result.ok, ...result });
+    const status = result.ok ? 200 : !result.configured ? 503 : 500;
+    return res.status(status).json({ success: result.ok, ...result });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'CRUD self-test failed.' });
   }
@@ -3350,7 +3366,7 @@ async function handleCreateOrUpsertProvider(req: Request, res: Response) {
     const msg = err?.message || 'Failed saving AI credential.';
     const status = msg.toLowerCase().includes('not found')
       ? 404
-      : msg.toLowerCase().includes('serverless')
+      : isPersistentDbUnavailableMsg(msg)
       ? 503
       : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
       ? 500
@@ -3401,7 +3417,7 @@ async function handlePatchProvider(req: Request, res: Response) {
     const msg = err?.message || 'Failed updating AI credential.';
     const status = msg.toLowerCase().includes('not found')
       ? 404
-      : msg.toLowerCase().includes('serverless')
+      : isPersistentDbUnavailableMsg(msg)
       ? 503
       : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
       ? 500
@@ -3461,7 +3477,7 @@ async function handleDeleteProvider(req: Request, res: Response) {
     });
   } catch (err: any) {
     const msg = err?.message || 'Failed deleting AI credential.';
-    const status = msg.toLowerCase().includes('serverless') ? 503 : 500;
+    const status = isPersistentDbUnavailableMsg(msg) ? 503 : 500;
     const receipt = AIProviderManager.recordMutationDebugLog({
       correlationId,
       action: 'delete_credential',
@@ -3566,7 +3582,7 @@ async function handleSaveTaskRoutes(req: Request, res: Response) {
     return res.json({ success: true, routes, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed saving AI task routes.';
-    const status = msg.toLowerCase().includes('serverless')
+    const status = isPersistentDbUnavailableMsg(msg)
       ? 503
       : msg.toLowerCase().includes('database')
       ? 500

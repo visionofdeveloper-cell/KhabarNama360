@@ -64,9 +64,9 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
   const started = Date.now();
   const cfg = resolveSupabaseEnvConfig();
   const missingEnvVars: string[] = [];
-  if (!cfg.url) missingEnvVars.push('SUPABASE_URL');
+  if (!cfg.supabaseUrlConfigured) missingEnvVars.push('SUPABASE_URL');
   if (!cfg.publishableKey) missingEnvVars.push('SUPABASE_PUBLISHABLE_KEY');
-  if (!cfg.secretKey) missingEnvVars.push('SUPABASE_SECRET_KEY');
+  if (!cfg.supabaseSecretConfigured) missingEnvVars.push('SUPABASE_SECRET_KEY');
 
   const recentLogs = db.getPublicationLogs(10);
   const recentErrors = getServerErrorLogs(10).filter(
@@ -76,6 +76,10 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
   const latestPublishingError = recentErrors[0]?.message || null;
 
   if (!cfg.configured) {
+    const detailedErr =
+      cfg.secretKeyMisconfiguration ||
+      cfg.urlMisconfiguration ||
+      `Missing required Supabase environment variable(s): ${missingEnvVars.join(', ')}`;
     return {
       configured: false,
       connected: false,
@@ -89,9 +93,9 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
       schemaVersion: 'supabase-core-002 (pending migration)',
       articlesTableAvailable: false,
       readTestOk: false,
-      readPermissionDetail: 'Skipped: Supabase credentials missing.',
+      readPermissionDetail: 'Skipped: Supabase credentials missing or misconfigured.',
       authorizedWriteTestOk: null,
-      writePermissionDetail: 'Skipped: Supabase secret key missing.',
+      writePermissionDetail: 'Skipped: Supabase secret key missing or invalid.',
       rlsPolicyCheckOk: null,
       rlsPolicyDetail: 'Skipped: Supabase credentials are not configured in server environment.',
       publishedCount: 0,
@@ -100,8 +104,8 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
       latestPublishingError: latestPublishingError ? sanitizeSupabaseDiagnosticText(latestPublishingError) : null,
       latencyMs: Date.now() - started,
       checkedAt: new Date().toISOString(),
-      errorCode: 'SUPABASE_ENV_MISSING',
-      errorMessage: `Missing required Supabase environment variable(s): ${missingEnvVars.join(', ')}`,
+      errorCode: cfg.secretKeyMisconfiguration ? 'SUPABASE_KEY_MISCONFIGURED' : 'SUPABASE_ENV_MISSING',
+      errorMessage: sanitizeSupabaseDiagnosticText(detailedErr),
       missingEnvVars,
     };
   }

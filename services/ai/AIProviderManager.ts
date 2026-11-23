@@ -8,6 +8,8 @@ import { db, isServerlessRuntime } from '../../src/server/db.ts';
 import { encryptSecret, tryDecryptSecret, maskSecret } from '../../src/server/crypto.ts';
 import {
   deleteSupabaseAiCredential,
+  detectBackendRuntimeInfo,
+  getMissingSupabaseConfigGuidance,
   getSupabaseAiEnvSuppression,
   inspectSupabaseAiInfrastructure,
   isSupabaseConfigured,
@@ -15,6 +17,7 @@ import {
   listSupabaseAiTaskRoutes,
   recordSupabaseAiConnectionTest,
   resetSupabaseAiCredentials,
+  resolveSupabaseEnvConfig,
   runSupabaseAiCrudSelfTest,
   setSupabaseAiEnvSuppression,
   upsertSupabaseAiCredential,
@@ -135,7 +138,7 @@ export interface AIMutationDebugEntry {
   handler: string;
   endpoint: string;
   httpStatus: number;
-  storageBackend: 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured';
+  storageBackend: 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing';
   table: string;
   targetId: string;
   affectedCount: number;
@@ -163,9 +166,11 @@ export class AIProviderManager {
     };
   }
 
-  public static getStorageBackendMode(): 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' {
+  public static getStorageBackendMode(): 'supabase+local_encrypted' | 'local_encrypted' | 'ephemeral_tmp_unconfigured' | 'production_supabase_missing' {
     if (isSupabaseConfigured()) return 'supabase+local_encrypted';
-    if (isServerlessRuntime()) return 'ephemeral_tmp_unconfigured';
+    const runtime = detectBackendRuntimeInfo();
+    if (runtime.isServerless) return 'ephemeral_tmp_unconfigured';
+    if (runtime.isProduction) return 'production_supabase_missing';
     return 'local_encrypted';
   }
 
@@ -207,12 +212,18 @@ export class AIProviderManager {
   }
 
   private static assertPersistentMutationBackend(operation: string): void {
-    if (isServerlessRuntime() && !isSupabaseConfigured()) {
-      const msg =
-        'Persistent database unavailable: Serverless production requires SUPABASE_URL and SUPABASE_SECRET_KEY. Ephemeral /tmp writes cannot persist across requests.';
-      this.recordDbFailure(operation, msg, 'SERVERLESS_SUPABASE_MISSING');
+    const runtime = detectBackendRuntimeInfo();
+    if ((runtime.isServerless || runtime.isProduction) && !isSupabaseConfigured()) {
+      const msg = getMissingSupabaseConfigGuidance();
+      this.recordDbFailure(operation, msg, 'SUPABASE_CONFIG_REQUIRED');
       throw new Error(msg);
     }
+  }
+
+  private static async syncActiveCacheFromSupabase(actor: string): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+    this.hydrationPromise = null;
+    await this.hydrateFromSupabaseIfConfigured(actor, { requireSuccess: true });
   }
 
   public static sanitizeCredential(cred: AIProviderCredential, routes?: { task: string; label: string; primaryCredentialId: string; fallbackCredentialId?: string }[]) {
@@ -584,8 +595,17 @@ export class AIProviderManager {
       }
     }
 
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
+
+    const verifySaved = db.getAiProviders().find(p => p.id === persistedRecord.id);
+    if (!verifySaved) {
+      throw new Error('Credential write verification failed: record missing after authoritative database reload.');
+    }
+
     const finalRoutes = AI_TASK_CATALOG.map(spec => db.getAiTaskRoutes()[spec.task]).filter(Boolean) as AITaskRouting[];
-    return this.sanitizeCredential(saved, finalRoutes);
+    return this.sanitizeCredential(verifySaved, finalRoutes);
   }
 
   public static async updateCredentialPartial(
@@ -979,6 +999,9 @@ export class AIProviderManager {
     }
 
     const localResult = db.resetAllAiCredentials(actor);
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
     const remainingLocal = db
       .getAiProviders()
       .filter(p => p.providerType === 'gemini' || p.providerType === 'grok');
@@ -1013,7 +1036,7 @@ export class AIProviderManager {
 
   public static async getDiagnostics() {
     if (isSupabaseConfigured()) {
-      await this.hydrateFromSupabaseIfConfigured();
+      await this.syncActiveCacheFromSupabase('Diagnostics');
     }
     const [connectivity, supabase] = await Promise.all([
       checkOutboundConnectivity(),
@@ -1031,6 +1054,8 @@ export class AIProviderManager {
       providers[0] ||
       null;
 
+    const envCfg = resolveSupabaseEnvConfig();
+    const runtimeInfo = detectBackendRuntimeInfo();
     const backendMode = this.getStorageBackendMode();
     return {
       buildVersion: AI_VAULT_BUILD_VERSION,
@@ -1043,21 +1068,31 @@ export class AIProviderManager {
       serverEnvironment: {
         nodeEnv: process.env.NODE_ENV || 'development',
         nodeVersion: process.version,
-        isServerless: isServerlessRuntime(),
-        ephemeralServerlessWarning: backendMode === 'ephemeral_tmp_unconfigured',
+        isServerless: runtimeInfo.isServerless,
+        isProduction: runtimeInfo.isProduction,
+        actualRuntime: runtimeInfo.label,
+        runtimeId: runtimeInfo.runtime,
+        runtimeRegion: runtimeInfo.region || null,
+        runtimeEnvHint: runtimeInfo.envHint,
+        ephemeralServerlessWarning:
+          backendMode === 'ephemeral_tmp_unconfigured' || backendMode === 'production_supabase_missing',
         discoveryTimeoutMs: getDiscoveryTimeoutMs(),
         generationTimeoutMs: getGenerationTimeoutMs(),
-        supabaseConfigured: isSupabaseConfigured(),
+        supabaseConfigured: envCfg.configured,
+        supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
+        supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        urlEnvName: envCfg.urlEnvName,
+        secretEnvName: envCfg.secretEnvName,
         masterKeyConfigured: Boolean(process.env.AI_MASTER_KEY && process.env.AI_MASTER_KEY.trim()),
       },
       runtimeTelemetry: {
         storageBackend: backendMode,
         configSource:
           backendMode === 'supabase+local_encrypted'
-            ? 'Supabase PostgreSQL (authoritative) + Local Encrypted Cache'
-            : backendMode === 'ephemeral_tmp_unconfigured'
-            ? 'Ephemeral /tmp (NOT persistent in serverless — set SUPABASE_URL & SUPABASE_SECRET_KEY)'
-            : 'Local Encrypted Vault (data/portal_database.json)',
+            ? 'Supabase PostgreSQL (authoritative)'
+            : backendMode === 'ephemeral_tmp_unconfigured' || backendMode === 'production_supabase_missing'
+            ? `Supabase Unconfigured (${runtimeInfo.label} — set SUPABASE_URL & SUPABASE_SECRET_KEY)`
+            : 'Local Development Encrypted Vault (data/portal_database.json)',
         storedCredentialCount: providers.length,
         enabledCredentialCount: providers.filter(p => p.enabled).length,
         activeConnectedCount: providers.filter(p => p.enabled && p.connectionStatus === 'connected').length,
@@ -1088,122 +1123,20 @@ export class AIProviderManager {
     };
   }
 
-  public static async runCrudSelfTest(actor: string = 'Super Admin') {
-    if (isSupabaseConfigured()) {
-      const res = await runSupabaseAiCrudSelfTest();
-      if (!res.ok && res.error) {
-        this.recordDbFailure('runSupabaseAiCrudSelfTest', res.error);
-      }
-      return { ...res, mode: 'supabase' as const };
-    }
-
-    // Local encrypted vault fallback self-test (isolated synthetic ID, enabled: false, cleaned in finally)
-    const testId = `__diag_ai_crud_${Date.now()}`;
-    const stages: {
-      stage: 'INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED';
-      ok: boolean;
-      latencyMs: number;
-      detail: string;
-      error?: string;
-    }[] = [];
-
-    try {
-      let t0 = Date.now();
-      const now = new Date().toISOString();
-      const inserted = db.upsertAiProvider(
-        {
-          id: testId,
-          providerType: 'gemini',
-          label: 'Diagnostic CRUD Probe (Safe Auto-Deleted)',
-          projectId: 'diag-probe-isolated',
-          model: 'diag-model',
-          encryptedSecret: encryptSecret('diag-nonfunctional-probe-secret'),
-          maskedKey: 'diag••••••••test',
-          enabled: false,
-          priority: 999,
-          dailyTokenLimit: 0,
-          dailyTokensUsed: 0,
-          monthlyBudgetUsd: 0,
-          monthlySpendUsd: 0,
-          connectionStatus: 'disabled',
-          createdAt: now,
-          updatedAt: now,
-        },
-        actor
+  public static async runCrudSelfTest(_actor: string = 'Super Admin') {
+    const res = await runSupabaseAiCrudSelfTest();
+    if (!res.ok && res.error) {
+      this.recordDbFailure(
+        'runSupabaseAiCrudSelfTest',
+        res.error,
+        res.configured ? 'SUPABASE_CRUD_TEST_FAILED' : 'SUPABASE_CONFIG_REQUIRED'
       );
-      stages.push({
-        stage: 'INSERT',
-        ok: Boolean(inserted?.id === testId),
-        latencyMs: Date.now() - t0,
-        detail: `Inserted isolated local vault record ${testId}`,
-      });
-
-      t0 = Date.now();
-      const selected = db.getAiProviders().find(p => p.id === testId);
-      if (!selected) throw new Error('Inserted diagnostic record could not be read back.');
-      stages.push({
-        stage: 'SELECT',
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Read back "${selected.label}" (enabled=${selected.enabled})`,
-      });
-
-      t0 = Date.now();
-      const updated = db.upsertAiProvider(
-        { ...selected, label: 'Diagnostic CRUD Probe Updated', updatedAt: new Date().toISOString() },
-        actor
-      );
-      if (updated.label !== 'Diagnostic CRUD Probe Updated') throw new Error('Update did not persist.');
-      stages.push({
-        stage: 'UPDATE',
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Updated label -> "${updated.label}"`,
-      });
-
-      t0 = Date.now();
-      const deleted = db.deleteAiProvider(testId, actor);
-      if (!deleted) throw new Error('Delete returned false.');
-      stages.push({
-        stage: 'DELETE',
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: `Deleted 1 diagnostic record (${testId})`,
-      });
-
-      t0 = Date.now();
-      const existsAfter = db.getAiProviders().some(p => p.id === testId);
-      if (existsAfter) throw new Error('Diagnostic record still present after delete.');
-      stages.push({
-        stage: 'VERIFY_DELETED',
-        ok: true,
-        latencyMs: Date.now() - t0,
-        detail: 'Confirmed test record absent from local encrypted store.',
-      });
-
-      return {
-        ok: true,
-        configured: false,
-        mode: 'local_fallback' as const,
-        projectHost: null,
-        testRecordId: testId,
-        stages,
-      };
-    } catch (err: any) {
-      return {
-        ok: false,
-        configured: false,
-        mode: 'local_fallback' as const,
-        projectHost: null,
-        testRecordId: testId,
-        stages,
-        error: err?.message || 'Local CRUD self-test failed.',
-      };
-    } finally {
-      if (db.getAiProviders().some(p => p.id === testId)) {
-        db.deleteAiProvider(testId, actor);
-      }
     }
+    return {
+      ...res,
+      mode: res.configured ? ('supabase' as const) : ('unconfigured' as const),
+      lastDatabaseError: res.ok ? null : res.error || this.lastDbError?.message || null,
+    };
   }
 
   /**
@@ -2262,11 +2195,10 @@ export class AIProviderManager {
         const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
         db.upsertAiProvider(demoted, params.actor);
         if (isSupabaseConfigured()) {
-          upsertSupabaseAiCredential(demoted)
-            .then(res => {
-              if (!res.ok) this.recordDbFailure('upsertSupabaseAiCredential', res.error || 'Priority demotion failed', res.code);
-            })
-            .catch(() => {});
+          const res = await upsertSupabaseAiCredential(demoted);
+          if (!res.ok) {
+            this.recordDbFailure('upsertSupabaseAiCredential', res.error || 'Priority demotion failed', res.code);
+          }
         }
       }
     }
@@ -2298,9 +2230,14 @@ export class AIProviderManager {
         timestamp: params.now,
       };
       db.recordAiConnectionTest(testEntry);
-      recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+      await recordSupabaseAiConnectionTest(testEntry).catch(() => {});
       await this.syncRoutesForCredential(saved.id, params.selectedModel, params.actor);
-      return saved;
+      await this.syncActiveCacheFromSupabase(params.actor);
+      const verified = db.getAiProviders().find(p => p.id === saved.id);
+      if (!verified) {
+        throw new Error('Credential write verification failed: record missing after authoritative Supabase reload.');
+      }
+      return verified;
     }
 
     const saved = db.upsertAiProvider(cred, params.actor);
@@ -2489,11 +2426,14 @@ export class AIProviderManager {
       supabaseDeletedCount = sbDel.deletedCount;
     }
 
-    // Step 3: Commit local route cleanup & credential removal, then verify read-back absence
+    // Step 3: Commit local route cleanup & credential removal, reload from Supabase & verify read-back absence
     for (const nextRoute of updatedRoutes) {
       db.setAiTaskRoute(nextRoute.task, nextRoute, actor);
     }
     const localRemoved = db.deleteAiProvider(target.id, actor);
+    if (isSupabaseConfigured()) {
+      await this.syncActiveCacheFromSupabase(actor);
+    }
     const stillPresentLocally = db.getAiProviders().some(p => p.id === target.id);
     const danglingRoute = Object.values(db.getAiTaskRoutes()).some(
       r => r && (r.primaryCredentialId === target.id || r.fallbackCredentialId === target.id)
