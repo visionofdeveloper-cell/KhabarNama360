@@ -1340,8 +1340,8 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
                         {secretConfigured ? 'Yes' : 'No'}
                       </strong>
                     </div>
-                    <div className="font-mono text-[10px] text-gray-500 truncate">
-                      {sbDiag.projectHost || 'Host not set'}
+                    <div className="font-mono text-[10px] text-gray-500 truncate" title={sbDiag.projectHost || ''}>
+                      {sbDiag.projectRef ? `Ref: ${sbDiag.projectRef}` : sbDiag.projectHost || 'Host not set'}
                     </div>
                   </div>
 
@@ -1394,6 +1394,23 @@ export const AIConnectionPanel: React.FC<AIConnectionPanelProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {(sbDiag.migrationRequired || crudTestResult?.migrationRequired) && !tableOk && (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-[11px] text-amber-950 space-y-1">
+                    <div className="font-black">Action Required in Supabase SQL Editor:</div>
+                    <div>
+                      Run{' '}
+                      <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">
+                        {sbDiag.recommendedMigrationFile ||
+                          crudTestResult?.recommendedMigrationFile ||
+                          'database/supabase_migrations/007_ai_provider_credentials_repair_and_schema.sql'}
+                      </code>{' '}
+                      (includes <code className="font-mono">NOTIFY pgrst, &apos;reload schema&apos;;</code>) on project{' '}
+                      <strong>{sbDiag.projectRef || sbDiag.projectHost || 'configured'}</strong>, then click{' '}
+                      <strong>Run Database CRUD Test</strong>.
+                    </div>
+                  </div>
+                )}
 
                 {lastDbErr && (
                   <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-900 break-words">

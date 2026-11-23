@@ -1329,8 +1329,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                         SUPABASE_SECRET_KEY configured:{' '}
                         <strong className={secretOk ? 'text-emerald-700' : 'text-rose-700'}>{secretOk ? 'Yes' : 'No'}</strong>
                       </div>
-                      <div className="font-mono text-[10px] text-gray-500 truncate">
-                        Host: {sb.projectHost || 'Not configured'}
+                      <div className="font-mono text-[10px] text-gray-500 truncate" title={sb.projectHost || ''}>
+                        {sb.projectRef ? `Project ID: ${sb.projectRef}` : `Host: ${sb.projectHost || 'Not configured'}`}
                       </div>
                     </div>
 
@@ -1365,7 +1365,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                         <strong className={tablePass ? 'text-emerald-700' : 'text-rose-700'}>{tablePass ? 'Accessible' : 'Inaccessible'}</strong>
                       </div>
                       <div className="font-mono text-[10px] text-gray-600">
-                        RLS: {sb.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked' : 'Check Policies'}
+                        RLS: {sb.rlsStatus?.credentialsAnonBlocked ? 'Anon Blocked' : 'Pending Verification'}
                       </div>
                     </div>
 
@@ -1390,6 +1390,19 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onNotify, onProvid
                       </div>
                     </div>
                   </div>
+
+                  {(sb.migrationRequired || crudTestResult?.migrationRequired) && !tablePass && (
+                    <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-950">
+                      <strong>Migration Required:</strong> Execute{' '}
+                      <code className="font-mono bg-white px-1 py-0.5 rounded border border-amber-200">
+                        {sb.recommendedMigrationFile ||
+                          crudTestResult?.recommendedMigrationFile ||
+                          'database/supabase_migrations/007_ai_provider_credentials_repair_and_schema.sql'}
+                      </code>{' '}
+                      in Supabase SQL Editor (including <code className="font-mono">NOTIFY pgrst, &apos;reload schema&apos;;</code>), then click{' '}
+                      <strong>Test AI Credential CRUD</strong>.
+                    </div>
+                  )}
 
                   {lastDbErrorText && (
                     <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-xs text-rose-950 font-semibold break-words">

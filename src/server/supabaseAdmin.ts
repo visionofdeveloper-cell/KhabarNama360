@@ -32,6 +32,7 @@ export interface SupabaseEnvConfig {
   urlMisconfiguration?: string;
   configured: boolean;
   projectHost: string | null;
+  projectRef: string | null;
 }
 
 export interface BackendRuntimeInfo {
@@ -268,6 +269,7 @@ export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
     : 'missing';
 
   let projectHost: string | null = null;
+  let projectRef: string | null = null;
   let urlMisconfiguration: string | undefined;
   if (url) {
     try {
@@ -276,6 +278,11 @@ export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
       if (!projectHost || !projectHost.includes('.')) {
         projectHost = 'invalid-url';
         urlMisconfiguration = `${urlEnvNameLabel(urlPick.envName)} is not a valid HTTPS Supabase project URL.`;
+      } else {
+        const refMatch = projectHost.match(/^([a-z0-9-]+)\.supabase\.(co|in|net)$/i);
+        if (refMatch) {
+          projectRef = refMatch[1];
+        }
       }
     } catch {
       projectHost = 'invalid-url';
@@ -301,7 +308,53 @@ export function resolveSupabaseEnvConfig(): SupabaseEnvConfig {
     urlMisconfiguration,
     configured: supabaseUrlConfigured && supabaseSecretConfigured,
     projectHost,
+    projectRef,
   };
+}
+
+export const RECOMMENDED_AI_MIGRATION_FILE =
+  'database/supabase_migrations/007_ai_provider_credentials_repair_and_schema.sql';
+
+export function classifySupabaseTableError(err?: { code?: string; message?: string } | null):
+  | 'missing_or_schema_cache'
+  | 'missing_columns_or_schema_cache'
+  | 'permission_or_rls'
+  | 'connection_or_auth'
+  | 'other'
+  | null {
+  if (!err) return null;
+  const code = String(err.code || '').toUpperCase();
+  const msg = String(err.message || '');
+  if (
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    /could not find the table .* in the schema cache|relation .* does not exist/i.test(msg)
+  ) {
+    return 'missing_or_schema_cache';
+  }
+  if (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    /column .* does not exist|could not find the ['"]?[^'"]+['"]? column/i.test(msg)
+  ) {
+    return 'missing_columns_or_schema_cache';
+  }
+  if (code === '42501' || /permission denied|row-level security/i.test(msg)) {
+    return 'permission_or_rls';
+  }
+  if (/fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT|apikey/i.test(msg)) {
+    return 'connection_or_auth';
+  }
+  return 'other';
+}
+
+function formatSupabaseAiTableError(err: { code?: string; message?: string } | null | undefined, tableName: string): string {
+  const base = err?.message || `Database error accessing public.${tableName}`;
+  const kind = classifySupabaseTableError(err);
+  if (kind === 'missing_or_schema_cache' || kind === 'missing_columns_or_schema_cache') {
+    return `${base} Apply ${RECOMMENDED_AI_MIGRATION_FILE} (non-destructive, includes NOTIFY pgrst, 'reload schema';) in Supabase Dashboard → SQL Editor.`;
+  }
+  return base;
 }
 
 function urlEnvNameLabel(name: string | null): string {
@@ -680,6 +733,10 @@ function mapRowToAiCredential(row: any): AIProviderCredential {
     lastLatencyMs: typeof row.last_latency_ms === 'number' ? row.last_latency_ms : undefined,
     lastCorrelationId: row.last_correlation_id ? String(row.last_correlation_id) : undefined,
     lastDiagnostic: cleanedDiag && Object.keys(cleanedDiag).length > 0 ? cleanedDiag : null,
+    rateLimitInfo:
+      row.rate_limit_info_json && typeof row.rate_limit_info_json === 'object'
+        ? row.rate_limit_info_json
+        : undefined,
     createdAt: row.created_at ? String(row.created_at) : new Date().toISOString(),
     updatedAt: row.updated_at ? String(row.updated_at) : new Date().toISOString(),
   };
@@ -700,9 +757,15 @@ export async function listSupabaseAiCredentials(): Promise<{
       .from('ai_provider_credentials')
       .select('*')
       .order('priority', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
     if (error) {
-      return { ok: false, credentials: [], code: error.code || 'SUPABASE_SELECT_ERR', error: error.message };
+      return {
+        ok: false,
+        credentials: [],
+        code: error.code || 'SUPABASE_SELECT_ERR',
+        error: formatSupabaseAiTableError(error, 'ai_provider_credentials'),
+      };
     }
     return { ok: true, credentials: (data || []).map(mapRowToAiCredential) };
   } catch (err: any) {
@@ -716,7 +779,8 @@ export async function listSupabaseAiCredentials(): Promise<{
 }
 
 export async function upsertSupabaseAiCredential(
-  cred: AIProviderCredential
+  cred: AIProviderCredential,
+  opts?: { isNew?: boolean }
 ): Promise<{ ok: boolean; credential?: AIProviderCredential; error?: string; code?: string; warning?: string }> {
   const client = getSupabaseAdminClient();
   if (!client) {
@@ -734,8 +798,8 @@ export async function upsertSupabaseAiCredential(
           }
         : null;
 
-    const coreRow = {
-      id: cred.id,
+    // Never mutate primary key `id` or `created_at` on INSERT/UPDATE so bigint identity columns are always preserved.
+    const coreFields = {
       provider_type: cred.providerType,
       label: cred.label,
       project_id: cred.projectId,
@@ -754,8 +818,8 @@ export async function upsertSupabaseAiCredential(
       updated_at: new Date().toISOString(),
     };
 
-    const extendedRow = {
-      ...coreRow,
+    const extendedFields = {
+      ...coreFields,
       daily_token_limit: Number(cred.dailyTokenLimit ?? 500000),
       daily_tokens_used: Number(cred.dailyTokensUsed ?? 0),
       monthly_budget_usd: Number(cred.monthlyBudgetUsd ?? 25),
@@ -769,41 +833,50 @@ export async function upsertSupabaseAiCredential(
       last_failure_at: cred.lastFailureAt || null,
       last_latency_ms: typeof cred.lastLatencyMs === 'number' ? Math.round(cred.lastLatencyMs) : null,
       last_correlation_id: cred.lastCorrelationId || null,
+      rate_limit_info_json: cred.rateLimitInfo || null,
+    };
+
+    const rawId = String(cred.id || '').trim();
+    const shouldInsert = Boolean(opts?.isNew) || !rawId || rawId.startsWith('pending-');
+
+    const performWrite = async (payload: Record<string, any>) => {
+      if (shouldInsert) {
+        return client.from('ai_provider_credentials').insert(payload).select('*').single();
+      }
+      return client.from('ai_provider_credentials').update(payload).eq('id', rawId).select('*').single();
     };
 
     let warning: string | undefined;
-    let writeRes = await client
-      .from('ai_provider_credentials')
-      .upsert(extendedRow, { onConflict: 'id' })
-      .select('*')
-      .single();
+    let writeRes = await performWrite(extendedFields);
 
     if (
       writeRes.error &&
+      writeRes.error.code !== 'PGRST205' &&
+      writeRes.error.code !== '42P01' &&
       (writeRes.error.code === '42703' ||
         writeRes.error.code === 'PGRST204' ||
-        /column .* does not exist|schema cache/i.test(writeRes.error.message || ''))
+        /column .* does not exist|could not find the .* column/i.test(writeRes.error.message || ''))
     ) {
-      warning = 'Migration 005 columns not yet applied on live Supabase; core columns synced cleanly.';
-      writeRes = await client
-        .from('ai_provider_credentials')
-        .upsert(coreRow, { onConflict: 'id' })
-        .select('*')
-        .single();
+      warning = 'Extended AI columns not yet applied on live Supabase; attempting core columns sync.';
+      writeRes = await performWrite(coreFields);
     }
 
     if (writeRes.error || !writeRes.data) {
-      const errMsg = writeRes.error?.message || 'Supabase upsert returned zero affected rows.';
-      const errCode = writeRes.error?.code || 'SUPABASE_AI_UPSERT_ERR';
+      const isNotFound = writeRes.error?.code === 'PGRST116' || writeRes.error?.code === '22P02';
+      const errMsg =
+        isNotFound && !shouldInsert
+          ? `AI credential "${rawId}" was not found in Supabase.`
+          : formatSupabaseAiTableError(writeRes.error, 'ai_provider_credentials');
+      const errCode = isNotFound && !shouldInsert ? 'NOT_FOUND' : writeRes.error?.code || 'SUPABASE_AI_UPSERT_ERR';
       recordServerError({
         source: 'supabase',
         code: errCode,
-        message: `Supabase AI credential upsert failed (${cred.id}): ${errMsg}`,
+        message: `Supabase AI credential ${shouldInsert ? 'insert' : 'update'} failed (${rawId || 'new'}): ${errMsg}`,
       });
       return { ok: false, code: errCode, error: errMsg };
     }
 
-    // Read-after-write verification using persisted primary key
+    // Read-after-write verification using database-assigned primary key
     const verify = await client
       .from('ai_provider_credentials')
       .select('*')
@@ -814,7 +887,7 @@ export async function upsertSupabaseAiCredential(
       return {
         ok: false,
         code: verify.error?.code || 'SUPABASE_AI_READBACK_ERR',
-        error: verify.error?.message || 'Record upserted but read-after-write verification failed.',
+        error: verify.error?.message || 'Record persisted but read-after-write lookup failed.',
       };
     }
 
@@ -843,6 +916,14 @@ export async function deleteSupabaseAiCredential(
       .select('id');
 
     if (error) {
+      if (error.code === '22P02') {
+        return {
+          ok: false,
+          deletedCount: 0,
+          code: 'NOT_FOUND',
+          error: `Credential "${id}" was not found in Supabase (0 rows deleted).`,
+        };
+      }
       recordServerError({
         source: 'supabase',
         code: error.code || 'SUPABASE_AI_DELETE_ERR',
@@ -1019,8 +1100,7 @@ export async function recordSupabaseAiConnectionTest(
   const client = getSupabaseAdminClient();
   if (!client) return { ok: false, error: 'Supabase not configured.' };
   try {
-    const { error } = await client.from('ai_connection_tests').insert({
-      id: entry.id,
+    const payload = {
       credential_id: entry.credentialId || null,
       provider_type: entry.providerType,
       model_tested: entry.modelTested || null,
@@ -1031,7 +1111,14 @@ export async function recordSupabaseAiConnectionTest(
       diagnostic_json: entry.diagnostic || null,
       actor: entry.actor || 'Super Admin',
       tested_at: entry.timestamp || new Date().toISOString(),
+    };
+    let { error } = await client.from('ai_connection_tests').insert({
+      id: entry.id,
+      ...payload,
     });
+    if (error && error.code === '22P02') {
+      ({ error } = await client.from('ai_connection_tests').insert(payload));
+    }
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (err: any) {
@@ -1135,9 +1222,21 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
   connectionTestOk: boolean;
   databaseQueryOk: boolean;
   credentialTableAccessible: boolean;
+  credentialTableStatus:
+    | 'accessible'
+    | 'missing_or_schema_cache'
+    | 'missing_columns_or_schema_cache'
+    | 'permission_or_rls'
+    | 'connection_or_auth'
+    | 'unconfigured'
+    | 'other';
+  migrationRequired: boolean;
+  recommendedMigrationFile: string;
+  schemaCacheReloadSql: string;
   projectHost: string | null;
+  projectRef: string | null;
   secretKeyMode: string;
-  tables: { table: string; available: boolean; rowCount: number | null; error?: string }[];
+  tables: { table: string; available: boolean; rowCount: number | null; code?: string; error?: string }[];
   rlsStatus: {
     credentialsAnonBlocked: boolean;
     taskRoutesAnonBlocked: boolean;
@@ -1150,6 +1249,7 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
   const tablesToCheck = [
     'ai_providers',
     'ai_provider_credentials',
+    'ai_provider_models',
     'ai_task_routes',
     'ai_connection_tests',
     'ai_usage_logs',
@@ -1175,7 +1275,12 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
       connectionTestOk: false,
       databaseQueryOk: false,
       credentialTableAccessible: false,
+      credentialTableStatus: 'unconfigured',
+      migrationRequired: false,
+      recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
+      schemaCacheReloadSql: "NOTIFY pgrst, 'reload schema';",
       projectHost: envCfg.projectHost,
+      projectRef: envCfg.projectRef,
       secretKeyMode: envCfg.secretKeyMode,
       tables: tablesToCheck.map(t => ({
         table: t,
@@ -1192,14 +1297,25 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
     };
   }
 
-  const tables = await Promise.all(
-    tablesToCheck.map(async table => {
+  const tableSelectColumns: Record<string, string> = {
+    ai_provider_credentials:
+      'id, provider_type, label, project_id, endpoint_url, model, encrypted_secret, masked_key, enabled, priority, daily_token_limit, daily_tokens_used, monthly_budget_usd, monthly_spend_usd, billing_status, billing_note, model_list_status, generation_test_status, connection_status, available_models_json, last_tested_at, last_successful_verification_at, last_successful_generation_at, last_failure_at, last_test_status, last_test_message, last_latency_ms, last_correlation_id, last_diagnostic_json, created_at, updated_at',
+    ai_task_routes:
+      'task, label, primary_credential_id, primary_model, fallback_credential_id, fallback_model, temperature, max_tokens, updated_at',
+  };
+
+  const tables: { table: string; available: boolean; rowCount: number | null; code?: string; error?: string }[] = await Promise.all(
+    tablesToCheck.map(async (table): Promise<{ table: string; available: boolean; rowCount: number | null; code?: string; error?: string }> => {
       try {
-        const res = await client.from(table).select('*', { count: 'exact', head: true });
+        const res = await client
+          .from(table)
+          .select(tableSelectColumns[table] || '*', { count: 'exact' })
+          .limit(0);
         return {
           table,
           available: !res.error,
           rowCount: typeof res.count === 'number' ? res.count : 0,
+          ...(res.error?.code ? { code: String(res.error.code) } : {}),
           ...(res.error ? { error: res.error.message } : {}),
         };
       } catch (err: any) {
@@ -1207,42 +1323,102 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
           table,
           available: false,
           rowCount: null,
+          ...(err?.code ? { code: String(err.code) } : {}),
           error: err?.message || 'Query error',
         };
       }
     })
   );
 
-  // Verify anon browser keys are strictly blocked from reading AI secrets or task routes
-  let credentialsAnonBlocked = false;
-  let taskRoutesAnonBlocked = false;
-  let rlsDetail = '';
-  const anon = getSupabaseAnonClient();
-  if (anon) {
-    const [anonCredRes, anonRouteRes] = await Promise.all([
-      anon.from('ai_provider_credentials').select('id').limit(1),
-      anon.from('ai_task_routes').select('task').limit(1),
-    ]);
-    credentialsAnonBlocked =
-      Boolean(anonCredRes.error) || (Array.isArray(anonCredRes.data) && anonCredRes.data.length === 0);
-    taskRoutesAnonBlocked =
-      Boolean(anonRouteRes.error) || (Array.isArray(anonRouteRes.data) && anonRouteRes.data.length === 0);
-    rlsDetail =
-      credentialsAnonBlocked && taskRoutesAnonBlocked
-        ? 'RLS verified: unauthenticated anon client blocked from raw AI credentials & task routes.'
-        : 'Warning: Anon policy returned unexpected rows — run Migration 005 RLS hardening.';
-  } else {
-    rlsDetail = 'SUPABASE_PUBLISHABLE_KEY not set; server-side SUPABASE_SECRET_KEY isolation active.';
+  // Also check a core table (articles / site_settings) so we distinguish "PostgREST reachable, AI schema missing/incomplete" from full DB outage
+  let coreQueryOk = tables.some(t => t.available);
+  if (!coreQueryOk) {
+    try {
+      const [artRes, setRes, credIdProbe] = await Promise.all([
+        client.from('articles').select('id', { count: 'exact' }).limit(0),
+        client.from('site_settings').select('id', { count: 'exact' }).limit(0),
+        client.from('ai_provider_credentials').select('id', { count: 'exact' }).limit(0),
+      ]);
+      coreQueryOk = !artRes.error || !setRes.error || !credIdProbe.error;
+    } catch {
+      coreQueryOk = false;
+    }
   }
 
   const credTable = tables.find(t => t.table === 'ai_provider_credentials');
   const credentialTableAccessible = Boolean(credTable?.available);
-  const databaseQueryOk = tables.some(t => t.available);
+  const credErrKind = credTable?.available
+    ? null
+    : classifySupabaseTableError({ code: credTable?.code, message: credTable?.error });
+  const credentialTableStatus = credentialTableAccessible
+    ? 'accessible'
+    : credErrKind === 'missing_or_schema_cache'
+    ? 'missing_or_schema_cache'
+    : credErrKind === 'missing_columns_or_schema_cache'
+    ? 'missing_columns_or_schema_cache'
+    : credErrKind === 'permission_or_rls'
+    ? 'permission_or_rls'
+    : credErrKind === 'connection_or_auth'
+    ? 'connection_or_auth'
+    : 'other';
+
+  const requiredAiTables = ['ai_providers', 'ai_provider_credentials', 'ai_task_routes', 'ai_connection_tests', 'ai_usage_logs'];
+  const migrationRequired = requiredAiTables.some(name => {
+    const row = tables.find(t => t.table === name);
+    const kind = classifySupabaseTableError({ code: row?.code, message: row?.error });
+    return !row?.available && (kind === 'missing_or_schema_cache' || kind === 'missing_columns_or_schema_cache');
+  });
+
+  const databaseQueryOk = coreQueryOk;
   const firstTableError = credTable?.error || tables.find(t => t.error)?.error;
   const isConnFailure =
     !databaseQueryOk &&
     Boolean(firstTableError && /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(firstTableError));
-  const connectionTestOk = databaseQueryOk || !isConnFailure;
+  const connectionTestOk =
+    databaseQueryOk ||
+    credErrKind === 'missing_or_schema_cache' ||
+    credErrKind === 'missing_columns_or_schema_cache' ||
+    !isConnFailure;
+
+  // Verify anon browser keys are strictly blocked from reading AI secrets, metadata views, or task routes
+  let credentialsAnonBlocked = false;
+  let taskRoutesAnonBlocked = false;
+  let rlsDetail = '';
+  const anon = getSupabaseAnonClient();
+  if (!credentialTableAccessible) {
+    credentialsAnonBlocked = false;
+    taskRoutesAnonBlocked = false;
+    rlsDetail = migrationRequired
+      ? `Pending schema repair/reload: apply ${RECOMMENDED_AI_MIGRATION_FILE} in Supabase SQL Editor.`
+      : 'Cannot verify RLS until ai_provider_credentials schema is complete and accessible.';
+  } else if (anon) {
+    const [anonCredRes, anonMetaRes, anonRouteRes] = await Promise.all([
+      anon.from('ai_provider_credentials').select('id').limit(1),
+      anon.from('ai_provider_credentials_metadata').select('id').limit(1),
+      anon.from('ai_task_routes').select('task').limit(1),
+    ]);
+    const rawBlocked =
+      Boolean(anonCredRes.error) || (Array.isArray(anonCredRes.data) && anonCredRes.data.length === 0);
+    const viewBlocked =
+      Boolean(anonMetaRes.error) || (Array.isArray(anonMetaRes.data) && anonMetaRes.data.length === 0);
+    credentialsAnonBlocked = rawBlocked && viewBlocked;
+    taskRoutesAnonBlocked =
+      Boolean(anonRouteRes.error) || (Array.isArray(anonRouteRes.data) && anonRouteRes.data.length === 0);
+    rlsDetail =
+      credentialsAnonBlocked && taskRoutesAnonBlocked
+        ? 'RLS verified: unauthenticated anon client blocked from raw AI credentials, metadata view & task routes.'
+        : 'Warning: Anon policy returned unexpected rows — run Migration 007 RLS hardening.';
+  } else {
+    credentialsAnonBlocked = true;
+    taskRoutesAnonBlocked = true;
+    rlsDetail = 'SUPABASE_PUBLISHABLE_KEY not set; server-side SUPABASE_SECRET_KEY isolation active.';
+  }
+
+  const formattedError = envCfg.secretKeyMisconfiguration
+    ? envCfg.secretKeyMisconfiguration
+    : credTable?.error
+    ? formatSupabaseAiTableError({ code: credTable.code, message: credTable.error }, 'ai_provider_credentials')
+    : firstTableError;
 
   return {
     connected: connectionTestOk && databaseQueryOk && credentialTableAccessible,
@@ -1261,7 +1437,12 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
     connectionTestOk,
     databaseQueryOk,
     credentialTableAccessible,
+    credentialTableStatus,
+    migrationRequired,
+    recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
+    schemaCacheReloadSql: "NOTIFY pgrst, 'reload schema';",
     projectHost: envCfg.projectHost,
+    projectRef: envCfg.projectRef,
     secretKeyMode: envCfg.secretKeyMode,
     tables,
     rlsStatus: {
@@ -1269,11 +1450,7 @@ export async function inspectSupabaseAiInfrastructure(): Promise<{
       taskRoutesAnonBlocked,
       detail: envCfg.secretKeyMisconfiguration ? `${envCfg.secretKeyMisconfiguration} ${rlsDetail}` : rlsDetail,
     },
-    ...(envCfg.secretKeyMisconfiguration
-      ? { error: envCfg.secretKeyMisconfiguration }
-      : firstTableError
-      ? { error: firstTableError }
-      : {}),
+    ...(formattedError ? { error: formattedError } : {}),
   };
 }
 
@@ -1318,7 +1495,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
   connectionTestOk: boolean;
   databaseQueryOk: boolean;
   credentialTableAccessible: boolean;
+  migrationRequired?: boolean;
+  recommendedMigrationFile?: string;
+  tableErrorCode?: string;
   projectHost: string | null;
+  projectRef: string | null;
   testRecordId: string;
   stages: {
     stage: 'INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED';
@@ -1331,7 +1512,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
 }> {
   const envCfg = resolveSupabaseEnvConfig();
   const runtimeInfo = detectBackendRuntimeInfo();
-  const testId = `__diag_ai_crud_${Date.now()}`;
+  let createdRecordId: string | number | null = null;
   const allStagesOrder: ('INSERT' | 'SELECT' | 'UPDATE' | 'DELETE' | 'VERIFY_DELETED')[] = [
     'INSERT',
     'SELECT',
@@ -1377,8 +1558,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       connectionTestOk: false,
       databaseQueryOk: false,
       credentialTableAccessible: false,
+      migrationRequired: false,
+      recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
       projectHost: envCfg.projectHost,
-      testRecordId: testId,
+      projectRef: envCfg.projectRef,
+      testRecordId: 'unconfigured',
       stages,
       error: guidance,
     };
@@ -1389,15 +1573,25 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
   let credentialTableAccessible = false;
 
   try {
-    // 0. Connection + Table Accessibility Probe
+    // 0. Connection + Table & Required Column Accessibility Probe
     const probe = await client
       .from('ai_provider_credentials')
-      .select('id', { count: 'exact', head: true });
+      .select(
+        'id, provider_type, label, project_id, model, encrypted_secret, masked_key, enabled, priority, connection_status, updated_at, created_at',
+        { count: 'exact' }
+      )
+      .limit(0);
     if (probe.error) {
-      const msg = probe.error.message || 'Cannot access ai_provider_credentials table.';
-      const isNetworkOrAuth = /fetch failed|network|ENOTFOUND|ECONNREFUSED|Invalid API key|JWT/i.test(msg);
+      const errKind = classifySupabaseTableError(probe.error);
+      const msg = formatSupabaseAiTableError(probe.error, 'ai_provider_credentials');
+      const isNetworkOrAuth = errKind === 'connection_or_auth';
       connectionTestOk = !isNetworkOrAuth;
-      databaseQueryOk = false;
+      if (!isNetworkOrAuth) {
+        const coreProbe = await client.from('articles').select('id', { count: 'exact' }).limit(0);
+        databaseQueryOk = !coreProbe.error;
+      } else {
+        databaseQueryOk = false;
+      }
       credentialTableAccessible = false;
       padRemainingStages(msg);
       return {
@@ -1412,8 +1606,12 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: errKind === 'missing_or_schema_cache' || errKind === 'missing_columns_or_schema_cache',
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
+        tableErrorCode: probe.error.code || undefined,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: 'schema-check-failed',
         stages,
         error: msg,
       };
@@ -1422,15 +1620,14 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     databaseQueryOk = true;
     credentialTableAccessible = true;
 
-    // 1. INSERT isolated synthetic row (enabled: false, dummy ciphertext — never usable for generation)
+    // 1. INSERT isolated synthetic row omitting `id` so bigint identity (or default PK) generates it safely
     let t0 = Date.now();
     const { data: inserted, error: insErr } = await client
       .from('ai_provider_credentials')
       .insert({
-        id: testId,
         provider_type: 'gemini',
         label: 'Diagnostic CRUD Probe (Safe Auto-Deleted)',
-        project_id: 'diag-probe-isolated',
+        project_id: `diag-probe-${Date.now()}`,
         model: 'diag-model',
         encrypted_secret: 'enc:v1:diagnostic:probe:nonfunctional',
         masked_key: 'diag••••••••test',
@@ -1438,10 +1635,10 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         priority: 999,
         connection_status: 'disabled',
       })
-      .select('id, label, enabled')
+      .select('id, label, enabled, priority')
       .single();
 
-    if (insErr || !inserted) {
+    if (insErr || !inserted || inserted.id === undefined || inserted.id === null) {
       const msg = insErr?.message || 'No record returned from INSERT.';
       stages.push({
         stage: 'INSERT',
@@ -1463,25 +1660,30 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: false,
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: 'insert-failed',
         stages,
         error: msg,
       };
     }
+    createdRecordId = inserted.id;
+    const createdIdStr = String(inserted.id);
     stages.push({
       stage: 'INSERT',
       ok: true,
       latencyMs: Date.now() - t0,
-      detail: `Inserted test record ${inserted.id}`,
+      detail: `Inserted test record id=${createdIdStr} (priority=${inserted.priority ?? 999})`,
     });
 
     // 2. SELECT
     t0 = Date.now();
     const { data: selected, error: selErr } = await client
       .from('ai_provider_credentials')
-      .select('id, label, enabled')
-      .eq('id', testId)
+      .select('id, label, enabled, priority')
+      .eq('id', createdIdStr)
       .single();
     if (selErr || !selected) {
       const msg = selErr?.message || 'Record not found.';
@@ -1505,8 +1707,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: false,
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: createdIdStr,
         stages,
         error: msg,
       };
@@ -1515,7 +1720,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       stage: 'SELECT',
       ok: true,
       latencyMs: Date.now() - t0,
-      detail: `Read back "${selected.label}" (enabled=${selected.enabled})`,
+      detail: `Read back "${selected.label}" (enabled=${selected.enabled}, priority=${selected.priority})`,
     });
 
     // 3. UPDATE
@@ -1523,9 +1728,9 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     const updatedLabel = 'Diagnostic CRUD Probe Updated';
     const { data: updated, error: updErr } = await client
       .from('ai_provider_credentials')
-      .update({ label: updatedLabel, updated_at: new Date().toISOString() })
-      .eq('id', testId)
-      .select('id, label')
+      .update({ label: updatedLabel, priority: 998, updated_at: new Date().toISOString() })
+      .eq('id', createdIdStr)
+      .select('id, label, priority')
       .single();
     if (updErr || !updated || updated.label !== updatedLabel) {
       const msg = updErr?.message || 'Updated row mismatch or zero rows affected.';
@@ -1533,7 +1738,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         stage: 'UPDATE',
         ok: false,
         latencyMs: Date.now() - t0,
-        detail: 'Failed updating test record label.',
+        detail: 'Failed updating test record label & priority.',
         error: msg,
       });
       padRemainingStages('Skipped because UPDATE failed.');
@@ -1549,8 +1754,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: false,
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: createdIdStr,
         stages,
         error: msg,
       };
@@ -1559,7 +1767,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       stage: 'UPDATE',
       ok: true,
       latencyMs: Date.now() - t0,
-      detail: `Updated label -> "${updated.label}"`,
+      detail: `Updated label -> "${updated.label}" (priority=${updated.priority})`,
     });
 
     // 4. DELETE
@@ -1567,7 +1775,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     const { data: delRows, error: delErr } = await client
       .from('ai_provider_credentials')
       .delete()
-      .eq('id', testId)
+      .eq('id', createdIdStr)
       .select('id');
     const delCount = Array.isArray(delRows) ? delRows.length : 0;
     if (delErr || delCount !== 1) {
@@ -1592,8 +1800,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: false,
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: createdIdStr,
         stages,
         error: msg,
       };
@@ -1602,7 +1813,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       stage: 'DELETE',
       ok: true,
       latencyMs: Date.now() - t0,
-      detail: `Deleted 1 test record (${testId})`,
+      detail: `Deleted 1 test record (id=${createdIdStr})`,
     });
 
     // 5. VERIFY_DELETED
@@ -1610,7 +1821,7 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
     const { data: verifyAfter, error: verifyErr } = await client
       .from('ai_provider_credentials')
       .select('id')
-      .eq('id', testId)
+      .eq('id', createdIdStr)
       .maybeSingle();
     if (verifyErr || verifyAfter !== null) {
       const msg = verifyErr?.message || 'Residual test row detected.';
@@ -1633,8 +1844,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
         connectionTestOk,
         databaseQueryOk,
         credentialTableAccessible,
+        migrationRequired: false,
+        recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
         projectHost: envCfg.projectHost,
-        testRecordId: testId,
+        projectRef: envCfg.projectRef,
+        testRecordId: createdIdStr,
         stages,
         error: msg,
       };
@@ -1658,8 +1872,11 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       connectionTestOk,
       databaseQueryOk,
       credentialTableAccessible,
+      migrationRequired: false,
+      recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
       projectHost: envCfg.projectHost,
-      testRecordId: testId,
+      projectRef: envCfg.projectRef,
+      testRecordId: createdIdStr,
       stages,
     };
   } catch (err: any) {
@@ -1677,14 +1894,23 @@ export async function runSupabaseAiCrudSelfTest(): Promise<{
       connectionTestOk,
       databaseQueryOk,
       credentialTableAccessible,
+      migrationRequired: false,
+      recommendedMigrationFile: RECOMMENDED_AI_MIGRATION_FILE,
       projectHost: envCfg.projectHost,
-      testRecordId: testId,
+      projectRef: envCfg.projectRef,
+      testRecordId: createdRecordId !== null ? String(createdRecordId) : 'error',
       stages,
       error: msg,
     };
   } finally {
     // Safety cleanup in case any mid-stage aborted before DELETE
-    await client.from('ai_provider_credentials').delete().eq('id', testId).then(() => {}, () => {});
+    if (createdRecordId !== null) {
+      await client
+        .from('ai_provider_credentials')
+        .delete()
+        .eq('id', String(createdRecordId))
+        .then(() => {}, () => {});
+    }
   }
 }
 

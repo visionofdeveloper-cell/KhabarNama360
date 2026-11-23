@@ -122,7 +122,7 @@ function mapDiagnosticToAutoCategory(
 }
 
 export const AI_VAULT_BUILD_VERSION =
-  process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || '2026.11.20-ai-crud-v3';
+  process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || '2026.11.22-ai-crud-v5';
 
 export interface AIMutationDebugEntry {
   correlationId: string;
@@ -496,7 +496,11 @@ export class AIProviderManager {
       input.providerType === 'grok' ? 'https://api.x.ai/v1' : undefined;
 
     const record: AIProviderCredential = {
-      id: existing?.id || `aik-${input.providerType}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      id:
+        existing?.id ||
+        (isSupabaseConfigured()
+          ? ''
+          : `aik-${input.providerType}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`),
       providerType: input.providerType,
       label: input.label.trim(),
       projectId: resolvedProjectId,
@@ -534,7 +538,7 @@ export class AIProviderManager {
 
     let persistedRecord = record;
     if (isSupabaseConfigured()) {
-      const sbRes = await upsertSupabaseAiCredential(record);
+      const sbRes = await upsertSupabaseAiCredential(record, { isNew: !existing });
       if (!sbRes.ok || !sbRes.credential) {
         const msg = sbRes.error || 'Failed persisting AI credential to Supabase PostgreSQL.';
         this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);
@@ -702,7 +706,7 @@ export class AIProviderManager {
         updatedAt: now,
       };
       if (isSupabaseConfigured()) {
-        const sbRes = await upsertSupabaseAiCredential(nextCred);
+        const sbRes = await upsertSupabaseAiCredential(nextCred, { isNew: false });
         if (!sbRes.ok) {
           const msg = sbRes.error || 'Failed persisting test status to Supabase.';
           this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);
@@ -743,7 +747,7 @@ export class AIProviderManager {
         updatedAt: now,
       };
       if (isSupabaseConfigured()) {
-        const sbRes = await upsertSupabaseAiCredential(updatedCred);
+        const sbRes = await upsertSupabaseAiCredential(updatedCred, { isNew: false });
         if (!sbRes.ok) {
           const msg = sbRes.error || 'Failed persisting discovered models to Supabase.';
           this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);
@@ -808,7 +812,7 @@ export class AIProviderManager {
         };
         db.upsertAiProvider(healthyCred, actor);
         if (isSupabaseConfigured()) {
-          const sbRes = await upsertSupabaseAiCredential(healthyCred);
+          const sbRes = await upsertSupabaseAiCredential(healthyCred, { isNew: false });
           if (!sbRes.ok) {
             this.recordDbFailure('upsertSupabaseAiCredential', sbRes.error || 'Health status sync failed', sbRes.code);
           }
@@ -871,7 +875,7 @@ export class AIProviderManager {
         };
         db.upsertAiProvider(failedCred, actor);
         if (isSupabaseConfigured()) {
-          const sbRes = await upsertSupabaseAiCredential(failedCred);
+          const sbRes = await upsertSupabaseAiCredential(failedCred, { isNew: false });
           if (!sbRes.ok) {
             this.recordDbFailure('upsertSupabaseAiCredential', sbRes.error || 'Health error sync failed', sbRes.code);
           }
@@ -1037,7 +1041,11 @@ export class AIProviderManager {
 
   public static async getDiagnostics() {
     if (isSupabaseConfigured()) {
-      await this.syncActiveCacheFromSupabase('Diagnostics');
+      try {
+        await this.syncActiveCacheFromSupabase('Diagnostics');
+      } catch {
+        // Non-fatal in diagnostics: lastDbError is recorded and inspectSupabaseAiInfrastructure() reports exact table/schema details
+      }
     }
     const [connectivity, supabase] = await Promise.all([
       checkOutboundConnectivity(),
@@ -1068,9 +1076,15 @@ export class AIProviderManager {
       configurationDiagnostic: {
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured ? 'Yes' : 'No',
         supabaseSecretKeyConfigured: envCfg.supabaseSecretConfigured ? 'Yes' : 'No',
+        supabaseProjectRef: envCfg.projectRef || null,
+        supabaseProjectHost: envCfg.projectHost || null,
         supabaseConnection: supabase.connectionTestOk ? 'Pass' : 'Fail',
         databaseQuery: supabase.databaseQueryOk ? 'Pass' : 'Fail',
         aiCredentialTable: supabase.credentialTableAccessible ? 'Accessible' : 'Inaccessible',
+        credentialTableStatus: supabase.credentialTableStatus,
+        migrationRequired: supabase.migrationRequired,
+        recommendedMigrationFile: supabase.recommendedMigrationFile,
+        schemaCacheReloadSql: supabase.schemaCacheReloadSql,
         currentRuntime: runtimeInfo.shortName,
         actualRuntime: runtimeInfo.label,
         deploymentEnvironment: runtimeInfo.deploymentEnv,
@@ -1101,6 +1115,8 @@ export class AIProviderManager {
         supabaseConfigured: envCfg.configured,
         supabaseUrlConfigured: envCfg.supabaseUrlConfigured,
         supabaseSecretConfigured: envCfg.supabaseSecretConfigured,
+        supabaseProjectRef: envCfg.projectRef || null,
+        supabaseProjectHost: envCfg.projectHost || null,
         urlEnvName: envCfg.urlEnvName,
         secretEnvName: envCfg.secretEnvName,
         masterKeyConfigured: Boolean(process.env.AI_MASTER_KEY && process.env.AI_MASTER_KEY.trim()),
@@ -1149,7 +1165,7 @@ export class AIProviderManager {
       this.recordDbFailure(
         'runSupabaseAiCrudSelfTest',
         res.error,
-        res.configured ? 'SUPABASE_CRUD_TEST_FAILED' : 'SUPABASE_CONFIG_REQUIRED'
+        res.tableErrorCode || (res.configured ? 'SUPABASE_CRUD_TEST_FAILED' : 'SUPABASE_CONFIG_REQUIRED')
       );
     }
     return {
@@ -1327,9 +1343,7 @@ export class AIProviderManager {
           }
 
           if (routeRes.ok) {
-            if (routeRes.routes.length > 0 || credRes.credentials.length === 0) {
-              db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
-            }
+            db.replaceAiTaskRoutesFromSupabase(routeRes.routes);
           } else if (routeRes.error) {
             this.recordDbFailure('listSupabaseAiTaskRoutes', routeRes.error);
           }
@@ -2166,7 +2180,7 @@ export class AIProviderManager {
 
     const recordId =
       targetExisting?.id ||
-      `aik-${params.providerType}-primary-${Date.now().toString(36)}`;
+      (isSupabaseConfigured() ? '' : `aik-${params.providerType}-primary-${Date.now().toString(36)}`);
 
     const cred: AIProviderCredential = {
       id: recordId,
@@ -2176,7 +2190,7 @@ export class AIProviderManager {
         (params.providerType === 'gemini' ? 'Google Gemini (Auto-Connected)' : 'xAI Grok (Auto-Connected)'),
       projectId:
         targetExisting?.projectId ||
-        `${params.providerType}-auto-${recordId.slice(-4)}`,
+        `${params.providerType}-auto-${Date.now().toString(36).slice(-4)}`,
       endpointUrl:
         params.endpointUrl ||
         targetExisting?.endpointUrl ||
@@ -2212,11 +2226,11 @@ export class AIProviderManager {
     // Demote any older non-replaced credentials' priority so the newly connected key leads routing cleanly
     // without deleting existing keys unless replaced/disconnected.
     for (const prev of existingList) {
-      if (prev.id !== cred.id && (prev.priority || 10) <= 1) {
+      if (prev.id !== targetExisting?.id && (prev.priority || 10) <= 1) {
         const demoted = { ...prev, priority: (prev.priority || 1) + 10, updatedAt: params.now };
         db.upsertAiProvider(demoted, params.actor);
         if (isSupabaseConfigured()) {
-          const res = await upsertSupabaseAiCredential(demoted);
+          const res = await upsertSupabaseAiCredential(demoted, { isNew: false });
           if (!res.ok) {
             this.recordDbFailure('upsertSupabaseAiCredential', res.error || 'Priority demotion failed', res.code);
           }
@@ -2225,7 +2239,7 @@ export class AIProviderManager {
     }
 
     if (isSupabaseConfigured()) {
-      const sbRes = await upsertSupabaseAiCredential(creditSafeRecord(cred));
+      const sbRes = await upsertSupabaseAiCredential(creditSafeRecord(cred), { isNew: !targetExisting });
       if (!sbRes.ok || !sbRes.credential) {
         const msg = sbRes.error || 'Failed persisting connected credential to Supabase.';
         this.recordDbFailure('upsertSupabaseAiCredential', msg, sbRes.code);

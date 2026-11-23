@@ -41,8 +41,9 @@ VALUES
   ('grok', 'grok', 'xAI Grok', 'https://api.x.ai/v1', 'bearer', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
--- 4. Safe read-only projection without encrypted_secret for diagnostics/audits
-CREATE OR REPLACE VIEW public.ai_provider_credentials_metadata AS
+-- 4. Safe read-only projection without encrypted_secret for server diagnostics/audits
+CREATE OR REPLACE VIEW public.ai_provider_credentials_metadata
+WITH (security_invoker = true) AS
 SELECT
   id,
   provider_type,
@@ -76,6 +77,7 @@ SELECT
 FROM public.ai_provider_credentials;
 
 -- 5. Strict Least-Privilege RLS Policies for AI Tables
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
 ALTER TABLE public.ai_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_provider_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_task_routes ENABLE ROW LEVEL SECURITY;
@@ -83,8 +85,7 @@ ALTER TABLE public.ai_usage_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_connection_tests ENABLE ROW LEVEL SECURITY;
 
 -- Raw credential table: DENY ALL direct browser access (anon & authenticated) so encrypted_secret never leaks
-REVOKE ALL ON public.ai_provider_credentials FROM anon;
-REVOKE ALL ON public.ai_provider_credentials FROM authenticated;
+REVOKE ALL ON public.ai_provider_credentials FROM PUBLIC, anon, authenticated;
 DROP POLICY IF EXISTS "ai_credentials_deny_browser" ON public.ai_provider_credentials;
 CREATE POLICY "ai_credentials_deny_browser"
   ON public.ai_provider_credentials FOR ALL
@@ -92,12 +93,12 @@ CREATE POLICY "ai_credentials_deny_browser"
   USING (FALSE)
   WITH CHECK (FALSE);
 
--- Allow authenticated Super Admins to read sanitized metadata view only if queried via Supabase Auth
-REVOKE ALL ON public.ai_provider_credentials_metadata FROM anon;
-GRANT SELECT ON public.ai_provider_credentials_metadata TO authenticated;
+-- Restrict metadata view strictly to trusted server-side service_role (zero browser/ordinary user access)
+REVOKE ALL ON public.ai_provider_credentials_metadata FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.ai_provider_credentials_metadata TO service_role;
 
 -- Provider registry catalog: authenticated Super Admin read/manage; zero anon access
-REVOKE ALL ON public.ai_providers FROM anon;
+REVOKE ALL ON public.ai_providers FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "ai_providers_super_admin_all" ON public.ai_providers;
 CREATE POLICY "ai_providers_super_admin_all"
   ON public.ai_providers FOR ALL
@@ -106,28 +107,28 @@ CREATE POLICY "ai_providers_super_admin_all"
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin']));
 
 -- Task routing: authenticated Super Admin read/manage; zero anon access
-REVOKE ALL ON public.ai_task_routes FROM anon;
+REVOKE ALL ON public.ai_task_routes FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "ai_task_routes_super_admin_all" ON public.ai_task_routes;
 CREATE POLICY "ai_task_routes_super_admin_all"
   ON public.ai_task_routes FOR ALL
   TO authenticated
-  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']))
-  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+  USING (public.has_admin_role(ARRAY['Super Admin']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin']));
 
--- Connection tests & usage logs: Super Admin / Admin read-only from Supabase Auth; zero anon access
-REVOKE ALL ON public.ai_connection_tests FROM anon;
+-- Connection tests & usage logs: Super Admin read-only from Supabase Auth; zero anon access
+REVOKE ALL ON public.ai_connection_tests FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "ai_connection_tests_super_admin_read" ON public.ai_connection_tests;
 CREATE POLICY "ai_connection_tests_super_admin_read"
   ON public.ai_connection_tests FOR SELECT
   TO authenticated
-  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+  USING (public.has_admin_role(ARRAY['Super Admin']));
 
-REVOKE ALL ON public.ai_usage_logs FROM anon;
+REVOKE ALL ON public.ai_usage_logs FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "ai_usage_logs_super_admin_read" ON public.ai_usage_logs;
 CREATE POLICY "ai_usage_logs_super_admin_read"
   ON public.ai_usage_logs FOR SELECT
   TO authenticated
-  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+  USING (public.has_admin_role(ARRAY['Super Admin']));
 
 -- Ensure trusted server-side service_role retains full access across AI tables
 GRANT ALL ON public.ai_providers TO service_role;
@@ -135,3 +136,5 @@ GRANT ALL ON public.ai_provider_credentials TO service_role;
 GRANT ALL ON public.ai_task_routes TO service_role;
 GRANT ALL ON public.ai_connection_tests TO service_role;
 GRANT ALL ON public.ai_usage_logs TO service_role;
+
+NOTIFY pgrst, 'reload schema';

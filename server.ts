@@ -3012,6 +3012,7 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
 
     const storageBackend = AIProviderManager.getStorageBackendMode();
     const runtimeInfo = detectBackendRuntimeInfo();
+    const envCfg = resolveSupabaseEnvConfig();
     res.json({
       success: true,
       buildVersion: AI_VAULT_BUILD_VERSION,
@@ -3031,6 +3032,8 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
       connectedCount: all.filter((c: any) => c.enabled && c.connectionStatus === 'connected').length,
       storageBackend,
       supabaseConfigured,
+      supabaseProjectRef: envCfg.projectRef || null,
+      supabaseProjectHost: envCfg.projectHost || null,
       ephemeralServerlessWarning:
         (runtimeInfo.isServerless || runtimeInfo.isGoogleAiStudio || runtimeInfo.isProduction) && !supabaseConfigured,
       envManagedVariables: AIProviderManager.getEnvManagedVariablesStatus(),
@@ -3042,6 +3045,8 @@ app.get('/api/v1/admin/ai/connection-status', requireAnyPermission(['ai:use', 'a
         currentRuntime: runtimeInfo.shortName,
         deploymentEnvironment: runtimeInfo.deploymentEnv,
         actualRuntime: runtimeInfo.label,
+        supabaseProjectRef: envCfg.projectRef || null,
+        supabaseProjectHost: envCfg.projectHost || null,
         generationTimeoutMs: Number(process.env.AI_GENERATION_TIMEOUT_MS || 55000),
         discoveryTimeoutMs: Number(process.env.AI_DISCOVERY_TIMEOUT_MS || 12000),
       },
@@ -3375,11 +3380,12 @@ async function handleCreateOrUpsertProvider(req: Request, res: Response) {
     return res.status(expectedStatus).json({ success: true, provider: saved, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed saving AI credential.';
-    const status = msg.toLowerCase().includes('not found')
+    const isCredMissing = /^ai credential(?:\s+["']?[^"'\n]+["']?)?\s+(?:was\s+)?not found/i.test(msg);
+    const status = isCredMissing
       ? 404
       : isPersistentDbUnavailableMsg(msg)
       ? 503
-      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      : /database|supabase|schema cache|pgrst|42703|relation .* does not exist|column .* does not exist|could not find the .* column/i.test(msg)
       ? 500
       : 400;
     const receipt = AIProviderManager.recordMutationDebugLog({
@@ -3426,11 +3432,12 @@ async function handlePatchProvider(req: Request, res: Response) {
     return res.json({ success: true, provider: updated, receipt });
   } catch (err: any) {
     const msg = err?.message || 'Failed updating AI credential.';
-    const status = msg.toLowerCase().includes('not found')
+    const isCredMissing = /^ai credential(?:\s+["']?[^"'\n]+["']?)?\s+(?:was\s+)?not found/i.test(msg);
+    const status = isCredMissing
       ? 404
       : isPersistentDbUnavailableMsg(msg)
       ? 503
-      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      : /database|supabase|schema cache|pgrst|42703|relation .* does not exist|column .* does not exist|could not find the .* column/i.test(msg)
       ? 500
       : 400;
     const receipt = AIProviderManager.recordMutationDebugLog({
@@ -3516,9 +3523,10 @@ async function handleTestProviderById(req: Request, res: Response) {
     return res.json({ success: result.ok, result });
   } catch (err: any) {
     const msg = err?.message || 'Provider test failed.';
-    const status = msg.toLowerCase().includes('not found')
+    const isCredMissing = /^ai credential(?:\s+["']?[^"'\n]+["']?)?\s+(?:was\s+)?not found/i.test(msg);
+    const status = isCredMissing
       ? 404
-      : msg.toLowerCase().includes('database') || msg.toLowerCase().includes('supabase')
+      : /database|supabase|schema cache|pgrst|42703|relation .* does not exist|column .* does not exist|could not find the .* column/i.test(msg)
       ? 500
       : 400;
     return res.status(status).json({ success: false, error: msg });
