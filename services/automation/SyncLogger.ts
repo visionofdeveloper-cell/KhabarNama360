@@ -6,11 +6,18 @@
 
 import { db } from '../../src/server/db.ts';
 import { SyncJobRun } from '../../src/server/automation/types.ts';
+import { isSupabaseConfigured } from '../../src/server/supabaseAdmin.ts';
+import {
+  syncAutomationJobRunToSupabase,
+  syncDataProviderToSupabase,
+} from '../../src/server/supabaseRepositories.ts';
+import { recordServerError } from '../../src/server/errorTracker.ts';
 
 export class SyncLogger {
   public static logRun(run: SyncJobRun): SyncJobRun {
     db.recordSyncRun(run);
     const provider = db.getDataProvider(run.providerId);
+    let updatedProvider = provider;
     if (provider) {
       db.updateDataProvider(run.providerId, {
         lastSyncAt: run.timestamp,
@@ -25,6 +32,18 @@ export class SyncLogger {
             ? 'error'
             : provider.status,
       });
+      updatedProvider = db.getDataProvider(run.providerId) || provider;
+    }
+
+    if (isSupabaseConfigured()) {
+      syncAutomationJobRunToSupabase(run).catch(err =>
+        recordServerError({ source: 'supabase', code: 'SYNC_RUN_PERSIST_ERR', message: String(err?.message || err) })
+      );
+      if (updatedProvider) {
+        syncDataProviderToSupabase(updatedProvider).catch(err =>
+          recordServerError({ source: 'supabase', code: 'SYNC_PROVIDER_PERSIST_ERR', message: String(err?.message || err) })
+        );
+      }
     }
     return run;
   }

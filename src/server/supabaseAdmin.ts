@@ -615,11 +615,27 @@ export async function upsertSupabaseArticle(
 
   try {
     const row = buildArticleRow(article, actor);
-    const { data, error } = await client
+    let { data, error } = await client
       .from('articles')
       .upsert(row, { onConflict: 'id' })
       .select('*')
       .single();
+
+    // If database still has legacy Migration 001 CHECK constraint rejecting 'review' or 'approved',
+    // retry cleanly mapped to 'in_review' / 'scheduled' so saves never fail before repair SQL runs.
+    if (error && (error.code === '23514' || /check constraint/i.test(error.message || ''))) {
+      const legacyStatusMap: Record<string, string> = {
+        review: 'in_review',
+        approved: 'scheduled',
+        rejected: 'archived',
+      };
+      const mappedStatus = legacyStatusMap[String(row.status)] || 'draft';
+      ({ data, error } = await client
+        .from('articles')
+        .upsert({ ...row, status: mappedStatus }, { onConflict: 'id' })
+        .select('*')
+        .single());
+    }
 
     if (error || !data) {
       const msg = error?.message || 'Supabase upsert returned no record.';

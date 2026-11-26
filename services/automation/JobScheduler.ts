@@ -8,6 +8,13 @@ import { db } from '../../src/server/db.ts';
 import { SyncJobRun } from '../../src/server/automation/types.ts';
 import { ProviderRegistry } from './ProviderRegistry.ts';
 import { ArticleService } from '../../src/server/articleService.ts';
+import {
+  acquireSupabaseCronLock,
+  releaseSupabaseCronLock,
+  syncAutomationSettingsToSupabase,
+} from '../../src/server/supabaseRepositories.ts';
+import { isSupabaseConfigured } from '../../src/server/supabaseAdmin.ts';
+import { recordServerError } from '../../src/server/errorTracker.ts';
 
 export class JobScheduler {
   public static async runDueJobs(
@@ -20,7 +27,7 @@ export class JobScheduler {
     }
 
     const lockOwner = `${triggeredBy}-${process.pid}`;
-    const lockAcquired = db.acquireCronLock('global-sync-dispatcher', lockOwner, 240);
+    const lockAcquired = await acquireSupabaseCronLock('global-sync-dispatcher', lockOwner, 240);
     if (!lockAcquired) {
       return { skipped: 'Active lock already held by another sync worker', runs: [] };
     }
@@ -47,9 +54,17 @@ export class JobScheduler {
         console.warn('[Scheduler] Scheduled publish sweep error:', err?.message || err)
       );
 
-      db.updateAutomationSettings({ lastCronRunAt: new Date().toISOString() }, 'Cron Dispatcher');
+      const updatedSettings = db.updateAutomationSettings(
+        { lastCronRunAt: new Date().toISOString() },
+        'Cron Dispatcher'
+      );
+      if (isSupabaseConfigured()) {
+        await syncAutomationSettingsToSupabase(updatedSettings, 'Cron Dispatcher').catch(err =>
+          recordServerError({ source: 'supabase', code: 'AUTO_SETTINGS_SYNC_ERR', message: String(err?.message || err) })
+        );
+      }
     } finally {
-      db.releaseCronLock('global-sync-dispatcher');
+      await releaseSupabaseCronLock('global-sync-dispatcher').catch(() => {});
     }
 
     return { runs };

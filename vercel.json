@@ -13,11 +13,35 @@
       "destination": "/api/index"
     },
     {
+      "source": "/sitemap-index.xml",
+      "destination": "/api/index"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/index"
     },
     {
       "source": "/sitemap-news.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/news-sitemap.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/image-sitemap.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/video-sitemap.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/en/feed.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/ur/feed.xml",
       "destination": "/api/index"
     },
     {

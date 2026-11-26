@@ -84,7 +84,10 @@ export const AdBanner: React.FC<AdBannerProps> = ({ slot, imageUrl, targetUrl })
               <img
                 src={resolvedBanner}
                 alt={activeCamp.campaignName || 'Sponsored Advertisement'}
+                width={728}
+                height={112}
                 loading="lazy"
+                decoding="async"
                 className="w-full max-h-28 object-cover rounded-lg"
               />
             </a>
@@ -138,7 +141,10 @@ export const AdBanner: React.FC<AdBannerProps> = ({ slot, imageUrl, targetUrl })
             <img
               src={resolvedBanner}
               alt={activeCamp?.campaignName || 'Advertisement'}
+              width={360}
+              height={160}
               loading="lazy"
+              decoding="async"
               className="w-full h-40 object-cover rounded-md mb-2"
             />
           </a>

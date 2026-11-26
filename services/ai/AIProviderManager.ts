@@ -6,6 +6,7 @@
 
 import { db, isServerlessRuntime } from '../../src/server/db.ts';
 import { encryptSecret, tryDecryptSecret, maskSecret } from '../../src/server/crypto.ts';
+import { recordServerError } from '../../src/server/errorTracker.ts';
 import {
   deleteSupabaseAiCredential,
   detectBackendRuntimeInfo,
@@ -407,7 +408,9 @@ export class AIProviderManager {
     this.lastProviderValidationAt = testRecord.timestamp;
     db.recordAiConnectionTest(testRecord);
     if (isSupabaseConfigured()) {
-      recordSupabaseAiConnectionTest(testRecord).catch(() => {});
+      recordSupabaseAiConnectionTest(testRecord).catch(err =>
+        recordServerError({ source: 'supabase', code: 'AI_TEST_LOG_WARN', message: String(err?.message || err) })
+      );
     }
 
     return result;
@@ -835,7 +838,9 @@ export class AIProviderManager {
         };
         db.recordAiConnectionTest(hcRecord);
         if (isSupabaseConfigured()) {
-          recordSupabaseAiConnectionTest(hcRecord).catch(() => {});
+          recordSupabaseAiConnectionTest(hcRecord).catch(err =>
+            recordServerError({ source: 'supabase', code: 'AI_HC_LOG_WARN', message: String(err?.message || err) })
+          );
         }
 
         checks.push({
@@ -899,7 +904,9 @@ export class AIProviderManager {
         };
         db.recordAiConnectionTest(errRecord);
         if (isSupabaseConfigured()) {
-          recordSupabaseAiConnectionTest(errRecord).catch(() => {});
+          recordSupabaseAiConnectionTest(errRecord).catch(err =>
+            recordServerError({ source: 'supabase', code: 'AI_HC_ERR_LOG_WARN', message: String(err?.message || err) })
+          );
         }
 
         checks.push({
@@ -1538,7 +1545,11 @@ export class AIProviderManager {
             timestamp: now,
           };
           db.recordAiConnectionTest(testEntry);
-          if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+          if (isSupabaseConfigured()) {
+            recordSupabaseAiConnectionTest(testEntry).catch(err =>
+              recordServerError({ source: 'supabase', code: 'AI_AUTO_TEST_LOG_WARN', message: String(err?.message || err) })
+            );
+          }
 
           return {
             ok: false,
@@ -1692,7 +1703,11 @@ export class AIProviderManager {
           timestamp: now,
         };
         db.recordAiConnectionTest(testEntry);
-        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(testEntry).catch(err =>
+            recordServerError({ source: 'supabase', code: 'AI_GROK_TEST_LOG_WARN', message: String(err?.message || err) })
+          );
+        }
 
         return {
           ok: false,
@@ -1922,7 +1937,11 @@ export class AIProviderManager {
           timestamp: now,
         };
         db.recordAiConnectionTest(testEntry);
-        if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+        if (isSupabaseConfigured()) {
+          recordSupabaseAiConnectionTest(testEntry).catch(err =>
+            recordServerError({ source: 'supabase', code: 'AI_GEN_TEST_LOG_WARN', message: String(err?.message || err) })
+          );
+        }
 
         const isTimeout = lastGenDiag?.category === 'timeout';
         return {
@@ -2049,7 +2068,11 @@ export class AIProviderManager {
       timestamp: now,
     };
     db.recordAiConnectionTest(testEntry);
-    if (isSupabaseConfigured()) recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+    if (isSupabaseConfigured()) {
+      recordSupabaseAiConnectionTest(testEntry).catch(err =>
+        recordServerError({ source: 'supabase', code: 'AI_GROK_GEN_LOG_WARN', message: String(err?.message || err) })
+      );
+    }
 
     if (!grokValidation.ok) {
       const errorCategory = mapDiagnosticToAutoCategory(
@@ -2265,7 +2288,9 @@ export class AIProviderManager {
         timestamp: params.now,
       };
       db.recordAiConnectionTest(testEntry);
-      await recordSupabaseAiConnectionTest(testEntry).catch(() => {});
+      await recordSupabaseAiConnectionTest(testEntry).catch(err =>
+        recordServerError({ source: 'supabase', code: 'AI_CONN_TEST_LOG_WARN', message: String(err?.message || err) })
+      );
       await this.syncRoutesForCredential(saved.id, params.selectedModel, params.actor);
       await this.syncActiveCacheFromSupabase(params.actor);
       const verified = db.getAiProviders().find(p => p.id === saved.id);
@@ -2357,7 +2382,14 @@ export class AIProviderManager {
         }
       }
       if (updatedRoutes.length > 0 && isSupabaseConfigured()) {
-        await upsertSupabaseAiTaskRoutes(updatedRoutes).catch(() => {});
+        const routeSyncRes = await upsertSupabaseAiTaskRoutes(updatedRoutes);
+        if (!routeSyncRes.ok) {
+          recordServerError({
+            source: 'supabase',
+            code: routeSyncRes.code || 'AI_ROUTE_CLEANUP_WARN',
+            message: routeSyncRes.error || 'Failed syncing cleared task routes for env fallback.',
+          });
+        }
       }
       this.lastSuccessfulDeleteAt = new Date().toISOString();
       return {

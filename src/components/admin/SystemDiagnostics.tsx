@@ -15,6 +15,7 @@ import {
   FileCheck2,
   ShieldAlert,
   UploadCloud,
+  Gauge,
 } from 'lucide-react';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
 import { formatKarachiDateTime } from '../../utils/dateTime.ts';
@@ -31,6 +32,8 @@ function sanitizeDiagText(raw: string): string {
 
 type DiagTab =
   | 'supabase'
+  | 'database_audit'
+  | 'performance'
   | 'save_diagnostics'
   | 'database'
   | 'publishing'
@@ -44,6 +47,8 @@ type DiagTab =
 
 const DIAG_TABS: { id: DiagTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'supabase', label: 'Supabase Database', icon: Database },
+  { id: 'database_audit', label: 'Database Audit', icon: ShieldAlert },
+  { id: 'performance', label: 'Performance & Web Vitals', icon: Gauge },
   { id: 'save_diagnostics', label: 'Save Diagnostics', icon: FileCheck2 },
   { id: 'database', label: 'Firebase Health', icon: Server },
   { id: 'publishing', label: 'Publishing Pipeline', icon: Zap },
@@ -56,14 +61,16 @@ const DIAG_TABS: { id: DiagTab; label: string; icon: React.ComponentType<{ class
   { id: 'collections', label: 'Collections & Rules', icon: FileCheck2 },
 ];
 
-export const SystemDiagnostics: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<DiagTab>('supabase');
+export const SystemDiagnostics: React.FC<{ initialTab?: DiagTab }> = ({ initialTab }) => {
+  const [activeTab, setActiveTab] = useState<DiagTab>(initialTab || 'supabase');
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionBanner, setActionBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [supabaseHealth, setSupabaseHealth] = useState<any>(null);
   const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [dbAuditReport, setDbAuditReport] = useState<any>(null);
+  const [dbAuditError, setDbAuditError] = useState<string | null>(null);
   const [browserSdkReport, setBrowserSdkReport] = useState<{
     configured: boolean;
     publicReadOk: boolean | null;
@@ -85,6 +92,7 @@ export const SystemDiagnostics: React.FC = () => {
   const [collectionsInfo, setCollectionsInfo] = useState<any>(null);
   const [saveDiagnosticsList, setSaveDiagnosticsList] = useState<any[]>([]);
   const [storageHealth, setStorageHealth] = useState<any>(null);
+  const [perfReport, setPerfReport] = useState<any>(null);
   const [rtDiscoveryMs, setRtDiscoveryMs] = useState<number>(12000);
   const [rtGenerationMs, setRtGenerationMs] = useState<number>(45000);
   const [rtInferenceMs, setRtInferenceMs] = useState<number>(50000);
@@ -173,6 +181,27 @@ export const SystemDiagnostics: React.FC = () => {
             if (rt.aiGenerationTimeoutMs) setRtGenerationMs(rt.aiGenerationTimeoutMs);
             if (rt.aiInferenceTimeoutMs) setRtInferenceMs(rt.aiInferenceTimeoutMs);
             if (rt.syncDefaultIntervalMinutes) setRtSyncIntervalMin(rt.syncDefaultIntervalMinutes);
+          }
+          break;
+        }
+        case 'database_audit': {
+          setDbAuditError(null);
+          const auditRes = await safeFetchJson('/api/v1/admin/system/database-audit', {
+            credentials: 'include',
+          });
+          if (auditRes.success && auditRes.report) {
+            setDbAuditReport(auditRes.report);
+          } else {
+            setDbAuditError(auditRes.error || 'Super Admin privileges required or database audit unavailable.');
+          }
+          break;
+        }
+        case 'performance': {
+          const perfRes = await safeFetchJson('/api/v1/admin/system/performance', {
+            credentials: 'include',
+          });
+          if (perfRes.success) {
+            setPerfReport(perfRes);
           }
           break;
         }
@@ -289,6 +318,31 @@ export const SystemDiagnostics: React.FC = () => {
           ? `Supabase PostgreSQL connection, RLS isolation, and authorized write test verified (${res.report?.latencyMs}ms).`
           : res.error || 'Supabase connection or write test failed.',
       });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleRunCompleteDatabaseAudit = async () => {
+    setActionBusy(true);
+    setActionBanner(null);
+    setDbAuditError(null);
+    try {
+      const res = await safeFetchJson('/api/v1/admin/system/database-audit', {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (res.success && res.report) {
+        setDbAuditReport(res.report);
+        setActionBanner({
+          type: res.report.overallStatus === 'FAIL' ? 'error' : 'success',
+          text: `Complete Database Audit finished (${res.report.overallStatus}): ${res.report.summary?.passed || 0} passed, ${res.report.summary?.warnings || 0} warnings, ${res.report.summary?.failed || 0} failed.`,
+        });
+      } else {
+        const msg = res.error || 'Complete Database Audit failed.';
+        setDbAuditError(msg);
+        setActionBanner({ type: 'error', text: msg });
+      }
     } finally {
       setActionBusy(false);
     }
@@ -455,6 +509,195 @@ export const SystemDiagnostics: React.FC = () => {
         </div>
       )}
 
+      {/* TAB: DATABASE AUDIT (A-TO-Z SUPABASE SCHEMA & RLS) */}
+      {activeTab === 'database_audit' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <div>
+              <h3 className="font-black text-gray-900 text-sm">Complete A-to-Z Supabase Database &amp; RLS Audit</h3>
+              <p className="text-gray-500">
+                Read-only verification of all {dbAuditReport?.tables?.length || 31} PostgreSQL tables, reconciled columns, migration ledger, RLS isolation, and secrets redaction.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={actionBusy || loading}
+              onClick={handleRunCompleteDatabaseAudit}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>{actionBusy || loading ? 'Running Audit...' : 'Run Complete Database Audit'}</span>
+            </button>
+          </div>
+
+          {dbAuditError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 font-semibold">
+              {dbAuditError}
+            </div>
+          )}
+
+          {dbAuditReport && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Overall Status</div>
+                  <div
+                    className={`text-lg font-black font-mono mt-1 ${
+                      dbAuditReport.overallStatus === 'PASS'
+                        ? 'text-emerald-700'
+                        : dbAuditReport.overallStatus === 'WARN'
+                        ? 'text-amber-700'
+                        : 'text-rose-700'
+                    }`}
+                  >
+                    {dbAuditReport.overallStatus}
+                  </div>
+                </div>
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-emerald-700">Checks Passed</div>
+                  <div className="text-lg font-black font-mono text-emerald-800 mt-1">
+                    {dbAuditReport.summary?.passed ?? 0} / {dbAuditReport.summary?.totalChecks ?? 0}
+                  </div>
+                </div>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-amber-700">Warnings</div>
+                  <div className="text-lg font-black font-mono text-amber-800 mt-1">
+                    {dbAuditReport.summary?.warnings ?? 0}
+                  </div>
+                </div>
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-rose-700">Failures</div>
+                  <div className="text-lg font-black font-mono text-rose-800 mt-1">
+                    {dbAuditReport.summary?.failed ?? 0}
+                  </div>
+                </div>
+                <div className="p-3 bg-gray-50 border rounded-xl">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Runtime / Host</div>
+                  <div className="font-mono font-bold text-gray-800 truncate mt-1">
+                    {dbAuditReport.environment?.projectHost || 'Unconfigured'}
+                  </div>
+                  <div className="text-[10px] font-mono text-gray-500 truncate">
+                    {dbAuditReport.environment?.runtime}
+                  </div>
+                </div>
+              </div>
+
+              {(dbAuditReport.summary?.failed > 0 || dbAuditReport.summary?.warnings > 0) && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <strong>Recommended Repair Migration:</strong> Apply{' '}
+                    <code className="font-mono bg-white px-1.5 py-0.5 rounded border">
+                      {dbAuditReport.recommendedMigration || 'database/migrations/next_verified_repair.sql'}
+                    </code>{' '}
+                    in Supabase SQL Editor if any tables, columns, or RLS checks report warnings/failures.
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-700">
+                    Read-Only: Yes • Secrets Redacted: Yes
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border rounded-xl p-3 space-y-2">
+                  <h4 className="font-black text-gray-800">Infrastructure &amp; Schema Checks</h4>
+                  <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                    {(dbAuditReport.checks || []).map((c: any, idx: number) => (
+                      <div key={idx} className="py-2 space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-gray-900">
+                            [{c.category}] {c.name}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${
+                              c.status === 'pass'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : c.status === 'warn'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {c.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-gray-600">{c.detail}</div>
+                        {c.remediation && <div className="text-[10px] font-mono text-amber-800">Fix: {c.remediation}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border rounded-xl p-3 space-y-2">
+                  <h4 className="font-black text-gray-800">RLS Isolation Matrix (Anon Probe)</h4>
+                  <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                    {(dbAuditReport.rlsChecks || []).map((c: any, idx: number) => (
+                      <div key={idx} className="py-2 space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-gray-900">{c.name}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${
+                              c.status === 'pass'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : c.status === 'warn'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {c.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-gray-600">{c.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-black text-gray-800 mb-2">
+                  Monitored PostgreSQL Tables ({(dbAuditReport.tables || []).length})
+                </h4>
+                <div className="overflow-x-auto border rounded-xl max-h-80 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-500 sticky top-0">
+                      <tr>
+                        <th className="p-2">Table</th>
+                        <th className="p-2">Status</th>
+                        <th className="p-2">Rows</th>
+                        <th className="p-2">Column Alignment / Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 font-mono text-[11px]">
+                      {(dbAuditReport.tables || []).map((t: any) => (
+                        <tr key={t.table} className="hover:bg-gray-50">
+                          <td className="p-2 font-bold text-gray-800">{t.table}</td>
+                          <td className="p-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                t.ok && !t.error
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : t.ok && t.error
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {t.ok && !t.error ? 'OK' : t.ok ? 'MISMATCH' : 'MISSING'}
+                            </span>
+                          </td>
+                          <td className="p-2">{t.rowCount ?? '—'}</td>
+                          <td className="p-2 text-gray-600">
+                            {t.error ? sanitizeDiagText(t.error) : 'Schema aligned'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* TAB 0: SUPABASE POSTGRESQL HEALTH */}
       {activeTab === 'supabase' && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
@@ -580,15 +823,45 @@ export const SystemDiagnostics: React.FC = () => {
                 </div>
               </div>
 
-              {(supabaseHealth.errorMessage || (supabaseHealth.missingEnvVars || []).length > 0) && (
-                <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 flex items-start gap-2">
-                  <ShieldAlert className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="font-bold">Supabase Connection Status [{supabaseHealth.errorCode || 'ERROR'}]</div>
-                    <div>{supabaseHealth.errorMessage}</div>
-                    {(supabaseHealth.missingEnvVars || []).length > 0 && (
-                      <div className="font-mono text-[11px]">
-                        Missing Env Vars: {supabaseHealth.missingEnvVars.join(', ')} — Apply <code>/database/supabase_migrations/001_supabase_core_schema.sql</code> and <code>002_supabase_rls_policies.sql</code> in Supabase SQL Editor.
+              {(supabaseHealth.errorMessage ||
+                (supabaseHealth.missingServerEnvVars || []).length > 0 ||
+                (supabaseHealth.optionalMissingEnvVars || []).length > 0 ||
+                supabaseHealth.schemaMigrationRequired) && (
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-2 ${
+                    supabaseHealth.connected && (supabaseHealth.missingServerEnvVars || []).length === 0 && !supabaseHealth.schemaMigrationRequired
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-rose-50 border-rose-300 text-rose-950'
+                  }`}
+                >
+                  <ShieldAlert
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      supabaseHealth.connected && (supabaseHealth.missingServerEnvVars || []).length === 0 && !supabaseHealth.schemaMigrationRequired
+                        ? 'text-amber-700'
+                        : 'text-rose-700'
+                    }`}
+                  />
+                  <div className="space-y-1.5 text-xs">
+                    <div className="font-bold">
+                      Supabase Connection Status [{supabaseHealth.errorCode || (supabaseHealth.connected ? 'NOTICE' : 'ERROR')}]
+                    </div>
+                    {supabaseHealth.errorMessage && <div>{supabaseHealth.errorMessage}</div>}
+                    {supabaseHealth.envSummaryDetail && (
+                      <div className="text-[11px] opacity-90">{supabaseHealth.envSummaryDetail}</div>
+                    )}
+                    {(supabaseHealth.missingServerEnvVars || []).length > 0 && (
+                      <div className="font-mono text-[11px] bg-white/70 px-2.5 py-1.5 rounded border border-rose-200">
+                        Required Server Env Vars Missing: {supabaseHealth.missingServerEnvVars.join(', ')} — Set them in Vercel Project Settings (Production Scope) or AI Studio Secrets and redeploy.
+                      </div>
+                    )}
+                    {(supabaseHealth.optionalMissingEnvVars || []).length > 0 && (
+                      <div className="font-mono text-[11px] bg-white/70 px-2.5 py-1.5 rounded border border-amber-200">
+                        Optional / Client Key Notice: {supabaseHealth.optionalMissingEnvVars.join(', ')} not set. Server routes work using SUPABASE_SECRET_KEY; set VITE_SUPABASE_PUBLISHABLE_KEY + SUPABASE_PUBLISHABLE_KEY and rebuild if enabling client-side Supabase SDK.
+                      </div>
+                    )}
+                    {supabaseHealth.schemaMigrationRequired && (
+                      <div className="font-mono text-[11px] bg-white/70 px-2.5 py-1.5 rounded border border-rose-200">
+                        Schema Migration Required: Run <code>database/migrations/next_verified_repair.sql</code> in Supabase SQL Editor and execute <code>NOTIFY pgrst, &apos;reload schema&apos;;</code>.
                       </div>
                     )}
                   </div>
@@ -1214,6 +1487,116 @@ export const SystemDiagnostics: React.FC = () => {
               <div className="font-mono text-gray-700">Test Probe (/test/connection): {collectionsInfo.testConnectionDocExists ? 'Verified Present' : 'Not Created Yet'}</div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB: PERFORMANCE, CORE WEB VITALS & SLOW QUERIES */}
+      {activeTab === 'performance' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <div>
+              <h3 className="font-black text-gray-900 text-sm">Website Performance, Core Web Vitals &amp; Query Telemetry</h3>
+              <p className="text-gray-500">
+                Real browser Web Vitals collected on public routes, versioned public ETag caching status, and slow PostgreSQL queries (&gt;250ms).
+              </p>
+            </div>
+            {perfReport && (
+              <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded border border-emerald-200 font-bold">
+                  Cache v{perfReport.cache?.newsCacheVersion ?? 1}
+                </span>
+                <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded border font-bold">
+                  Hydration Cache: {perfReport.hydrationCacheTtlMs ? `${Math.round(perfReport.hydrationCacheTtlMs / 1000)}s TTL` : '30s TTL'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!perfReport && loading && (
+            <div className="p-6 text-center text-gray-500">Loading performance telemetry...</div>
+          )}
+
+          {perfReport && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {(['LCP', 'INP', 'CLS', 'TTFB'] as const).map(metric => {
+                  const stats = perfReport.webVitals?.[metric];
+                  const rating = stats?.rating || 'no-data';
+                  return (
+                    <div key={metric} className="p-3.5 bg-gray-50 border rounded-xl space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-gray-500">{metric}</span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            rating === 'good'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : rating === 'needs-improvement'
+                              ? 'bg-amber-100 text-amber-800'
+                              : rating === 'poor'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          {rating}
+                        </span>
+                      </div>
+                      <div className="text-xl font-black font-mono text-gray-900">
+                        {stats ? (metric === 'CLS' ? stats.p75 : `${stats.p75}ms`) : '—'}
+                      </div>
+                      <div className="text-[10px] font-mono text-gray-500">
+                        {stats ? `p75 (${stats.count} samples)` : 'Visit public pages to collect'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="border rounded-xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-gray-800">Slow PostgreSQL Queries (&gt;250ms)</h4>
+                    <span className="font-mono text-[11px] text-gray-500">
+                      {(perfReport.slowQueries || []).length} recorded
+                    </span>
+                  </div>
+                  {(perfReport.slowQueries || []).length === 0 ? (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 font-semibold">
+                      No slow PostgreSQL queries detected in current runtime session.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto font-mono text-[11px]">
+                      {perfReport.slowQueries.map((q: any, idx: number) => (
+                        <div key={idx} className="py-2 flex items-center justify-between gap-2">
+                          <span className="font-bold text-gray-800">
+                            {q.table}.{q.action}
+                          </span>
+                          <span className="text-amber-700 font-bold">{q.durationMs}ms</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border rounded-xl p-4 space-y-2">
+                  <h4 className="font-black text-gray-800">Caching &amp; Optimization Summary</h4>
+                  <ul className="space-y-1.5 text-[11px] text-gray-700 list-disc pl-4">
+                    <li>
+                      <strong>Public GET Cache:</strong> <code>public, max-age=15, stale-while-revalidate=45</code> with versioned <code>ETag</code> (invalidated immediately upon article/ad/feed mutations).
+                    </li>
+                    <li>
+                      <strong>Admin Routes:</strong> Strictly <code>Cache-Control: no-store</code> to prevent stale editorial or campaign reads.
+                    </li>
+                    <li>
+                      <strong>Code Splitting:</strong> Lazy-loaded public sub-views and Admin Studio modules with dedicated vendor chunks.
+                    </li>
+                    <li>
+                      <strong>Composite DB Indexes:</strong> Applied on <code>articles(status, published_at DESC)</code> and <code>(category, status, published_at DESC)</code> in repair migration.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

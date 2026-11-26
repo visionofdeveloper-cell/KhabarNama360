@@ -26,7 +26,13 @@ import {
   listSupabaseArticles,
   upsertSupabaseArticle,
 } from './supabaseAdmin.ts';
-import { recordSaveDiagnosticToSupabase } from './supabaseRepositories.ts';
+import {
+  clearSupabaseDeletionTombstone,
+  invalidatePortalHydrationCache,
+  recordSaveDiagnosticToSupabase,
+  recordSupabaseDeletionTombstone,
+  syncRedirectRuleToSupabase,
+} from './supabaseRepositories.ts';
 import { checkSupabaseHealth } from './databaseHealth.ts';
 import { hasServiceAccountConfigured } from '../lib/firebase-admin.ts';
 import { recordServerError, getServerErrorLogs } from './errorTracker.ts';
@@ -128,14 +134,19 @@ export class ArticleService {
       Boolean(filters.includeDeleted)
     );
 
-    const deletedIds = new Set(
-      db
+    const deletedIds = new Set([
+      ...db
         .getArticles(undefined, undefined, undefined, 'all', true)
         .filter((a) => a.deletedAt)
-        .map((a) => a.id)
-    );
+        .map((a) => a.id),
+      ...Array.from(db.getDeletedTombstones('articles')),
+    ]);
 
-    let combined = localMatches;
+    const filteredLocalMatches = filters.includeDeleted
+      ? localMatches
+      : localMatches.filter((a) => !deletedIds.has(a.id));
+
+    let combined = filteredLocalMatches;
     let storageEngine: ArticleStorageEngine = 'json_fallback';
     let firestoreCount = 0;
     let supabaseCount = 0;
@@ -155,8 +166,8 @@ export class ArticleService {
         supabaseCount = sbRes.articles.length;
         const activeSbArticles = filters.includeDeleted
           ? sbRes.articles
-          : sbRes.articles.filter((a) => !deletedIds.has(a.id));
-        combined = mergeArticleLists(activeSbArticles, localMatches, statusFilter);
+          : sbRes.articles.filter((a) => !deletedIds.has(a.id) && !a.deletedAt);
+        combined = mergeArticleLists(activeSbArticles, filteredLocalMatches, statusFilter);
       } else if (sbRes.error) {
         recordServerError({
           source: 'supabase',
@@ -182,7 +193,7 @@ export class ArticleService {
         storageEngine = 'firestore';
         firestoreCount = fsRes.articles.length;
         const activeFsArticles = fsRes.articles.filter((a) => !deletedIds.has(a.id));
-        combined = mergeArticleLists(activeFsArticles, localMatches, statusFilter);
+        combined = mergeArticleLists(activeFsArticles, filteredLocalMatches, statusFilter);
       } else if (fsRes.error) {
         recordServerError({
           source: 'firestore',
@@ -220,20 +231,22 @@ export class ArticleService {
     const clean = decodeURIComponent(idOrSlug || '').trim();
     if (!clean) return { article: null, storageEngine: 'json_fallback' };
 
+    const tombstones = db.getDeletedTombstones('articles');
+
     if (isSupabaseConfigured()) {
       const sbRes = await getSupabaseArticle(clean);
-      if (sbRes.ok && sbRes.article && !sbRes.article.deletedAt) {
+      if (sbRes.ok && sbRes.article && !sbRes.article.deletedAt && !tombstones.has(sbRes.article.id)) {
         return { article: sbRes.article, storageEngine: 'supabase' };
       }
     }
 
     const fsRes = await getFirestoreArticle(clean, authCtx.firebaseIdToken);
-    if (fsRes.ok && fsRes.article && !fsRes.article.deletedAt) {
+    if (fsRes.ok && fsRes.article && !fsRes.article.deletedAt && !tombstones.has(fsRes.article.id)) {
       return { article: fsRes.article, storageEngine: 'firestore' };
     }
 
     const local = db.getArticleBySlugOrId(clean, false);
-    if (local) {
+    if (local && !tombstones.has(local.id) && !local.deletedAt) {
       return {
         article: local,
         storageEngine: isSupabaseConfigured() ? 'supabase' : fsRes.ok ? 'firestore' : 'json_fallback',
@@ -299,10 +312,16 @@ export class ArticleService {
       : 'json_fallback';
 
     // Update local slug/redirect/revision layer first so slug collisions & version conflicts fail cleanly
+    const prevRedirectCount = db.getRedirectRules().length;
     const savedLocal = db.upsertArticle(normalizedInput, actor, {
       storageEngine: intendedEngine,
       correlationId,
     });
+    const nextRedirects = db.getRedirectRules();
+    const newlyCreatedRedirects =
+      nextRedirects.length > prevRedirectCount
+        ? nextRedirects.slice(0, nextRedirects.length - prevRedirectCount)
+        : [];
 
     let finalArticle = savedLocal;
     let storageEngine: ArticleStorageEngine = 'json_fallback';
@@ -387,6 +406,27 @@ export class ArticleService {
       });
     }
 
+    await clearSupabaseDeletionTombstone('articles', finalArticle.id).catch(err => {
+      recordServerError({
+        source: 'supabase',
+        code: 'TOMBSTONE_CLEAR_WARN',
+        message: `Failed clearing deletion tombstone for ${finalArticle.id}: ${err?.message || err}`,
+      });
+    });
+
+    if (newlyCreatedRedirects.length > 0 && supabaseActive) {
+      for (const r of newlyCreatedRedirects) {
+        await syncRedirectRuleToSupabase(r).catch(err => {
+          recordServerError({
+            source: 'supabase',
+            code: 'REDIRECT_SYNC_WARN',
+            message: `Failed syncing auto-301 redirect rule ${r.id}: ${err?.message || err}`,
+          });
+        });
+      }
+    }
+
+    invalidatePortalHydrationCache();
     const cacheInfo = db.bumpNewsCacheVersion();
 
     return {
@@ -444,7 +484,6 @@ export class ArticleService {
     authCtx: FirestoreAuthContext = {}
   ): Promise<boolean> {
     const existing = db.getArticleBySlugOrId(id, true) || (await this.getArticle(id, authCtx)).article;
-    const okLocal = db.deleteArticle(id, actor, hardDelete);
 
     if (isSupabaseConfigured()) {
       const sbDel = await deleteSupabaseArticle(id, hardDelete);
@@ -454,8 +493,23 @@ export class ArticleService {
           code: 'SUPABASE_DELETE_ERROR',
           message: sbDel.error || `Failed deleting ${id} from Supabase.`,
         });
+        const err: any = new Error(
+          `Supabase article delete failed: ${sbDel.error || `Unable to delete ${id} in PostgreSQL.`}`
+        );
+        err.statusCode = 500;
+        err.code = 'SUPABASE_DELETE_FAILED';
+        throw err;
       }
     }
+
+    const okLocal = db.deleteArticle(id, actor, hardDelete);
+    await recordSupabaseDeletionTombstone('articles', id, actor, hardDelete ? 'hard_delete' : 'soft_delete').catch(err => {
+      recordServerError({
+        source: 'supabase',
+        code: 'TOMBSTONE_SYNC_WARN',
+        message: `Failed recording deletion tombstone for ${id}: ${err?.message || err}`,
+      });
+    });
 
     if (authCtx.firebaseIdToken || hasServiceAccountConfigured()) {
       if (hardDelete) {
@@ -475,6 +529,7 @@ export class ArticleService {
       }
     }
 
+    invalidatePortalHydrationCache();
     db.bumpNewsCacheVersion();
     db.addPublicationLog({
       articleId: id,

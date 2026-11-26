@@ -40,6 +40,8 @@ import {
   KeyRound,
   Copy,
   Play,
+  Eye,
+  Power,
 } from 'lucide-react';
 
 type AutomationTabId =
@@ -95,9 +97,14 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
-  // Add / Edit Provider modal state
+  // Add / Edit Provider modal & Details / Delete confirmation state
   const [providerModalOpen, setProviderModalOpen] = useState(false);
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
+  const [detailProvider, setDetailProvider] = useState<DataProvider | null>(null);
+  const [deleteConfirmProvider, setDeleteConfirmProvider] = useState<DataProvider | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [providerModalError, setProviderModalError] = useState<string | null>(null);
   const [provName, setProvName] = useState('');
   const [provCategory, setProvCategory] = useState<ProviderCategory>('news');
   const [provEndpoint, setProvEndpoint] = useState('');
@@ -115,6 +122,8 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
   const [provPlainKey, setProvPlainKey] = useState('');
   const [provDailyQuota, setProvDailyQuota] = useState(1000);
   const [provNotes, setProvNotes] = useState('');
+  const [provFieldMapping, setProvFieldMapping] = useState('');
+  const [provCustomHeaders, setProvCustomHeaders] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
 
   const [aiHealth, setAiHealth] = useState<any>(null);
@@ -169,6 +178,7 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
 
   const openAddProviderModal = (defaultCat: ProviderCategory = 'news') => {
     setEditingProviderId(null);
+    setProviderModalError(null);
     setProvName('');
     setProvCategory(defaultCat);
     setProvEndpoint('');
@@ -184,11 +194,14 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
     setProvPlainKey('');
     setProvDailyQuota(1000);
     setProvNotes('');
+    setProvFieldMapping('');
+    setProvCustomHeaders('');
     setProviderModalOpen(true);
   };
 
   const openEditProviderModal = (p: DataProvider) => {
     setEditingProviderId(p.id);
+    setProviderModalError(null);
     setProvName(p.name);
     setProvCategory(p.category);
     setProvEndpoint(p.endpoint);
@@ -204,16 +217,65 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
     setProvPlainKey('');
     setProvDailyQuota(p.dailyQuotaLimit || p.quotaLimitPerDay || 1000);
     setProvNotes(p.notes || '');
+    setProvFieldMapping(
+      p.fieldMapping && Object.keys(p.fieldMapping).length > 0
+        ? JSON.stringify(p.fieldMapping, null, 2)
+        : ''
+    );
+    setProvCustomHeaders(
+      p.customHeaders && Object.keys(p.customHeaders).length > 0
+        ? JSON.stringify(p.customHeaders, null, 2)
+        : ''
+    );
     setProviderModalOpen(true);
   };
 
   const handleSaveProvider = async (e: React.FormEvent) => {
     e.preventDefault();
+    setProviderModalError(null);
+
+    let parsedFieldMapping: Record<string, string> | undefined;
+    if (provFieldMapping.trim()) {
+      try {
+        const obj = JSON.parse(provFieldMapping);
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+          setProviderModalError('Field Mapping JSON must be a flat key-value JSON object.');
+          return;
+        }
+        parsedFieldMapping = obj;
+      } catch {
+        setProviderModalError('Field Mapping JSON is invalid syntax. Fix or clear the field.');
+        return;
+      }
+    } else {
+      parsedFieldMapping = {};
+    }
+
+    let parsedCustomHeaders: Record<string, string> | undefined;
+    if (provCustomHeaders.trim()) {
+      try {
+        const obj = JSON.parse(provCustomHeaders);
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+          setProviderModalError('Custom Headers JSON must be a key-value JSON object.');
+          return;
+        }
+        parsedCustomHeaders = obj;
+      } catch {
+        setProviderModalError('Custom Headers JSON is invalid syntax. Fix or clear the field.');
+        return;
+      }
+    } else {
+      parsedCustomHeaders = {};
+    }
+
     setSavingProvider(true);
     setFeedback(null);
     try {
-      const res = await fetch('/api/admin/automation/providers', {
-        method: 'POST',
+      const targetUrl = editingProviderId
+        ? `/api/admin/automation/providers/${encodeURIComponent(editingProviderId)}`
+        : '/api/admin/automation/providers';
+      const res = await fetch(targetUrl, {
+        method: editingProviderId ? 'PUT' : 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,6 +296,8 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
           plainApiKey: provPlainKey || undefined,
           dailyQuotaLimit: provDailyQuota,
           notes: provNotes,
+          fieldMapping: parsedFieldMapping,
+          customHeaders: parsedCustomHeaders,
         }),
       });
       const d = await res.json();
@@ -242,10 +306,13 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
         setFeedback({ ok: true, text: `Saved provider "${d.provider?.name || provName}" cleanly.` });
         loadAllData();
       } else {
+        setProviderModalError(d.error || 'Could not save provider.');
         setFeedback({ ok: false, text: d.error || 'Could not save provider.' });
       }
     } catch (err: any) {
-      setFeedback({ ok: false, text: err?.message || 'Network error saving provider.' });
+      const msg = err?.message || 'Network error saving provider.';
+      setProviderModalError(msg);
+      setFeedback({ ok: false, text: msg });
     } finally {
       setSavingProvider(false);
     }
@@ -255,7 +322,7 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
     setTestingId(providerId);
     setFeedback(null);
     try {
-      const res = await fetch(`/api/admin/automation/providers/${providerId}/test`, {
+      const res = await fetch(`/api/admin/automation/providers/${encodeURIComponent(providerId)}/test`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -275,21 +342,66 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
     }
   };
 
-  const handleDeleteProvider = async (providerId: string) => {
+  const handleToggleProviderStatus = async (p: DataProvider) => {
+    const nextStatus = p.status === 'active' ? 'disabled' : 'active';
+    setTogglingId(p.id);
+    setFeedback(null);
     try {
-      const res = await fetch(`/api/admin/automation/providers/${providerId}`, {
+      const res = await fetch(`/api/admin/automation/providers/${encodeURIComponent(p.id)}/status`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setProviders(prev => prev.map(item => (item.id === p.id ? { ...item, status: nextStatus } : item)));
+        setFeedback({
+          ok: true,
+          text: `${p.name} is now ${nextStatus === 'active' ? 'ENABLED' : 'DISABLED'}.`,
+        });
+        loadAllData();
+      } else {
+        setFeedback({ ok: false, text: d.error || 'Failed updating feed status.' });
+      }
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err?.message || 'Failed updating feed status.' });
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleDeleteProvider = (p: DataProvider) => {
+    setDeleteConfirmProvider(p);
+  };
+
+  const confirmDeleteProvider = async () => {
+    const target = deleteConfirmProvider;
+    if (!target) return;
+    setDeletingId(target.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/automation/providers/${encodeURIComponent(target.id)}`, {
         method: 'DELETE',
         credentials: 'include',
       });
       const d = await res.json();
       if (d.success) {
-        setFeedback({ ok: true, text: `Deleted provider ${providerId}.` });
+        setDeleteConfirmProvider(null);
+        if (detailProvider?.id === target.id) setDetailProvider(null);
+        setProviders(prev => prev.filter(item => item.id !== target.id));
+        setFeedback({
+          ok: true,
+          text: `Removed feed "${target.name}" (${d.removedId || target.id}). Existing articles and execution logs remain preserved. Remaining feeds: ${d.remainingCount ?? Math.max(0, providers.length - 1)}.`,
+        });
         loadAllData();
       } else {
         setFeedback({ ok: false, text: d.error || 'Failed to delete provider.' });
       }
     } catch (err: any) {
       setFeedback({ ok: false, text: err?.message || 'Failed deleting provider.' });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -526,17 +638,20 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
             {matched.map(p => (
               <div key={p.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-bold text-sm text-gray-900">{p.name}</span>
                       <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 text-[10px] font-bold uppercase">
                         {p.category}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono">
+                        {p.sourceMode === 'database' ? 'DB' : 'Seed'}
                       </span>
                     </div>
                     <p className="text-[11px] font-mono text-gray-500 truncate max-w-sm mt-0.5">{p.endpoint}</p>
                   </div>
                   <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${
                       p.status === 'active'
                         ? 'bg-emerald-100 text-emerald-800'
                         : p.status === 'error'
@@ -560,16 +675,24 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
                   <span className="text-[11px] text-gray-500">
                     Last sync: {p.lastSyncAt ? new Date(p.lastSyncAt).toLocaleString() : 'Never'}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setDetailProvider(p)}
+                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                      title="View Feed Details & Logs"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleTestProvider(p.id)}
                       disabled={testingId === p.id}
-                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-lg"
+                      className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-lg"
                     >
                       {testingId === p.id ? 'Testing...' : 'Test'}
                     </button>
@@ -577,10 +700,23 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                       type="button"
                       onClick={() => handleManualSync(p.id)}
                       disabled={syncingId === p.id}
-                      className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1"
+                      className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1"
                     >
                       <RefreshCw className={`w-3 h-3 ${syncingId === p.id ? 'animate-spin' : ''}`} />
                       <span>Sync</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleProviderStatus(p)}
+                      disabled={togglingId === p.id}
+                      className={`p-1.5 rounded-lg ${
+                        p.status === 'active'
+                          ? 'text-emerald-700 hover:bg-emerald-50'
+                          : 'text-amber-600 hover:bg-amber-50'
+                      }`}
+                      title={p.status === 'active' ? 'Disable feed' : 'Enable feed'}
+                    >
+                      <Power className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
@@ -589,6 +725,15 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                       title="Edit provider"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProvider(p)}
+                      disabled={deletingId === p.id}
+                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg"
+                      title="Remove feed API"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -745,10 +890,15 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {providers.map(p => (
             <div key={p.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="bg-gray-100 text-gray-800 text-[10px] font-bold uppercase px-2 py-0.5 rounded">
-                  {p.category}
-                </span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="bg-gray-100 text-gray-800 text-[10px] font-bold uppercase px-2 py-0.5 rounded">
+                    {p.category}
+                  </span>
+                  <span className="bg-slate-100 text-slate-600 text-[10px] font-mono px-1.5 py-0.5 rounded">
+                    {p.sourceMode === 'database' ? 'DB' : 'Seed'}
+                  </span>
+                </div>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
                     p.status === 'active'
@@ -779,24 +929,66 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                   </span>
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => handleTestProvider(p.id)}
-                  disabled={testingId === p.id}
-                  className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-lg"
-                >
-                  {testingId === p.id ? 'Testing...' : 'Test'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleManualSync(p.id)}
-                  disabled={syncingId === p.id}
-                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${syncingId === p.id ? 'animate-spin' : ''}`} />
-                  <span>Sync</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-gray-100">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setDetailProvider(p)}
+                    className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                    title="View Details"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEditProviderModal(p)}
+                    className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg"
+                    title="Edit"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleProviderStatus(p)}
+                    disabled={togglingId === p.id}
+                    className={`p-1.5 rounded-lg ${
+                      p.status === 'active'
+                        ? 'text-emerald-700 hover:bg-emerald-50'
+                        : 'text-amber-600 hover:bg-amber-50'
+                    }`}
+                    title={p.status === 'active' ? 'Disable feed' : 'Enable feed'}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProvider(p)}
+                    disabled={deletingId === p.id}
+                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg"
+                    title="Remove feed"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleTestProvider(p.id)}
+                    disabled={testingId === p.id}
+                    className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-lg"
+                  >
+                    {testingId === p.id ? 'Testing...' : 'Test'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleManualSync(p.id)}
+                    disabled={syncingId === p.id}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingId === p.id ? 'animate-spin' : ''}`} />
+                    <span>Sync</span>
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -858,7 +1050,12 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                   .map(p => (
                     <tr key={p.id} className="hover:bg-gray-50">
                       <td className="p-3">
-                        <div className="font-bold text-gray-900">{p.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-gray-900">{p.name}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono">
+                            {p.sourceMode === 'database' ? 'DB' : 'Seed'}
+                          </span>
+                        </div>
                         <div className="text-[10px] text-gray-500">{p.attribution}</div>
                       </td>
                       <td className="p-3">
@@ -891,6 +1088,14 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
+                            onClick={() => setDetailProvider(p)}
+                            className="p-1 text-slate-600 hover:bg-slate-100 rounded"
+                            title="View Details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleTestProvider(p.id)}
                             disabled={testingId === p.id}
                             className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded font-bold"
@@ -907,20 +1112,34 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
                           </button>
                           <button
                             type="button"
+                            onClick={() => void handleToggleProviderStatus(p)}
+                            disabled={togglingId === p.id}
+                            className={`p-1 rounded ${
+                              p.status === 'active'
+                                ? 'text-emerald-700 hover:bg-emerald-50'
+                                : 'text-amber-600 hover:bg-amber-50'
+                            }`}
+                            title={p.status === 'active' ? 'Disable feed' : 'Enable feed'}
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => openEditProviderModal(p)}
                             className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+                            title="Edit feed"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                          {!p.isBuiltIn && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteProvider(p.id)}
-                              className="p-1 text-rose-600 hover:bg-rose-50 rounded"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProvider(p)}
+                            disabled={deletingId === p.id}
+                            className="p-1 text-rose-600 hover:bg-rose-50 rounded"
+                            title="Remove feed API"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1450,6 +1669,12 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
               </button>
             </div>
 
+            {providerModalError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 font-semibold">
+                {providerModalError}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Provider Name</label>
@@ -1612,6 +1837,40 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
               </div>
             )}
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Field Mapping JSON (optional)</label>
+                <textarea
+                  rows={2}
+                  value={provFieldMapping}
+                  onChange={e => setProvFieldMapping(e.target.value)}
+                  placeholder='{"title":"headline","url":"link"}'
+                  className="w-full p-2 border border-gray-300 rounded-lg font-mono text-[11px]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Custom Headers JSON (optional)</label>
+                <textarea
+                  rows={2}
+                  value={provCustomHeaders}
+                  onChange={e => setProvCustomHeaders(e.target.value)}
+                  placeholder='{"Accept":"application/json"}'
+                  className="w-full p-2 border border-gray-300 rounded-lg font-mono text-[11px]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">Editorial / Integration Notes</label>
+              <input
+                type="text"
+                value={provNotes}
+                onChange={e => setProvNotes(e.target.value)}
+                placeholder="Notes on licensing or parsing rules..."
+                className="w-full p-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+
             <div className="flex justify-end gap-2 pt-2 border-t">
               <button
                 type="button"
@@ -1629,6 +1888,167 @@ export const AutomationManager: React.FC<AutomationManagerProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* VIEW DETAILS MODAL */}
+      {detailProvider && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-lg w-full p-6 space-y-4 text-xs max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">{detailProvider.name}</h3>
+                <p className="text-[11px] font-mono text-gray-500">
+                  ID: {detailProvider.id} • Source: {detailProvider.sourceMode === 'database' ? 'Database' : 'Default Seed'}
+                </p>
+              </div>
+              <button type="button" onClick={() => setDetailProvider(null)}>
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500">Category / Method</div>
+                <div className="font-bold text-gray-900 mt-0.5 uppercase">
+                  {detailProvider.category} • {detailProvider.method || detailProvider.httpMethod || 'GET'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500">Status / Interval</div>
+                <div className="font-bold text-gray-900 mt-0.5 uppercase">
+                  {detailProvider.status} • Every {detailProvider.intervalMinutes}m
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500">Last Sync</div>
+                <div className="font-mono text-gray-800 mt-0.5">
+                  {detailProvider.lastSyncAt ? new Date(detailProvider.lastSyncAt).toLocaleString() : 'Never'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500">Daily Quota</div>
+                <div className="font-mono text-gray-800 mt-0.5">
+                  {detailProvider.dailyCallsUsed ?? detailProvider.quotaUsedToday ?? 0} /{' '}
+                  {detailProvider.dailyQuotaLimit ?? detailProvider.quotaLimitPerDay ?? 1000}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[10px] font-bold uppercase text-gray-500 mb-1">Endpoint URL</div>
+              <div className="p-2 bg-gray-50 border rounded-lg font-mono text-[11px] break-all text-gray-800">
+                {detailProvider.endpoint}
+              </div>
+            </div>
+
+            {detailProvider.lastError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 font-mono text-[11px]">
+                <strong>Last Error:</strong> {detailProvider.lastError}
+              </div>
+            )}
+
+            {detailProvider.fieldMapping && Object.keys(detailProvider.fieldMapping).length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500 mb-1">Field Mapping</div>
+                <pre className="p-2 bg-slate-900 text-emerald-300 rounded-lg font-mono text-[10px] overflow-x-auto">
+                  {JSON.stringify(detailProvider.fieldMapping, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {detailProvider.customHeaders && Object.keys(detailProvider.customHeaders).length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase text-gray-500 mb-1">Custom Request Headers</div>
+                <pre className="p-2 bg-slate-900 text-emerald-300 rounded-lg font-mono text-[10px] overflow-x-auto">
+                  {JSON.stringify(detailProvider.customHeaders, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = detailProvider;
+                  setDetailProvider(null);
+                  handleDeleteProvider(target);
+                }}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold inline-flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Feed</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailProvider(null);
+                    setActiveTab('logs');
+                  }}
+                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-bold"
+                >
+                  View Sync Logs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = detailProvider;
+                    setDetailProvider(null);
+                    openEditProviderModal(target);
+                  }}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold"
+                >
+                  Edit Feed
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REMOVE FEED CONFIRMATION MODAL */}
+      {deleteConfirmProvider && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-md w-full p-6 space-y-4 text-xs shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-black text-gray-900">Remove News / Sync Feed API?</h3>
+                <p className="text-gray-600 leading-relaxed">
+                  You are about to remove <strong>{deleteConfirmProvider.name}</strong> (
+                  <code className="font-mono text-[11px] bg-gray-100 px-1 rounded">{deleteConfirmProvider.id}</code>).
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-950 space-y-1">
+              <div className="font-bold">Data Preservation Guarantee</div>
+              <p className="text-[11px] leading-relaxed">
+                Active scheduling will be disabled immediately and a deletion tombstone will prevent this feed from reappearing on restart. Existing imported news articles and historical <code>automation_jobs</code> audit logs remain preserved.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmProvider(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === deleteConfirmProvider.id}
+                onClick={() => void confirmDeleteProvider()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold disabled:opacity-50"
+              >
+                {deletingId === deleteConfirmProvider.id ? 'Removing...' : 'Confirm Remove Feed'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

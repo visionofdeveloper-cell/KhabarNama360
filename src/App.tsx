@@ -5,27 +5,30 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { PublicLayout } from './components/layout/PublicLayout.tsx';
 import { Article, CricketMatch, GoldRate, CurrencyRate, FuelPrice, PSXData, WeatherData } from './types/index.ts';
 import { safeFetchJson } from './utils/safeFetch.ts';
+import { attachOutboundLinkTracker, trackPageView } from './utils/googleTracking.ts';
+import { initWebVitalsReporter } from './utils/webVitals.ts';
 
-// Views
+// Primary landing view eager-loaded for fast initial paint; secondary routes code-split via React.lazy
 import { HomeView } from './views/HomeView.tsx';
-import { ArticleDetailView } from './views/ArticleDetailView.tsx';
-import { EducationView } from './views/EducationView.tsx';
-import { FinanceView } from './views/FinanceView.tsx';
-import { WeatherView } from './views/WeatherView.tsx';
-import { IslamicView } from './views/IslamicView.tsx';
-import { MobilesView } from './views/MobilesView.tsx';
-import { CarsView } from './views/CarsView.tsx';
-import { PrizeBondsView } from './views/PrizeBondsView.tsx';
-import { DictionaryNamesView } from './views/DictionaryNamesView.tsx';
-import { PoetryView } from './views/PoetryView.tsx';
-import { RecipesView } from './views/RecipesView.tsx';
-import { JobsView } from './views/JobsView.tsx';
-import { ToolsView } from './views/ToolsView.tsx';
-import { CricketView } from './views/CricketView.tsx';
-import { NewsCategoryView } from './views/NewsCategoryView.tsx';
-import { SearchView } from './views/SearchView.tsx';
-import { LegalPageView } from './views/LegalPageView.tsx';
 import { LEGAL_PAGE_SLUGS } from './data/legalPages.ts';
+
+const ArticleDetailView = React.lazy(() => import('./views/ArticleDetailView.tsx').then(m => ({ default: m.ArticleDetailView })));
+const EducationView = React.lazy(() => import('./views/EducationView.tsx').then(m => ({ default: m.EducationView })));
+const FinanceView = React.lazy(() => import('./views/FinanceView.tsx').then(m => ({ default: m.FinanceView })));
+const WeatherView = React.lazy(() => import('./views/WeatherView.tsx').then(m => ({ default: m.WeatherView })));
+const IslamicView = React.lazy(() => import('./views/IslamicView.tsx').then(m => ({ default: m.IslamicView })));
+const MobilesView = React.lazy(() => import('./views/MobilesView.tsx').then(m => ({ default: m.MobilesView })));
+const CarsView = React.lazy(() => import('./views/CarsView.tsx').then(m => ({ default: m.CarsView })));
+const PrizeBondsView = React.lazy(() => import('./views/PrizeBondsView.tsx').then(m => ({ default: m.PrizeBondsView })));
+const DictionaryNamesView = React.lazy(() => import('./views/DictionaryNamesView.tsx').then(m => ({ default: m.DictionaryNamesView })));
+const PoetryView = React.lazy(() => import('./views/PoetryView.tsx').then(m => ({ default: m.PoetryView })));
+const RecipesView = React.lazy(() => import('./views/RecipesView.tsx').then(m => ({ default: m.RecipesView })));
+const JobsView = React.lazy(() => import('./views/JobsView.tsx').then(m => ({ default: m.JobsView })));
+const ToolsView = React.lazy(() => import('./views/ToolsView.tsx').then(m => ({ default: m.ToolsView })));
+const CricketView = React.lazy(() => import('./views/CricketView.tsx').then(m => ({ default: m.CricketView })));
+const NewsCategoryView = React.lazy(() => import('./views/NewsCategoryView.tsx').then(m => ({ default: m.NewsCategoryView })));
+const SearchView = React.lazy(() => import('./views/SearchView.tsx').then(m => ({ default: m.SearchView })));
+const LegalPageView = React.lazy(() => import('./views/LegalPageView.tsx').then(m => ({ default: m.LegalPageView })));
 
 const AdminAuthGate = React.lazy(() => import('./views/AdminAuthGate.tsx').then(m => ({ default: m.AdminAuthGate })));
 
@@ -44,12 +47,53 @@ export interface LivePortalSnapshot {
 const BACKGROUND_REFRESH_MS = 120_000; // Every 2 minutes
 
 function MainPortal() {
-  const { currentRoute, articleSlug, isUrdu, navigateTo, navigateToArticle } = useLanguage();
+  const { currentRoute, articleSlug, isUrdu, language, navigateTo, navigateToArticle } = useLanguage();
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleError, setArticleError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [liveSnapshot, setLiveSnapshot] = useState<LivePortalSnapshot | null>(null);
+
+  useEffect(() => {
+    if (currentRoute === 'admin') return;
+    initWebVitalsReporter();
+    return attachOutboundLinkTracker();
+  }, [currentRoute]);
+
+  useEffect(() => {
+    if (currentRoute === 'admin') return;
+    if (currentRoute === 'article' && articleLoading) return;
+
+    const currentPath =
+      typeof window !== 'undefined'
+        ? window.location.pathname
+        : currentRoute === 'home'
+        ? `/${language}`
+        : `/${language}/${currentRoute}`;
+
+    let resolvedTitle = '360Khabarnama — Pakistan Bilingual News & Utilities';
+    if (currentRoute === 'article' && selectedArticle) {
+      const headline = isUrdu
+        ? selectedArticle.titleUr || selectedArticle.titleEn
+        : selectedArticle.titleEn || selectedArticle.titleUr;
+      if (headline) resolvedTitle = `${headline} | 360Khabarnama`;
+    } else if (currentRoute !== 'home') {
+      resolvedTitle = `${currentRoute.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} | 360Khabarnama`;
+    }
+
+    if (typeof document !== 'undefined' && currentRoute === 'article' && selectedArticle) {
+      document.title = resolvedTitle;
+    }
+
+    trackPageView({
+      path: currentPath,
+      title: typeof document !== 'undefined' ? document.title || resolvedTitle : resolvedTitle,
+      language,
+      routeType: currentRoute,
+      articleSlug: currentRoute === 'article' ? selectedArticle?.slug || articleSlug : null,
+      category: currentRoute === 'article' ? selectedArticle?.category : currentRoute,
+    });
+  }, [currentRoute, articleSlug, articleLoading, selectedArticle?.id, language, isUrdu]);
 
   // Sync canonical article route (/:lang/news/:slug) when loaded or refreshed directly
   useEffect(() => {
@@ -123,7 +167,22 @@ function MainPortal() {
       }
     };
 
-    void syncLiveFeeds();
+    // Defer non-critical background polling until after initial LCP render
+    let idleHandle: number | null = null;
+    let bootTimeout: number | null = null;
+    const winAny = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof winAny.requestIdleCallback === 'function') {
+      idleHandle = winAny.requestIdleCallback(() => {
+        if (!cancelled) void syncLiveFeeds();
+      }, { timeout: 2200 });
+    } else {
+      bootTimeout = window.setTimeout(() => {
+        if (!cancelled) void syncLiveFeeds();
+      }, 1200);
+    }
 
     const intervalId = window.setInterval(() => {
       void syncLiveFeeds();
@@ -142,6 +201,12 @@ function MainPortal() {
 
     return () => {
       cancelled = true;
+      if (idleHandle !== null && typeof winAny.cancelIdleCallback === 'function') {
+        winAny.cancelIdleCallback(idleHandle);
+      }
+      if (bootTimeout !== null) {
+        window.clearTimeout(bootTimeout);
+      }
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('360kn:articles-updated', handleArticlesUpdated);
@@ -255,7 +320,15 @@ function MainPortal() {
 
   return (
     <PublicLayout onSearch={handleSearch}>
-      {renderPublicView()}
+      <React.Suspense
+        fallback={
+          <div className="max-w-7xl mx-auto px-4 py-14 text-center text-xs text-gray-500 animate-pulse">
+            {isUrdu ? 'صفحہ لوڈ ہو رہا ہے...' : 'Loading section...'}
+          </div>
+        }
+      >
+        {renderPublicView()}
+      </React.Suspense>
     </PublicLayout>
   );
 }

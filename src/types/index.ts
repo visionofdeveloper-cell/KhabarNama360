@@ -732,6 +732,8 @@ export type SearchConsoleStatus =
 export interface SearchConsoleConnection {
   authMode: 'oauth2' | 'service_account' | 'none';
   propertyUrl: string;
+  scopeMode?: 'readonly' | 'webmasters';
+  grantedScopes?: string;
   clientId?: string;
   encryptedClientSecret?: string;
   encryptedRefreshToken?: string;
@@ -751,15 +753,79 @@ export interface SearchConsoleMetrics {
   diagnosticStatus?: SearchConsoleStatus;
   diagnosticMessage?: string;
   propertyUrl?: string;
+  range?: '7d' | '28d' | '3m' | 'custom';
+  startDate?: string;
+  endDate?: string;
+  comparePrevious?: boolean;
+  comparison?: {
+    startDate: string;
+    endDate: string;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    averagePosition: number;
+    clicksDelta: number;
+    impressionsDelta: number;
+    ctrDelta: number;
+    positionDelta: number;
+  };
   impressions: number;
   clicks: number;
   ctr: number;
   averagePosition: number;
+  dailySeries?: { date: string; clicks: number; impressions: number; ctr: number; position: number }[];
   topQueries: { query: string; clicks: number; impressions: number; ctr?: number; position: number }[];
   topPages: { path: string; clicks: number; impressions: number; ctr: number; position?: number }[];
   devices: { device: string; percent: number; clicks?: number; impressions?: number }[];
   countries: { country: string; percent: number; clicks?: number; impressions?: number }[];
   lastRefreshedAt: string;
+}
+
+export type GoogleTrackingMode = 'gtm' | 'direct_gtag' | 'disabled';
+
+export interface GoogleAnalyticsConfig {
+  enabled: boolean;
+  measurementId: string;
+  trackingMode: GoogleTrackingMode;
+  anonymizeIp: boolean;
+  debugMode: boolean;
+  excludeAdmin: boolean;
+  excludeStaging: boolean;
+  trackEnhancedEvents: boolean;
+  lastVerifiedAt?: string | null;
+  lastError?: string;
+}
+
+export interface GoogleTagManagerConfig {
+  enabled: boolean;
+  containerId: string;
+  excludeAdmin: boolean;
+  consentModeEnabled: boolean;
+  lastVerifiedAt?: string | null;
+  lastError?: string;
+}
+
+export interface GoogleIntegrationsConfig {
+  analytics: GoogleAnalyticsConfig;
+  tagManager: GoogleTagManagerConfig;
+  searchConsole: {
+    verificationCode: string;
+    propertyUrl: string;
+    scopeMode: 'readonly' | 'webmasters';
+    lastVerifiedAt?: string | null;
+    lastError?: string;
+  };
+}
+
+export interface GoogleIntegrationLogEntry {
+  id: string;
+  integration: 'ga4' | 'gtm' | 'gsc' | 'system';
+  action: string;
+  status: 'ok' | 'warning' | 'error' | 'info';
+  message: string;
+  details?: Record<string, any>;
+  actor: string;
+  createdAt: string;
 }
 
 export interface RedirectRule {
@@ -1121,6 +1187,7 @@ export interface SiteSettings {
   indexNowKey?: string;
   adsTxtCustom?: string;
   consentBannerEnabled?: boolean;
+  googleIntegrations?: GoogleIntegrationsConfig;
   islamicSettings?: {
     defaultCity: string;
     calculationMethod: number; // e.g., 1 = Univ of Islamic Sciences Karachi, 2 = ISNA, 3 = MWL, 4 = Makkah

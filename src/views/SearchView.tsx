@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { Article } from '../types/index.ts';
 import { Search, Sparkles, FileText, Award, BookOpen, Briefcase, ArrowRight } from 'lucide-react';
+import { trackGoogleEvent } from '../utils/googleTracking.ts';
 
 interface SearchViewProps {
   initialQuery: string;
@@ -22,8 +23,14 @@ export const SearchView: React.FC<SearchViewProps> = ({ initialQuery, onSelectAr
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setResults(data.results || []);
+          const list = data.results || [];
+          setResults(list);
           setNormalizedInfo(data.query || null);
+          trackGoogleEvent('search', {
+            search_term: q.trim(),
+            results_count: list.length,
+            content_language: isUrdu ? 'ur' : 'en',
+          });
         }
       })
       .catch(console.error)

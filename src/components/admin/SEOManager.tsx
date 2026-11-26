@@ -38,9 +38,11 @@ import {
   SitemapSettings,
 } from '../../types/index.ts';
 import { safeFetchJson } from '../../utils/safeFetch.ts';
+import { GoogleIntegrationsManager } from './google/GoogleIntegrationsManager.tsx';
 
 type SeoSubTab =
   | 'overview'
+  | 'google-integrations'
   | 'pages'
   | 'news'
   | 'categories'
@@ -83,15 +85,9 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
   const [auditResult, setAuditResult] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<SeoAuditLogEntry[]>([]);
 
-  // Search Console real connection & diagnostics
+  // Search Console real summary state (for Overview card)
   const [gscConn, setGscConn] = useState<any>(null);
   const [gscMetrics, setGscMetrics] = useState<SearchConsoleMetrics | null>(null);
-  const [oauthClientId, setOauthClientId] = useState('');
-  const [oauthClientSecret, setOauthClientSecret] = useState('');
-  const [gscPropertyUrl, setGscPropertyUrl] = useState('https://360khabarnama.com/');
-  const [saJsonInput, setSaJsonInput] = useState('');
-  const [oauthCodeInput, setOauthCodeInput] = useState('');
-  const [gscBusy, setGscBusy] = useState(false);
 
   // Internal Links & Schema tester
   const [selectedArticleId, setSelectedArticleId] = useState<string>(articles[0]?.id || '');
@@ -122,8 +118,6 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
       if (scRes.success) {
         setGscMetrics(scRes.metrics || null);
         setGscConn(scRes.connection || null);
-        if (scRes.connection?.clientId) setOauthClientId(scRes.connection.clientId);
-        if (scRes.connection?.propertyUrl) setGscPropertyUrl(scRes.connection.propertyUrl);
       }
       if (logRes.success) setAuditLogs(logRes.logs || []);
     } catch (e: any) {
@@ -333,103 +327,6 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
     }
   };
 
-  // Search Console handlers
-  const handleSaveGscOAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setGscBusy(true);
-    try {
-      const d = await safeFetchJson('/api/admin/seo/gsc/oauth-config', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: oauthClientId, clientSecret: oauthClientSecret, propertyUrl: gscPropertyUrl }),
-      });
-      setBanner({ ok: Boolean(d.success), msg: d.success ? 'OAuth client saved. Authorize Consent below.' : (d.error || 'Failed saving OAuth config.') });
-      loadSeoState();
-    } finally {
-      setGscBusy(false);
-    }
-  };
-
-  const handleStartOAuthConsent = async () => {
-    const redirectUri = `${window.location.origin}/api/admin/seo/gsc/oauth-callback`;
-    const d = await safeFetchJson(`/api/admin/seo/gsc/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`, {
-      credentials: 'include',
-    });
-    if (d.success && d.authUrl) {
-      window.location.assign(d.authUrl);
-    } else {
-      setBanner({ ok: false, msg: d.error || 'Could not generate OAuth URL.' });
-    }
-  };
-
-  const handleExchangeOAuthCode = async () => {
-    setGscBusy(true);
-    try {
-      const redirectUri = `${window.location.origin}/api/admin/seo/gsc/oauth-callback`;
-      const d = await safeFetchJson('/api/admin/seo/gsc/oauth-exchange', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: oauthCodeInput, redirectUri }),
-      });
-      setBanner({ ok: Boolean(d.success), msg: d.message || d.error || 'Code processed.' });
-      setOauthCodeInput('');
-      loadSeoState();
-    } finally {
-      setGscBusy(false);
-    }
-  };
-
-  const handleSaveServiceAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setGscBusy(true);
-    try {
-      const d = await safeFetchJson('/api/admin/seo/gsc/service-account', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceAccountJson: saJsonInput, propertyUrl: gscPropertyUrl }),
-      });
-      setBanner({ ok: Boolean(d.success), msg: d.success ? 'Service account encrypted & saved. Run Test Connection.' : (d.error || 'Failed saving service account.') });
-      setSaJsonInput('');
-      loadSeoState();
-    } finally {
-      setGscBusy(false);
-    }
-  };
-
-  const handleTestGsc = async () => {
-    setGscBusy(true);
-    try {
-      const d = await safeFetchJson('/api/admin/seo/gsc/test', { method: 'POST', credentials: 'include' });
-      setBanner({ ok: d.status === 'Authorized', msg: `[${d.status || 'Error'}] ${d.message || d.error || 'Connection test failed.'}` });
-      loadSeoState();
-    } finally {
-      setGscBusy(false);
-    }
-  };
-
-  const handleSyncGsc = async () => {
-    setGscBusy(true);
-    try {
-      const d = await safeFetchJson('/api/admin/seo/gsc/sync', { method: 'POST', credentials: 'include' });
-      setBanner({
-        ok: Boolean(d.success && d.metrics?.connected),
-        msg: d.metrics?.diagnosticMessage || d.error || 'Sync attempt finished.',
-      });
-      loadSeoState();
-    } finally {
-      setGscBusy(false);
-    }
-  };
-
-  const handleDisconnectGsc = async () => {
-    await safeFetchJson('/api/admin/seo/gsc/disconnect', { method: 'POST', credentials: 'include' });
-    setBanner({ ok: true, msg: 'Search Console disconnected cleanly.' });
-    loadSeoState();
-  };
-
   const loadLinksForArticle = async (id: string) => {
     setSelectedArticleId(id);
     const d = await safeFetchJson(`/api/admin/seo/internal-links/${id}`, { credentials: 'include' });
@@ -452,6 +349,7 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
 
   const TABS: { id: SeoSubTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'google-integrations', label: 'Google Integrations' },
     { id: 'pages', label: `All Pages SEO (${seoPages.length})` },
     { id: 'news', label: `News SEO (${articles.length})` },
     { id: 'categories', label: `Category SEO (${categories.length})` },
@@ -587,6 +485,17 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
             </table>
           </div>
         </div>
+      )}
+
+      {/* 1B. CENTRALIZED GOOGLE INTEGRATIONS (GA4 + GTM + SEARCH CONSOLE) */}
+      {tab === 'google-integrations' && (
+        <GoogleIntegrationsManager
+          initialSubTab="ga4"
+          onRefreshParent={() => {
+            void loadSeoState();
+            onRefreshParent?.();
+          }}
+        />
       )}
 
       {/* 2. ALL PAGES SEO */}
@@ -1254,238 +1163,15 @@ export const SEOManager: React.FC<SEOManagerProps> = ({
         </div>
       )}
 
-      {/* 13. GOOGLE SEARCH CONSOLE (REAL DIAGNOSTICS — ZERO FAKE METRICS) */}
+      {/* 13. GOOGLE SEARCH CONSOLE (DELEGATED TO CENTRALIZED HUB) */}
       {tab === 'search-console' && (
-        <div className="space-y-5">
-          {/* Connection Status & Honest Diagnostics */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black text-gray-900">Google Search Console Connection</h3>
-                  <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold border ${gscStatusColor}`}>
-                    {diagStatus}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 mt-1">{gscConn?.diagnosticMessage || gscMetrics?.diagnosticMessage}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleTestGsc}
-                  disabled={gscBusy}
-                  className="px-3.5 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${gscBusy ? 'animate-spin' : ''}`} />
-                  <span>Test Connection</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSyncGsc}
-                  disabled={gscBusy}
-                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Sync 28d Metrics</span>
-                </button>
-                {gscConn?.authMode && gscConn.authMode !== 'none' && (
-                  <button
-                    type="button"
-                    onClick={handleDisconnectGsc}
-                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg border border-rose-200"
-                  >
-                    Disconnect
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {gscConn?.availableProperties?.length > 0 && (
-              <div className="text-xs bg-gray-50 p-3 rounded-lg border border-gray-200">
-                <span className="font-bold text-gray-700">Verified Properties Detected: </span>
-                <span className="font-mono text-emerald-800">{gscConn.availableProperties.join(', ')}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Credentials Setup Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 text-xs">
-            {/* Option A: OAuth 2.0 */}
-            <form onSubmit={handleSaveGscOAuth} className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-              <h4 className="font-black text-gray-900">Method 1: Google OAuth 2.0 Web Client</h4>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Property URL (e.g. sc-domain:360khabarnama.com or https://360khabarnama.com/)</label>
-                <input
-                  type="text"
-                  required
-                  value={gscPropertyUrl}
-                  onChange={e => setGscPropertyUrl(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">OAuth Client ID</label>
-                <input
-                  type="text"
-                  required
-                  value={oauthClientId}
-                  onChange={e => setOauthClientId(e.target.value)}
-                  placeholder="123456-abc.apps.googleusercontent.com"
-                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">OAuth Client Secret (encrypted on save)</label>
-                <input
-                  type="password"
-                  value={oauthClientSecret}
-                  onChange={e => setOauthClientSecret(e.target.value)}
-                  placeholder={gscConn?.hasClientSecret ? '•••••••• (saved)' : 'GOCSPX-...'}
-                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <button type="submit" disabled={gscBusy} className="px-4 py-2 bg-gray-900 text-white font-bold rounded-lg">
-                  Save OAuth Credentials
-                </button>
-                <button
-                  type="button"
-                  onClick={handleStartOAuthConsent}
-                  className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg"
-                >
-                  Authorize with Google
-                </button>
-              </div>
-              <div className="pt-2 border-t border-gray-100 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={oauthCodeInput}
-                  onChange={e => setOauthCodeInput(e.target.value)}
-                  placeholder="Or paste OAuth authorization code manually..."
-                  className="flex-1 p-2 border border-gray-300 rounded-lg font-mono"
-                />
-                <button
-                  type="button"
-                  disabled={!oauthCodeInput.trim() || gscBusy}
-                  onClick={handleExchangeOAuthCode}
-                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 font-bold rounded-lg"
-                >
-                  Exchange Code
-                </button>
-              </div>
-            </form>
-
-            {/* Option B: Service Account JSON */}
-            <form onSubmit={handleSaveServiceAccount} className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-              <h4 className="font-black text-gray-900">Method 2: Google Service Account JSON</h4>
-              <p className="text-gray-500">
-                Upload or paste your GCP Service Account JSON key (with <code>webmasters.readonly</code> access added in Search Console Users &amp; Permissions).
-              </p>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Property URL</label>
-                <input
-                  type="text"
-                  required
-                  value={gscPropertyUrl}
-                  onChange={e => setGscPropertyUrl(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">
-                  Service Account JSON {gscConn?.serviceAccountEmail ? `(Saved: ${gscConn.serviceAccountEmail})` : ''}
-                </label>
-                <textarea
-                  rows={5}
-                  required
-                  value={saJsonInput}
-                  onChange={e => setSaJsonInput(e.target.value)}
-                  placeholder='{"type": "service_account", "client_email": "...", "private_key": "..."}'
-                  className="w-full p-2 border border-gray-300 rounded-lg font-mono text-[11px]"
-                />
-              </div>
-              <button type="submit" disabled={gscBusy} className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg">
-                Save Encrypted Service Account
-              </button>
-            </form>
-          </div>
-
-          {/* Real Search Analytics Metrics — Only displayed when actually synced */}
-          {gscMetrics?.connected ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="text-[11px] font-bold text-gray-500 uppercase">Impressions (28d)</div>
-                  <div className="text-2xl font-black font-mono tabular-nums mt-1">{gscMetrics.impressions.toLocaleString()}</div>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="text-[11px] font-bold text-gray-500 uppercase">Organic Clicks</div>
-                  <div className="text-2xl font-black text-emerald-700 font-mono tabular-nums mt-1">{gscMetrics.clicks.toLocaleString()}</div>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="text-[11px] font-bold text-gray-500 uppercase">Average CTR</div>
-                  <div className="text-2xl font-black font-mono tabular-nums mt-1">{gscMetrics.ctr}%</div>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="text-[11px] font-bold text-gray-500 uppercase">Avg Position</div>
-                  <div className="text-2xl font-black font-mono tabular-nums mt-1">{gscMetrics.averagePosition}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="p-3 bg-gray-50 border-b border-gray-200 text-xs font-black">Top Queries</div>
-                  <table className="w-full text-xs text-left">
-                    <thead>
-                      <tr className="border-b text-gray-500">
-                        <th className="p-2.5">Query</th>
-                        <th className="p-2.5 text-right">Clicks</th>
-                        <th className="p-2.5 text-right">Impr</th>
-                        <th className="p-2.5 text-right">Pos</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 font-mono tabular-nums">
-                      {gscMetrics.topQueries.map((q, i) => (
-                        <tr key={i}>
-                          <td className="p-2.5 font-sans font-semibold text-gray-900">{q.query}</td>
-                          <td className="p-2.5 text-right">{q.clicks}</td>
-                          <td className="p-2.5 text-right">{q.impressions}</td>
-                          <td className="p-2.5 text-right">{q.position}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="p-3 bg-gray-50 border-b border-gray-200 text-xs font-black">Top Pages</div>
-                  <table className="w-full text-xs text-left">
-                    <thead>
-                      <tr className="border-b text-gray-500">
-                        <th className="p-2.5">Page URL</th>
-                        <th className="p-2.5 text-right">Clicks</th>
-                        <th className="p-2.5 text-right">CTR</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 font-mono tabular-nums">
-                      {gscMetrics.topPages.map((p, i) => (
-                        <tr key={i}>
-                          <td className="p-2.5 text-emerald-800 truncate max-w-[260px]">{p.path}</td>
-                          <td className="p-2.5 text-right">{p.clicks}</td>
-                          <td className="p-2.5 text-right">{p.ctr}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center text-xs text-gray-600">
-              No Search Console analytics data loaded. Once connected and authorized via OAuth 2.0 or Service Account above, real search impressions, clicks, queries, and landing pages will appear here.
-            </div>
-          )}
-        </div>
+        <GoogleIntegrationsManager
+          initialSubTab="gsc"
+          onRefreshParent={() => {
+            void loadSeoState();
+            onRefreshParent?.();
+          }}
+        />
       )}
 
       {/* EDIT SEO PAGE MODAL */}

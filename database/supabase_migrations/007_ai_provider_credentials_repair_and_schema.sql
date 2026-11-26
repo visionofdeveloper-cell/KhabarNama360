@@ -376,7 +376,6 @@ SELECT
   model_list_status,
   generation_test_status,
   available_models_json,
-  rate_limit_info_json,
   last_tested_at,
   last_successful_verification_at,
   last_successful_generation_at,
@@ -386,7 +385,8 @@ SELECT
   last_latency_ms,
   last_correlation_id,
   created_at,
-  updated_at
+  updated_at,
+  rate_limit_info_json
 FROM public.ai_provider_credentials;
 
 -- -----------------------------------------------------------------------------

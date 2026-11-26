@@ -483,19 +483,21 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
               />
             </div>
 
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+            <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="font-bold text-gray-900">AI API Connection &amp; Search Console Credentials</div>
-                <div className="text-gray-500">Connect a Google Gemini or xAI Grok API key in one click or configure Search Console.</div>
+                <div className="font-bold text-gray-900">Centralized Google Integrations &amp; AI Key Vault</div>
+                <div className="text-gray-600">
+                  Manage GA4 tracking modes, Consent Mode v2, GTM containers, Search Console OAuth/Sitemaps, or AI provider keys from their dedicated hubs.
+                </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setTab('ai-connection')} className="px-3.5 py-2 bg-emerald-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5" />
                   <span>Connect AI API</span>
                 </button>
                 {onJumpToModule && (
-                  <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-gray-900 text-white font-bold rounded-lg">
-                    Search Console Setup
+                  <button type="button" onClick={() => onJumpToModule('seo')} className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg">
+                    Open Google Integrations (GA4 / GTM / GSC)
                   </button>
                 )}
               </div>

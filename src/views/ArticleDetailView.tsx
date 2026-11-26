@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { useFirebase } from '../context/FirebaseContext.tsx';
 import { Article } from '../types/index.ts';
 import { formatKarachiDate } from '../utils/dateTime.ts';
 import { ReadingProgressBar } from '../components/ReadingProgressBar.tsx';
+import { trackGoogleEvent } from '../utils/googleTracking.ts';
 import {
   Clock,
   Eye,
@@ -55,18 +56,85 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
   const resolvedCaption = isUrdu ? (article.imageCaptionUr || article.imageCaptionEn) : (article.imageCaptionEn || article.imageCaptionUr);
   const usingFallbackLang = isUrdu ? (!article.contentUr && Boolean(article.contentEn)) : (!article.contentEn && Boolean(article.contentUr));
 
+  useEffect(() => {
+    const lang = isUrdu ? 'ur' : 'en';
+    trackGoogleEvent('article_view', {
+      article_id: article.id,
+      article_slug: article.slug,
+      article_category: article.category,
+      article_title: resolvedTitle,
+      content_language: lang,
+    });
+
+    let engagedFired = false;
+    const fireEngaged = (trigger: 'scroll_50' | 'dwell_15s') => {
+      if (engagedFired) return;
+      engagedFired = true;
+      trackGoogleEvent(
+        'article_engaged_read',
+        {
+          article_id: article.id,
+          article_slug: article.slug,
+          article_category: article.category,
+          content_language: lang,
+          engagement_trigger: trigger,
+        },
+        { isEnhanced: true }
+      );
+    };
+
+    const timer = window.setTimeout(() => fireEngaged('dwell_15s'), 15_000);
+    const onScroll = () => {
+      if (engagedFired) return;
+      const el = articleRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const totalHeight = Math.max(el.offsetHeight, 1);
+      const readPx = Math.max(0, window.innerHeight - rect.top);
+      if (readPx / totalHeight >= 0.5) {
+        fireEngaged('scroll_50');
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, [article.id, isUrdu]);
+
   const handleCopyLink = () => {
     navigator.clipboard?.writeText(window.location.href);
+    trackGoogleEvent('share', {
+      method: 'copy_link',
+      content_type: 'article',
+      item_id: article.id,
+      article_slug: article.slug,
+      content_language: isUrdu ? 'ur' : 'en',
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
 
   const handleShareWhatsApp = () => {
+    trackGoogleEvent('share', {
+      method: 'whatsapp',
+      content_type: 'article',
+      item_id: article.id,
+      article_slug: article.slug,
+      content_language: isUrdu ? 'ur' : 'en',
+    });
     const text = encodeURIComponent(`${resolvedTitle} - 360Khabarnama\n${window.location.href}`);
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
   const handleShareFacebook = () => {
+    trackGoogleEvent('share', {
+      method: 'facebook',
+      content_type: 'article',
+      item_id: article.id,
+      article_slug: article.slug,
+      content_language: isUrdu ? 'ur' : 'en',
+    });
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`, '_blank');
   };
 
@@ -168,6 +236,10 @@ export const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
           <img
             src={article.author.avatar}
             alt={article.author.nameEn}
+            width={44}
+            height={44}
+            loading="lazy"
+            decoding="async"
             className="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-600/30"
           />
           <div>

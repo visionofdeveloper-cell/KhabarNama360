@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import { Shield, X } from 'lucide-react';
+import { updateGoogleConsent } from '../utils/googleTracking.ts';
 
 interface ConsentState {
   essential: boolean;
@@ -27,7 +28,12 @@ export const CookieConsent: React.FC = () => {
       if (!raw) {
         setVisible(true);
       } else {
-        setConsent(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        setConsent(parsed);
+        updateGoogleConsent({
+          analytics: Boolean(parsed?.analytics),
+          advertising: Boolean(parsed?.advertising),
+        });
       }
     } catch {
       setVisible(true);
@@ -45,6 +51,10 @@ export const CookieConsent: React.FC = () => {
     const payload = { ...next, essential: true, savedAt: new Date().toISOString() };
     localStorage.setItem(CONSENT_KEY, JSON.stringify(payload));
     setConsent(payload);
+    updateGoogleConsent({
+      analytics: Boolean(payload.analytics),
+      advertising: Boolean(payload.advertising),
+    });
     setVisible(false);
     setShowDetails(false);
   };

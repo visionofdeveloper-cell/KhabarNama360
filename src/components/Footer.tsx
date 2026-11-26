@@ -3,6 +3,7 @@ import { useLanguage } from '../context/LanguageContext.tsx';
 import { Mail, CheckCircle2, Send, Heart, AlertCircle } from 'lucide-react';
 import { SiteSettings } from '../types/index.ts';
 import { safeFetchJson } from '../utils/safeFetch.ts';
+import { trackGoogleEvent } from '../utils/googleTracking.ts';
 
 export const Footer: React.FC = () => {
   const { isUrdu, t, navigateTo, language } = useLanguage();
@@ -32,6 +33,10 @@ export const Footer: React.FC = () => {
         body: JSON.stringify({ email: trimmed, language }),
       });
       if (d.success) {
+        trackGoogleEvent('newsletter_signup', {
+          method: 'footer_form',
+          content_language: language,
+        });
         setSubFeedback({
           ok: true,
           text: isUrdu

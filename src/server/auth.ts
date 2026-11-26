@@ -11,6 +11,13 @@ import { adminAuth } from '../lib/firebase-admin.ts';
 import { AdminPermission, UserRole } from '../types/index.ts';
 import { encryptSecret, decryptSecret, generateTotpSecret, verifyTotpToken } from './crypto.ts';
 import { findSupabaseAdminUserByEmail, isSupabaseConfigured } from './supabaseAdmin.ts';
+import {
+  revokeAdminSessionInSupabase,
+  syncAdminAuthCredentialToSupabase,
+  syncAdminSessionToSupabase,
+  syncAdminUserToSupabase,
+} from './supabaseRepositories.ts';
+import { recordServerError } from './errorTracker.ts';
 
 const BOOTSTRAPPED_ADMIN_EMAIL = 'visionofdeveloper@gmail.com';
 
@@ -232,18 +239,24 @@ export function provisionFirstAdmin(
   const userId = `usr-admin-${Date.now()}`;
   const passwordHash = hashPassword(password);
 
-  db.setAdminCredential(cleanEmail, {
+  const credRecord: AdminCredentialRecord = {
     userId,
     email: cleanEmail,
     passwordHash,
     mfaEnabled: false,
     failedAttempts: 0,
     passwordUpdatedAt: new Date().toISOString(),
-  });
+  };
+  db.setAdminCredential(cleanEmail, credRecord);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(credRecord).catch(err =>
+      recordServerError({ source: 'supabase', code: 'AUTH_CRED_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
 
   const existingUsers = db.getAdminUsers();
   if (!existingUsers.some(u => u.email.toLowerCase() === cleanEmail)) {
-    db.upsertAdminUser({
+    const newUser = db.upsertAdminUser({
       id: userId,
       nameEn,
       nameUr: 'چیف ایڈمنسٹریٹر',
@@ -254,6 +267,11 @@ export function provisionFirstAdmin(
       articlesCount: 0,
       createdAt: new Date().toISOString(),
     }, 'System Bootstrap');
+    if (isSupabaseConfigured()) {
+      syncAdminUserToSupabase(newUser).catch(err =>
+        recordServerError({ source: 'supabase', code: 'ADMIN_USER_SYNC_ERR', message: String(err?.message || err) })
+      );
+    }
   }
 
   db.logAudit('System Bootstrap', 'First Super Admin Provisioned', `Provisioned initial admin account: ${cleanEmail}`);
@@ -272,7 +290,7 @@ export function setStaffPasswordCredential(
   }
   const creds = db.getAdminCredentialsMap();
   const existing = creds[cleanEmail];
-  db.setAdminCredential(cleanEmail, {
+  const nextCred: AdminCredentialRecord = {
     ...(existing || {}),
     userId: existing?.userId || userId || `usr-${Date.now()}`,
     email: cleanEmail,
@@ -281,7 +299,13 @@ export function setStaffPasswordCredential(
     failedAttempts: 0,
     lockedUntil: undefined,
     passwordUpdatedAt: new Date().toISOString(),
-  });
+  };
+  db.setAdminCredential(cleanEmail, nextCred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(nextCred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'STAFF_CRED_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(actor, 'Staff Password Set', `Updated login credentials for ${cleanEmail}`);
   return { success: true };
 }
@@ -323,6 +347,11 @@ export function authenticateAdmin(
       db.logAudit(cleanEmail, 'Failed Admin Login', `Invalid password attempt (${cred.failedAttempts}/${MAX_LOGIN_ATTEMPTS}) from IP ${ipAddress}`);
     }
     db.setAdminCredential(cleanEmail, cred);
+    if (isSupabaseConfigured()) {
+      syncAdminAuthCredentialToSupabase(cred).catch(err =>
+        recordServerError({ source: 'supabase', code: 'LOGIN_ATTEMPT_SYNC_ERR', message: String(err?.message || err) })
+      );
+    }
     return { success: false, error: 'Invalid credentials.' };
   }
 
@@ -342,6 +371,11 @@ export function authenticateAdmin(
   cred.lockedUntil = undefined;
   cred.lastLoginAt = new Date().toISOString();
   db.setAdminCredential(cleanEmail, cred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(cred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'LOGIN_CRED_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
 
   const assignedRole = normalizeRole(staffUser?.role || 'Super Admin');
   const sessionId = crypto.randomBytes(32).toString('hex');
@@ -360,6 +394,11 @@ export function authenticateAdmin(
   };
 
   activeSessions.set(sessionId, session);
+  if (isSupabaseConfigured()) {
+    syncAdminSessionToSupabase(session).catch(err =>
+      recordServerError({ source: 'supabase', code: 'SESSION_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(cleanEmail, 'Admin Login Success', `Authenticated session (${assignedRole}) from IP ${ipAddress}`);
 
   return { success: true, session, mfaRequired: false };
@@ -382,6 +421,11 @@ export function changeAdminPassword(
     cred.passwordHash = hashPassword(newPassword);
     cred.passwordUpdatedAt = new Date().toISOString();
     db.setAdminCredential(cleanEmail, cred);
+    if (isSupabaseConfigured()) {
+      syncAdminAuthCredentialToSupabase(cred).catch(err =>
+        recordServerError({ source: 'supabase', code: 'PW_CHANGE_SYNC_ERR', message: String(err?.message || err) })
+      );
+    }
     db.logAudit(cleanEmail, 'Password Changed', 'Administrator updated account password');
     return { success: true };
   }
@@ -390,14 +434,20 @@ export function changeAdminPassword(
   if (!staffUser && cleanEmail !== BOOTSTRAPPED_ADMIN_EMAIL) {
     return { success: false, error: 'Account not found.' };
   }
-  db.setAdminCredential(cleanEmail, {
+  const ssoLocalCred: AdminCredentialRecord = {
     userId: staffUser?.id || `usr-${Date.now()}`,
     email: cleanEmail,
     passwordHash: hashPassword(newPassword),
     mfaEnabled: false,
     failedAttempts: 0,
     passwordUpdatedAt: new Date().toISOString(),
-  });
+  };
+  db.setAdminCredential(cleanEmail, ssoLocalCred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(ssoLocalCred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'SSO_PW_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(cleanEmail, 'Local Password Set', 'Created local password for admin login');
   return { success: true };
 }
@@ -421,6 +471,11 @@ export function initiateMfaSetup(email: string): { success: boolean; secret?: st
     mfaSecretEnc: encryptSecret(secret),
   };
   db.setAdminCredential(cleanEmail, updated);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(updated).catch(err =>
+      recordServerError({ source: 'supabase', code: 'MFA_SETUP_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   const issuer = encodeURIComponent('360Khabarnama Admin');
   const label = encodeURIComponent(cleanEmail);
   const otpauthUrl = `otpauth://totp/${issuer}:${label}?secret=${secret}&issuer=${issuer}`;
@@ -439,6 +494,11 @@ export function enableMfaWithToken(email: string, code: string): { success: bool
   }
   cred.mfaEnabled = true;
   db.setAdminCredential(cleanEmail, cred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(cred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'MFA_ENABLE_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(cleanEmail, 'MFA Enabled', 'Enabled Two-Factor TOTP authentication');
   return { success: true };
 }
@@ -450,6 +510,11 @@ export function disableMfa(email: string): { success: boolean } {
     cred.mfaEnabled = false;
     delete cred.mfaSecretEnc;
     db.setAdminCredential(cleanEmail, cred);
+    if (isSupabaseConfigured()) {
+      syncAdminAuthCredentialToSupabase(cred).catch(err =>
+        recordServerError({ source: 'supabase', code: 'MFA_DISABLE_SYNC_ERR', message: String(err?.message || err) })
+      );
+    }
     db.logAudit(cleanEmail, 'MFA Disabled', 'Disabled Two-Factor TOTP authentication');
   }
   return { success: true };
@@ -465,6 +530,11 @@ export function requestPasswordReset(email: string): { success: boolean; resetCo
   cred.resetTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
   cred.resetTokenExpiresAt = Date.now() + 30 * 60 * 1000;
   db.setAdminCredential(cleanEmail, cred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(cred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'RESET_REQ_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(cleanEmail, 'Password Reset Requested', 'Issued single-use 30m password reset code (server-side)');
   return {
     success: true,
@@ -492,6 +562,11 @@ export function confirmPasswordReset(email: string, token: string, newPassword: 
   cred.lockedUntil = undefined;
   cred.passwordUpdatedAt = new Date().toISOString();
   db.setAdminCredential(cleanEmail, cred);
+  if (isSupabaseConfigured()) {
+    syncAdminAuthCredentialToSupabase(cred).catch(err =>
+      recordServerError({ source: 'supabase', code: 'RESET_CONFIRM_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   db.logAudit(cleanEmail, 'Password Reset Completed', 'Password reset confirmed via single-use token');
   return { success: true };
 }
@@ -538,6 +613,11 @@ export function clearSessionCookie(res: Response) {
 
 export function revokeSession(sessionId: string, actor: string = 'Admin') {
   revokedSessions.add(sessionId);
+  if (isSupabaseConfigured()) {
+    revokeAdminSessionInSupabase(sessionId).catch(err =>
+      recordServerError({ source: 'supabase', code: 'SESSION_REVOKE_SYNC_ERR', message: String(err?.message || err) })
+    );
+  }
   const sess = activeSessions.get(sessionId);
   if (sess) {
     activeSessions.delete(sessionId);
@@ -600,6 +680,11 @@ export async function authenticateAdminWithFirebase(
     };
 
     activeSessions.set(sessionId, session);
+    if (isSupabaseConfigured()) {
+      syncAdminSessionToSupabase(session).catch(err =>
+        recordServerError({ source: 'supabase', code: 'FIREBASE_SESSION_SYNC_ERR', message: String(err?.message || err) })
+      );
+    }
     db.logAudit(email, 'Admin Firebase Login Success', `Authenticated Google session (${assignedRole}) from IP ${ipAddress}`);
     return { success: true, session };
   } catch (err) {

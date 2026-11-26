@@ -51,7 +51,9 @@ import {
   SitemapSettings,
   SeoAuditLogEntry,
   PublicationLogEntry,
-  SaveDiagnosticEntry
+  SaveDiagnosticEntry,
+  GoogleIntegrationsConfig,
+  GoogleIntegrationLogEntry
 } from '../types/index.ts';
 import {
   DataProvider,
@@ -139,9 +141,12 @@ interface DatabaseSchema {
   editorialDrafts?: EditorialDraftRecord[];
   publicationLogs?: PublicationLogEntry[];
   saveDiagnostics?: SaveDiagnosticEntry[];
+  googleIntegrationLogs?: GoogleIntegrationLogEntry[];
   newsCacheVersion?: number;
   lastCacheInvalidationAt?: string;
   cronLocks?: Record<string, { lockedAt: string; lockedBy: string; expiresAt: string }>;
+  deletedTombstones?: Record<string, string[]>;
+  publicSubmissions?: any[];
 }
 
 // Initial Seed Data
@@ -1166,12 +1171,43 @@ const defaultSiteSettings: SiteSettings = {
   contactEmail: 'editor@360khabarnama.com',
   contactPhone: '+92 (051) 920-1122',
   adManagerEnabled: true,
-  googleAnalyticsId: 'G-KHABAR360',
+  googleAnalyticsId: '',
+  googleTagManagerId: '',
+  searchConsoleVerification: '',
   leaderboardAdUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=970&q=80',
   sidebarAdUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=400&q=80',
   latestNewsCount: 15,
   dateFormat: 'DD MMM YYYY',
   consentBannerEnabled: true,
+  googleIntegrations: {
+    analytics: {
+      enabled: false,
+      measurementId: '',
+      trackingMode: 'gtm',
+      anonymizeIp: true,
+      debugMode: false,
+      excludeAdmin: true,
+      excludeStaging: false,
+      trackEnhancedEvents: true,
+      lastVerifiedAt: null,
+      lastError: '',
+    },
+    tagManager: {
+      enabled: false,
+      containerId: '',
+      excludeAdmin: true,
+      consentModeEnabled: true,
+      lastVerifiedAt: null,
+      lastError: '',
+    },
+    searchConsole: {
+      verificationCode: '',
+      propertyUrl: 'https://www.360khabarnama.com/',
+      scopeMode: 'webmasters',
+      lastVerifiedAt: null,
+      lastError: '',
+    },
+  },
   islamicSettings: {
     defaultCity: 'Islamabad',
     calculationMethod: 1,
@@ -1882,8 +1918,9 @@ Disallow: /epaper/
 Disallow: /en/epaper/
 Disallow: /ur/epaper/
 
-Sitemap: https://360khabarnama.com/sitemap.xml
-Sitemap: https://360khabarnama.com/sitemap-news.xml
+Sitemap: https://www.360khabarnama.com/sitemap-index.xml
+Sitemap: https://www.360khabarnama.com/sitemap.xml
+Sitemap: https://www.360khabarnama.com/news-sitemap.xml
 `;
 
 const defaultSitemapConfig: SitemapSettings = {
@@ -1919,11 +1956,16 @@ class DatabaseManager {
       if (sourceFile) {
         const raw = fs.readFileSync(sourceFile, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!parsed.dataProviders || parsed.dataProviders.length === 0) {
-          parsed.dataProviders = defaultDataProviders;
+        const tombMap = parsed.deletedTombstones || {};
+        const deletedProviderIds = new Set<string>(Array.isArray(tombMap['sync_providers']) ? tombMap['sync_providers'].map(String) : []);
+        const deletedCampaignIds = new Set<string>(Array.isArray(tombMap['ad_campaigns']) ? tombMap['ad_campaigns'].map(String) : []);
+
+        if (!parsed.dataProviders) {
+          parsed.dataProviders = defaultDataProviders.filter(p => !deletedProviderIds.has(p.id));
         } else {
+          parsed.dataProviders = parsed.dataProviders.filter((p: any) => !deletedProviderIds.has(String(p.id)));
           for (const defProv of defaultDataProviders) {
-            if (!parsed.dataProviders.some((p: any) => p.id === defProv.id)) {
+            if (!deletedProviderIds.has(defProv.id) && !parsed.dataProviders.some((p: any) => p.id === defProv.id)) {
               parsed.dataProviders.push(defProv);
             }
           }
@@ -1936,7 +1978,11 @@ class DatabaseManager {
         if (!parsed.adminUsers || parsed.adminUsers.length === 0) parsed.adminUsers = defaultAdminUsers;
         if (!parsed.mediaAssets || parsed.mediaAssets.length === 0) parsed.mediaAssets = defaultMediaAssets;
         if (!parsed.adPlacements || parsed.adPlacements.length === 0) parsed.adPlacements = defaultAdPlacements;
-        if (!parsed.adCampaigns || parsed.adCampaigns.length === 0) parsed.adCampaigns = defaultAdCampaigns;
+        if (!parsed.adCampaigns) {
+          parsed.adCampaigns = defaultAdCampaigns.filter(c => !deletedCampaignIds.has(c.id));
+        } else {
+          parsed.adCampaigns = parsed.adCampaigns.filter((c: any) => !deletedCampaignIds.has(String(c.id)));
+        }
         if (!parsed.seoPages || parsed.seoPages.length === 0) parsed.seoPages = defaultSeoPages;
         if (!parsed.searchConsoleConnection) parsed.searchConsoleConnection = { ...defaultSearchConsoleConnection };
         // Remove legacy fabricated Search Console KPI numbers if not connected
@@ -1968,7 +2014,10 @@ class DatabaseManager {
         if (!parsed.aiEnvSuppressed) parsed.aiEnvSuppressed = { gemini: false, grok: false };
         if (!parsed.editorialDrafts) parsed.editorialDrafts = [];
         if (!parsed.saveDiagnostics) parsed.saveDiagnostics = [];
+        if (!parsed.googleIntegrationLogs) parsed.googleIntegrationLogs = [];
         if (!parsed.cronLocks) parsed.cronLocks = {};
+        if (!parsed.deletedTombstones) parsed.deletedTombstones = {};
+        if (!parsed.publicSubmissions) parsed.publicSubmissions = [];
         if (parsed.homepageConfig?.sections && !parsed.homepageConfig.sections.some((s: any) => s.type === 'latest_news_feed')) {
           parsed.homepageConfig.sections.splice(2, 0, {
             id: 'latest_news_feed',
@@ -2001,10 +2050,36 @@ class DatabaseManager {
             taglineEn: defaultSiteSettings.taglineEn,
             taglineUr: defaultSiteSettings.taglineUr,
             contactEmail: 'editor@360khabarnama.com',
-            googleAnalyticsId:
-              parsed.siteSettings?.googleAnalyticsId === 'G-PAKPORTAL2026'
-                ? defaultSiteSettings.googleAnalyticsId
-                : parsed.siteSettings?.googleAnalyticsId || defaultSiteSettings.googleAnalyticsId,
+          };
+          migrated = true;
+        }
+        // Strip legacy placeholder GA4 IDs so dummy scripts never fire on production
+        const legacyGa = String(parsed.siteSettings?.googleAnalyticsId || '').trim().toUpperCase();
+        if (legacyGa === 'G-KHABAR360' || legacyGa === 'G-PAKPORTAL2026') {
+          parsed.siteSettings.googleAnalyticsId = '';
+          migrated = true;
+        }
+        if (!parsed.siteSettings.googleIntegrations) {
+          const existingGa = (parsed.siteSettings.googleAnalyticsId || '').trim();
+          const existingGtm = (parsed.siteSettings.googleTagManagerId || '').trim();
+          const existingGsc = (parsed.siteSettings.searchConsoleVerification || '').trim();
+          parsed.siteSettings.googleIntegrations = {
+            analytics: {
+              ...defaultSiteSettings.googleIntegrations!.analytics,
+              enabled: Boolean(existingGa),
+              measurementId: existingGa,
+              trackingMode: existingGtm ? 'gtm' : existingGa ? 'direct_gtag' : 'gtm',
+            },
+            tagManager: {
+              ...defaultSiteSettings.googleIntegrations!.tagManager,
+              enabled: Boolean(existingGtm),
+              containerId: existingGtm,
+            },
+            searchConsole: {
+              ...defaultSiteSettings.googleIntegrations!.searchConsole,
+              verificationCode: existingGsc,
+              propertyUrl: parsed.searchConsoleConnection?.propertyUrl || 'https://www.360khabarnama.com/',
+            },
           };
           migrated = true;
         }
@@ -2076,6 +2151,8 @@ class DatabaseManager {
       editorialDrafts: [],
       saveDiagnostics: [],
       cronLocks: {},
+      deletedTombstones: {},
+      publicSubmissions: [],
     };
 
     this.saveDatabase(initial);
@@ -2410,6 +2487,7 @@ class DatabaseManager {
         seo: articleInput.seo,
         versions: [],
       };
+      this.clearDeletionTombstone('articles', newArticle.id);
       this.data.articles.unshift(newArticle);
       this.logAudit(actor, 'Article Created', `Created article ${newArticle.id}: ${newArticle.titleEn} (Status: ${newArticle.status})`);
       this.addPublicationLog({
@@ -2431,7 +2509,8 @@ class DatabaseManager {
 
   public deleteArticle(id: string, actor: string = 'Admin', hardDelete: boolean = false): boolean {
     const idx = this.data.articles.findIndex(a => a.id === id);
-    if (idx < 0) return false;
+    this.recordDeletionTombstone('articles', id);
+    if (idx < 0) return true;
     const prev = this.data.articles[idx];
     if (hardDelete) {
       this.data.articles.splice(idx, 1);
@@ -2743,6 +2822,7 @@ class DatabaseManager {
 
   public deleteAdminUser(id: string, actor: string = 'Super Admin'): boolean {
     if (!this.data.adminUsers) return false;
+    this.recordDeletionTombstone('admin_users', id);
     const prevLen = this.data.adminUsers.length;
     this.data.adminUsers = this.data.adminUsers.filter(u => u.id !== id);
     if (this.data.adminUsers.length < prevLen) {
@@ -2787,6 +2867,7 @@ class DatabaseManager {
 
   public deleteMediaAsset(id: string, actor: string = 'Editor'): boolean {
     if (!this.data.mediaAssets) return false;
+    this.recordDeletionTombstone('media_assets', id);
     const prev = this.data.mediaAssets.length;
     this.data.mediaAssets = this.data.mediaAssets.filter(m => m.id !== id);
     if (this.data.mediaAssets.length < prev) {
@@ -2845,6 +2926,7 @@ class DatabaseManager {
 
   public deleteAdCampaign(id: string, actor: string = 'Ad Manager'): boolean {
     if (!this.data.adCampaigns) return false;
+    this.recordDeletionTombstone('ad_campaigns', id);
     const prev = this.data.adCampaigns.length;
     this.data.adCampaigns = this.data.adCampaigns.filter(c => c.id !== id);
     if (this.data.adCampaigns.length < prev) {
@@ -2853,6 +2935,16 @@ class DatabaseManager {
       return true;
     }
     return false;
+  }
+
+  public archiveAdCampaign(id: string, actor: string = 'Ad Manager'): AdCampaign | null {
+    if (!this.data.adCampaigns) return null;
+    const camp = this.data.adCampaigns.find(c => c.id === id);
+    if (!camp) return null;
+    camp.status = 'archived';
+    this.logAudit(actor, 'Ad Campaign Archived', `Archived campaign ID: ${id} (${camp.campaignName})`);
+    this.saveDatabase(this.data);
+    return camp;
   }
 
   public recordAdImpression(slotId: string, campaignId?: string) {
@@ -2950,6 +3042,7 @@ class DatabaseManager {
 
   public deleteRedirectRule(id: string, actor: string = 'SEO Specialist'): boolean {
     if (!this.data.redirectRules) return false;
+    this.recordDeletionTombstone('seo_redirects', id);
     const prev = this.data.redirectRules.length;
     this.data.redirectRules = this.data.redirectRules.filter(r => r.id !== id);
     if (this.data.redirectRules.length < prev) {
@@ -3028,6 +3121,7 @@ class DatabaseManager {
 
   public deleteSubscriber(id: string, actor: string = 'Audience Manager'): boolean {
     if (!this.data.subscribers) return false;
+    this.recordDeletionTombstone('newsletter_subscribers', id);
     const prev = this.data.subscribers.length;
     this.data.subscribers = this.data.subscribers.filter(s => s.id !== id);
     if (this.data.subscribers.length < prev) {
@@ -3277,6 +3371,7 @@ class DatabaseManager {
 
   public deleteCustomBlock(id: string, actor: string = 'Editor'): boolean {
     if (!this.data.customBlocks) return false;
+    this.recordDeletionTombstone('homepage_custom_blocks', id);
     const prev = this.data.customBlocks.length;
     this.data.customBlocks = this.data.customBlocks.filter(b => b.id !== id);
     if (this.data.customBlocks.length < prev) {
@@ -3485,12 +3580,25 @@ class DatabaseManager {
 
   public saveEditorialDraft(draft: EditorialDraftRecord): EditorialDraftRecord {
     if (!this.data.editorialDrafts) this.data.editorialDrafts = [];
+    this.clearDeletionTombstone('editorial_drafts', draft.id);
     const idx = this.data.editorialDrafts.findIndex(d => d.id === draft.id);
     if (idx >= 0) this.data.editorialDrafts[idx] = draft;
     else this.data.editorialDrafts.unshift(draft);
     if (this.data.editorialDrafts.length > 100) this.data.editorialDrafts = this.data.editorialDrafts.slice(0, 100);
     this.saveDatabase(this.data);
     return draft;
+  }
+
+  public deleteEditorialDraft(id: string): boolean {
+    if (!this.data.editorialDrafts) return false;
+    this.recordDeletionTombstone('editorial_drafts', id);
+    const prev = this.data.editorialDrafts.length;
+    this.data.editorialDrafts = this.data.editorialDrafts.filter(d => d.id !== id);
+    if (this.data.editorialDrafts.length < prev) {
+      this.saveDatabase(this.data);
+      return true;
+    }
+    return false;
   }
 
   // --- SEO, Robots, Sitemaps & Search Console Connection ---
@@ -3551,6 +3659,35 @@ class DatabaseManager {
     return this.data.searchConsoleConnection;
   }
 
+  public getGoogleIntegrationLogs(): GoogleIntegrationLogEntry[] {
+    return this.data.googleIntegrationLogs || [];
+  }
+
+  public addGoogleIntegrationLog(entry: Omit<GoogleIntegrationLogEntry, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): GoogleIntegrationLogEntry {
+    if (!this.data.googleIntegrationLogs) this.data.googleIntegrationLogs = [];
+    const full: GoogleIntegrationLogEntry = {
+      id: entry.id || `glog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      integration: entry.integration,
+      action: entry.action,
+      status: entry.status,
+      message: entry.message,
+      details: entry.details,
+      actor: entry.actor || 'System',
+      createdAt: entry.createdAt || new Date().toISOString(),
+    };
+    this.data.googleIntegrationLogs.unshift(full);
+    if (this.data.googleIntegrationLogs.length > 150) {
+      this.data.googleIntegrationLogs = this.data.googleIntegrationLogs.slice(0, 150);
+    }
+    this.saveDatabase(this.data);
+    return full;
+  }
+
+  public setGoogleIntegrationLogs(logs: GoogleIntegrationLogEntry[]): void {
+    this.data.googleIntegrationLogs = Array.isArray(logs) ? logs.slice(0, 150) : [];
+    this.saveDatabase(this.data);
+  }
+
   public upsertSeoPage(page: SeoPageConfig, actor: string = 'SEO Manager'): SeoPageConfig {
     if (!this.data.seoPages) this.data.seoPages = [];
     const idx = this.data.seoPages.findIndex(p => p.id === page.id || p.path === page.path);
@@ -3579,6 +3716,7 @@ class DatabaseManager {
 
   public deleteDataProvider(id: string, actor: string = 'Automation Manager'): boolean {
     if (!this.data.dataProviders) return false;
+    this.recordDeletionTombstone('sync_providers', id);
     const prev = this.data.dataProviders.length;
     this.data.dataProviders = this.data.dataProviders.filter(p => p.id !== id);
     if (this.data.dataProviders.length < prev) {
@@ -3653,6 +3791,8 @@ class DatabaseManager {
 
   public deleteCategoryPage(slug: string, actor: string = 'Admin'): boolean {
     if (!this.data.categoryPages) return false;
+    this.recordDeletionTombstone('category_pages', slug);
+    this.recordDeletionTombstone('categories', slug);
     const prev = this.data.categoryPages.length;
     this.data.categoryPages = this.data.categoryPages.filter(c => c.slug !== slug);
     this.data.categories = this.data.categories.filter(c => c.slug !== slug);
@@ -3746,6 +3886,258 @@ class DatabaseManager {
   public releaseCronLock(lockKey: string): void {
     if (!this.data.cronLocks) return;
     delete this.data.cronLocks[lockKey];
+    this.saveDatabase(this.data);
+  }
+
+  // --- Deletion Tombstones, Public Submissions & Authoritative Supabase Hydration ---
+  public recordDeletionTombstone(entityType: string, entityId: string): void {
+    if (!entityType || !entityId) return;
+    if (!this.data.deletedTombstones) this.data.deletedTombstones = {};
+    const list = new Set(this.data.deletedTombstones[entityType] || []);
+    list.add(String(entityId));
+    this.data.deletedTombstones[entityType] = Array.from(list);
+    this.saveDatabase(this.data);
+  }
+
+  public clearDeletionTombstone(entityType: string, entityId: string): void {
+    if (!this.data.deletedTombstones?.[entityType]) return;
+    this.data.deletedTombstones[entityType] = this.data.deletedTombstones[entityType].filter(
+      id => id !== String(entityId)
+    );
+    this.saveDatabase(this.data);
+  }
+
+  public getDeletedTombstones(entityType: string): Set<string> {
+    return new Set(this.data.deletedTombstones?.[entityType] || []);
+  }
+
+  public setDeletionTombstones(tombstones: { entityType: string; entityId: string }[]): void {
+    const map: Record<string, Set<string>> = {};
+    for (const [k, vals] of Object.entries(this.data.deletedTombstones || {})) {
+      map[k] = new Set(vals || []);
+    }
+    for (const t of tombstones || []) {
+      if (!map[t.entityType]) map[t.entityType] = new Set();
+      map[t.entityType].add(String(t.entityId));
+    }
+    const next: Record<string, string[]> = {};
+    for (const [k, s] of Object.entries(map)) {
+      next[k] = Array.from(s);
+    }
+    this.data.deletedTombstones = next;
+    this.saveDatabase(this.data);
+  }
+
+  public getCategoryDataset(dataset: string): any[] {
+    return ((this.data as any)[dataset] as any[]) || [];
+  }
+
+  public setCategoryDataset(dataset: string, items: any[]): void {
+    if (Array.isArray(items)) {
+      (this.data as any)[dataset] = items;
+      this.saveDatabase(this.data);
+    }
+  }
+
+  public addPublicSubmission(entry: any): any {
+    if (!this.data.publicSubmissions) this.data.publicSubmissions = [];
+    const saved = { ...entry, id: entry.id || `subm-${Date.now()}` };
+    this.data.publicSubmissions.unshift(saved);
+    if (this.data.publicSubmissions.length > 500) {
+      this.data.publicSubmissions = this.data.publicSubmissions.slice(0, 500);
+    }
+    this.saveDatabase(this.data);
+    return saved;
+  }
+
+  public getPublicSubmissions(): any[] {
+    return this.data.publicSubmissions || [];
+  }
+
+  public setPublicSubmissions(entries: any[]): void {
+    this.data.publicSubmissions = Array.isArray(entries) ? entries : [];
+    this.saveDatabase(this.data);
+  }
+
+  public replaceArticlesFromSupabase(articles: Article[]): void {
+    const tomb = this.getDeletedTombstones('articles');
+    const sbMap = new Map<string, Article>();
+    for (const a of articles || []) {
+      if (!tomb.has(a.id) && !a.deletedAt) {
+        sbMap.set(a.id, a);
+      }
+    }
+    // Preserve any newly created local-only articles not yet synced, excluding tombstones
+    for (const localArt of this.data.articles || []) {
+      if (!tomb.has(localArt.id) && !localArt.deletedAt && !sbMap.has(localArt.id)) {
+        sbMap.set(localArt.id, localArt);
+      }
+    }
+    this.data.articles = Array.from(sbMap.values());
+    this.saveDatabase(this.data);
+  }
+
+  public applySupabaseHydration(payload: {
+    tombstones?: { entityType: string; entityId: string }[];
+    articles?: Article[] | null;
+    categories?: Category[] | null;
+    categoryPages?: CategoryPageConfig[] | null;
+    siteSettings?: Partial<SiteSettings> | null;
+    adminUsers?: AdminUser[] | null;
+    adminCredentials?: Record<string, any> | null;
+    mediaAssets?: MediaAsset[] | null;
+    adPlacements?: AdPlacement[] | null;
+    adCampaigns?: AdCampaign[] | null;
+    subscribers?: NewsletterSubscriber[] | null;
+    notifications?: AudienceNotification[] | null;
+    pushSubscriptions?: WebPushSubscription[] | null;
+    homepageConfig?: HomepageLayoutConfig | null;
+    customBlocks?: CustomReusableBlock[] | null;
+    seoPages?: SeoPageConfig[] | null;
+    redirectRules?: RedirectRule[] | null;
+    brokenLinks?: BrokenLinkReport[] | null;
+    dataProviders?: DataProvider[] | null;
+    syncJobRuns?: SyncJobRun[] | null;
+    automationSettings?: Partial<AutomationSettings> | null;
+    editorialDrafts?: EditorialDraftRecord[] | null;
+    auditLogs?: AuditLog[] | null;
+    saveDiagnostics?: SaveDiagnosticEntry[] | null;
+    datasets?: Record<string, any[]> | null;
+    publicSubmissions?: any[] | null;
+  }): void {
+    if (payload.tombstones) {
+      this.setDeletionTombstones(payload.tombstones);
+    }
+    const isDeleted = (type: string, id: string) => this.getDeletedTombstones(type).has(String(id));
+
+    if (Array.isArray(payload.articles) && payload.articles.length > 0) {
+      this.replaceArticlesFromSupabase(payload.articles);
+    } else {
+      const artTomb = this.getDeletedTombstones('articles');
+      this.data.articles = (this.data.articles || []).filter(a => !artTomb.has(a.id) && !a.deletedAt);
+    }
+
+    if (Array.isArray(payload.categories) && payload.categories.length > 0) {
+      this.data.categories = payload.categories.filter(c => !isDeleted('categories', c.slug) && !isDeleted('categories', c.id));
+    } else {
+      this.data.categories = (this.data.categories || []).filter(c => !isDeleted('categories', c.slug) && !isDeleted('categories', c.id));
+    }
+
+    if (Array.isArray(payload.categoryPages) && payload.categoryPages.length > 0) {
+      this.data.categoryPages = payload.categoryPages.filter(p => !isDeleted('category_pages', p.slug));
+    } else {
+      this.data.categoryPages = (this.data.categoryPages || []).filter(p => !isDeleted('category_pages', p.slug));
+    }
+
+    if (payload.siteSettings) {
+      this.data.siteSettings = { ...this.data.siteSettings, ...payload.siteSettings };
+    }
+
+    if (Array.isArray(payload.adminUsers) && payload.adminUsers.length > 0) {
+      this.data.adminUsers = payload.adminUsers.filter(u => !isDeleted('admin_users', u.id));
+    } else {
+      this.data.adminUsers = (this.data.adminUsers || []).filter(u => !isDeleted('admin_users', u.id));
+    }
+
+    if (payload.adminCredentials && Object.keys(payload.adminCredentials).length > 0) {
+      this.data.adminCredentials = { ...(this.data.adminCredentials || {}), ...payload.adminCredentials };
+    }
+
+    if (Array.isArray(payload.mediaAssets) && payload.mediaAssets.length > 0) {
+      this.data.mediaAssets = payload.mediaAssets.filter(m => !isDeleted('media_assets', m.id));
+    } else {
+      this.data.mediaAssets = (this.data.mediaAssets || []).filter(m => !isDeleted('media_assets', m.id));
+    }
+
+    if (Array.isArray(payload.adPlacements) && payload.adPlacements.length > 0) {
+      this.data.adPlacements = payload.adPlacements;
+    }
+
+    if (Array.isArray(payload.adCampaigns) && payload.adCampaigns.length > 0) {
+      this.data.adCampaigns = payload.adCampaigns.filter(c => !isDeleted('ad_campaigns', c.id));
+    } else {
+      this.data.adCampaigns = (this.data.adCampaigns || []).filter(c => !isDeleted('ad_campaigns', c.id));
+    }
+
+    if (Array.isArray(payload.subscribers) && payload.subscribers.length > 0) {
+      this.data.subscribers = payload.subscribers.filter(s => !isDeleted('newsletter_subscribers', s.id));
+    } else {
+      this.data.subscribers = (this.data.subscribers || []).filter(s => !isDeleted('newsletter_subscribers', s.id));
+    }
+
+    if (Array.isArray(payload.notifications) && payload.notifications.length > 0) {
+      this.data.notifications = payload.notifications;
+    }
+
+    if (Array.isArray(payload.pushSubscriptions) && payload.pushSubscriptions.length > 0) {
+      this.data.pushSubscriptions = payload.pushSubscriptions;
+    }
+
+    if (payload.homepageConfig) {
+      this.data.homepageConfig = payload.homepageConfig;
+      if (!this.data.homepageDraft) {
+        this.data.homepageDraft = JSON.parse(JSON.stringify(payload.homepageConfig));
+      }
+    }
+
+    if (Array.isArray(payload.customBlocks) && payload.customBlocks.length > 0) {
+      this.data.customBlocks = payload.customBlocks.filter(b => !isDeleted('homepage_custom_blocks', b.id));
+    } else {
+      this.data.customBlocks = (this.data.customBlocks || []).filter(b => !isDeleted('homepage_custom_blocks', b.id));
+    }
+
+    if (Array.isArray(payload.seoPages) && payload.seoPages.length > 0) {
+      this.data.seoPages = payload.seoPages;
+    }
+
+    if (Array.isArray(payload.redirectRules) && payload.redirectRules.length > 0) {
+      this.data.redirectRules = payload.redirectRules.filter(r => !isDeleted('seo_redirects', r.id));
+    } else {
+      this.data.redirectRules = (this.data.redirectRules || []).filter(r => !isDeleted('seo_redirects', r.id));
+    }
+
+    if (Array.isArray(payload.brokenLinks) && payload.brokenLinks.length > 0) {
+      this.data.brokenLinks = payload.brokenLinks;
+    }
+
+    if (Array.isArray(payload.dataProviders) && payload.dataProviders.length > 0) {
+      this.data.dataProviders = payload.dataProviders.filter(p => !isDeleted('sync_providers', p.id));
+    } else {
+      this.data.dataProviders = (this.data.dataProviders || []).filter(p => !isDeleted('sync_providers', p.id));
+    }
+
+    if (Array.isArray(payload.syncJobRuns) && payload.syncJobRuns.length > 0) {
+      this.data.syncJobRuns = payload.syncJobRuns;
+    }
+
+    if (payload.automationSettings) {
+      this.data.automationSettings = { ...(this.data.automationSettings || defaultAutomationSettings), ...payload.automationSettings };
+    }
+
+    if (Array.isArray(payload.editorialDrafts) && payload.editorialDrafts.length > 0) {
+      this.data.editorialDrafts = payload.editorialDrafts;
+    }
+
+    if (Array.isArray(payload.auditLogs) && payload.auditLogs.length > 0) {
+      this.data.auditLogs = payload.auditLogs;
+    }
+
+    if (Array.isArray(payload.saveDiagnostics) && payload.saveDiagnostics.length > 0) {
+      this.data.saveDiagnostics = payload.saveDiagnostics;
+    }
+
+    if (payload.datasets) {
+      for (const [k, items] of Object.entries(payload.datasets)) {
+        if (Array.isArray(items) && items.length > 0) {
+          (this.data as any)[k] = items;
+        }
+      }
+    }
+
+    if (Array.isArray(payload.publicSubmissions) && payload.publicSubmissions.length > 0) {
+      this.data.publicSubmissions = payload.publicSubmissions;
+    }
+
     this.saveDatabase(this.data);
   }
 

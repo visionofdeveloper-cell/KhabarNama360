@@ -42,6 +42,9 @@ export interface DataProvider {
   totalSyncs: number;
   successfulSyncs: number;
   isBuiltIn?: boolean;
+  sourceMode?: 'database' | 'code_seed' | 'env';
+  fieldMapping?: Record<string, string>;
+  customHeaders?: Record<string, string>;
   timeoutMs?: number;
   notes?: string;
 }

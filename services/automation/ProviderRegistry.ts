@@ -62,10 +62,34 @@ export function validateSafeExternalUrl(rawUrl: string): URL {
   return parsed;
 }
 
+function sanitizeHeaderMap(raw?: Record<string, string>): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const blocked = new Set(['host', 'content-length', 'connection', 'transfer-encoding', 'upgrade']);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    if (!key || blocked.has(key.toLowerCase())) continue;
+    out[key] = String(v ?? '').trim();
+  }
+  return out;
+}
+
+function sanitizeFieldMapping(raw?: Record<string, string>): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k || '').trim();
+    const val = String(v ?? '').trim();
+    if (key && val) out[key] = val;
+  }
+  return out;
+}
+
 export class ProviderRegistry {
   public static getAllSanitized(): DataProvider[] {
     return db.getDataProviders().map(p => ({
       ...p,
+      sourceMode: p.sourceMode || (p.isBuiltIn ? 'code_seed' : 'database'),
       encryptedApiKey: undefined,
     }));
   }
@@ -80,7 +104,6 @@ export class ProviderRegistry {
     validateSafeExternalUrl(input.endpoint.trim());
 
     const existing = input.id ? db.getDataProvider(input.id) : undefined;
-    const now = new Date().toISOString();
     const id = existing?.id || `prov-${(input.category || 'custom')}-${Date.now()}`;
 
     let encryptedApiKey = existing?.encryptedApiKey;
@@ -102,7 +125,10 @@ export class ProviderRegistry {
       status: input.status || existing?.status || 'active',
       intervalMinutes: Number(input.intervalMinutes ?? existing?.intervalMinutes ?? 30),
       lastSyncAt: existing?.lastSyncAt || null,
-      nextSyncAt: existing?.nextSyncAt || new Date(Date.now() + 30 * 60000).toISOString(),
+      nextSyncAt:
+        (input.status || existing?.status || 'active') === 'disabled'
+          ? null
+          : existing?.nextSyncAt || new Date(Date.now() + 30 * 60000).toISOString(),
       lastError: existing?.lastError || null,
       isLicensed: input.isLicensed ?? existing?.isLicensed ?? true,
       licenseType: input.licenseType || existing?.licenseType || 'public_open',
@@ -119,6 +145,10 @@ export class ProviderRegistry {
       consecutiveFailures: existing?.consecutiveFailures ?? 0,
       totalSyncs: existing?.totalSyncs ?? 0,
       successfulSyncs: existing?.successfulSyncs ?? 0,
+      isBuiltIn: existing?.isBuiltIn ?? false,
+      sourceMode: existing?.isBuiltIn ? 'code_seed' : 'database',
+      fieldMapping: input.fieldMapping !== undefined ? sanitizeFieldMapping(input.fieldMapping) : existing?.fieldMapping || {},
+      customHeaders: input.customHeaders !== undefined ? sanitizeHeaderMap(input.customHeaders) : existing?.customHeaders || {},
       notes: input.notes ?? existing?.notes,
     };
 
@@ -126,7 +156,28 @@ export class ProviderRegistry {
     return { ...saved, encryptedApiKey: undefined };
   }
 
+  public static toggleProviderStatus(
+    id: string,
+    status: 'active' | 'disabled',
+    actor: string = 'Automation Manager'
+  ): DataProvider | null {
+    const existing = db.getDataProvider(id);
+    if (!existing) return null;
+    db.updateDataProvider(id, {
+      status,
+      nextSyncAt: status === 'disabled' ? null : new Date(Date.now() + (existing.intervalMinutes || 30) * 60000).toISOString(),
+    });
+    db.logAudit(actor, 'Data Provider Status Changed', `${existing.name} (${id}) -> ${status}`);
+    const updated = db.getDataProvider(id);
+    return updated ? { ...updated, encryptedApiKey: undefined } : null;
+  }
+
   public static deleteProvider(id: string, actor: string = 'Automation Manager'): boolean {
+    const existing = db.getDataProvider(id);
+    if (existing) {
+      // Stop any automatic schedule cleanly prior to tombstone + removal
+      db.updateDataProvider(id, { status: 'disabled', nextSyncAt: null });
+    }
     return db.deleteDataProvider(id, actor);
   }
 
@@ -147,6 +198,7 @@ export class ProviderRegistry {
     const headers: Record<string, string> = {
       Accept: 'application/json, application/xml, text/xml, */*',
       'User-Agent': '360Khabarnama-SyncBot/2.0',
+      ...sanitizeHeaderMap(provider.customHeaders),
     };
     if (provider.requiresApiKey && provider.encryptedApiKey) {
       const secret = decryptSecret(provider.encryptedApiKey);
@@ -276,6 +328,7 @@ export class ProviderRegistry {
           const headers: Record<string, string> = {
             Accept: 'application/json, application/xml, text/xml, */*',
             'User-Agent': '360Khabarnama-SyncBot/2.0',
+            ...sanitizeHeaderMap(provider.customHeaders),
           };
           if (provider.requiresApiKey && provider.encryptedApiKey) {
             const secret = decryptSecret(provider.encryptedApiKey);

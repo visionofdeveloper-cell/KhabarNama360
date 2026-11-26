@@ -4,7 +4,7 @@
  * 360Khabarnama — Enterprise Private Admin OS Workspace
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import {
   Article,
   SiteSettings,
@@ -25,13 +25,6 @@ import {
 import { AdminLayout } from '../components/admin/AdminLayout.tsx';
 import { AdminModuleId, ADMIN_NAV_ITEMS } from '../components/admin/AdminSidebar.tsx';
 import { AdminSessionInfo } from '../components/admin/AdminHeader.tsx';
-import { AutomationManager } from '../components/admin/AutomationManager.tsx';
-import { APIKeyManager } from '../components/admin/APIKeyManager.tsx';
-import { SEOManager } from '../components/admin/SEOManager.tsx';
-import { HomepageLayoutBuilder } from '../components/admin/HomepageLayoutBuilder.tsx';
-import { GlobalSettings } from '../components/admin/GlobalSettings.tsx';
-import { CategoryPageManager } from '../components/admin/CategoryPageManager.tsx';
-import { SystemDiagnostics } from '../components/admin/SystemDiagnostics.tsx';
 import { authorizedFetch, safeFetchJson, safeParseResponse } from '../utils/safeFetch.ts';
 import { formatKarachiDateTime } from '../utils/dateTime.ts';
 import {
@@ -63,8 +56,18 @@ import {
   Archive,
 } from 'lucide-react';
 
+const AutomationManager = lazy(() => import('../components/admin/AutomationManager.tsx').then(m => ({ default: m.AutomationManager })));
+const APIKeyManager = lazy(() => import('../components/admin/APIKeyManager.tsx').then(m => ({ default: m.APIKeyManager })));
+const SEOManager = lazy(() => import('../components/admin/SEOManager.tsx').then(m => ({ default: m.SEOManager })));
+const HomepageLayoutBuilder = lazy(() => import('../components/admin/HomepageLayoutBuilder.tsx').then(m => ({ default: m.HomepageLayoutBuilder })));
+const GlobalSettings = lazy(() => import('../components/admin/GlobalSettings.tsx').then(m => ({ default: m.GlobalSettings })));
+const CategoryPageManager = lazy(() => import('../components/admin/CategoryPageManager.tsx').then(m => ({ default: m.CategoryPageManager })));
+const SystemDiagnostics = lazy(() => import('../components/admin/SystemDiagnostics.tsx').then(m => ({ default: m.SystemDiagnostics })));
+
 interface AdminViewProps {
   session: AdminSessionInfo;
+  initialModule?: AdminModuleId;
+  onModuleChange?: (mod: AdminModuleId) => void;
   onLogout: () => void;
 }
 
@@ -95,14 +98,41 @@ const STUDIO_TEMPLATES = [
   { id: 'related_ideas', label: 'Follow-Up & Related Story Ideas' },
 ];
 
-export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
+export const AdminView: React.FC<AdminViewProps> = ({
+  session,
+  initialModule,
+  onModuleChange,
+  onLogout,
+}) => {
   const hasPermission = (perm: AdminPermission) =>
     session.role === 'Super Admin' || (session.permissions || []).includes(perm);
 
   const firstAllowedModule =
     ADMIN_NAV_ITEMS.find(item => hasPermission(item.permission))?.id || 'overview';
 
-  const [activeModule, setActiveModule] = useState<AdminModuleId>(firstAllowedModule);
+  const resolvedStartModule =
+    initialModule &&
+    ADMIN_NAV_ITEMS.some(item => item.id === initialModule && hasPermission(item.permission))
+      ? initialModule
+      : firstAllowedModule;
+
+  const [activeModule, setActiveModuleState] = useState<AdminModuleId>(resolvedStartModule);
+
+  const setActiveModule = (mod: AdminModuleId) => {
+    setActiveModuleState(mod);
+    onModuleChange?.(mod);
+  };
+
+  useEffect(() => {
+    if (
+      initialModule &&
+      initialModule !== activeModule &&
+      ADMIN_NAV_ITEMS.some(item => item.id === initialModule && hasPermission(item.permission))
+    ) {
+      setActiveModuleState(initialModule);
+    }
+  }, [initialModule]);
+
   const [globalSearch, setGlobalSearch] = useState('');
 
   // Core Data States
@@ -121,6 +151,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const [adsenseReadiness, setAdsenseReadiness] = useState<any>(null);
   const [activeAdTab, setActiveAdTab] = useState<'campaigns' | 'placements'>('campaigns');
   const [newCampaignModal, setNewCampaignModal] = useState(false);
+  const [detailCampaign, setDetailCampaign] = useState<AdCampaign | null>(null);
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [newCampaign, setNewCampaign] = useState<Partial<AdCampaign>>({
     campaignName: '',
@@ -183,9 +214,32 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   // System Health & Reports
   const [systemHealth, setSystemHealth] = useState<SystemHealthReport | null>(null);
+  const [dbAuditReport, setDbAuditReport] = useState<any>(null);
+  const [dbAuditBusy, setDbAuditBusy] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string>('editorial-activity');
   const [reportData, setReportData] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
+
+  const handleRunCompleteDatabaseAudit = async () => {
+    setDbAuditBusy(true);
+    try {
+      const res = await safeFetchJson('/api/v1/admin/system/database-audit', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (res.success && res.report) {
+        setDbAuditReport(res.report);
+        notify(
+          `Database Audit (${res.report.overallStatus}): ${res.report.summary?.passed || 0}/${res.report.summary?.totalChecks || 0} checks passed.`,
+          res.report.overallStatus === 'FAIL' ? 'error' : 'success'
+        );
+      } else {
+        notify(res.error || 'Complete Database Audit failed.', 'error');
+      }
+    } finally {
+      setDbAuditBusy(false);
+    }
+  };
 
   // AI Content Studio States
   const [aiProviders, setAiProviders] = useState<AIProviderCredential[]>([]);
@@ -257,6 +311,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
   const [confirmState, setConfirmState] = useState<{
     title: string;
     message: string;
+    confirmLabel?: string;
+    altLabel?: string;
+    onAltAction?: () => Promise<void>;
     onConfirm: () => Promise<void>;
   } | null>(null);
 
@@ -296,11 +353,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
 
   const loadCoreData = async () => {
     try {
-      const [anRes, artRes, setRes, logRes, catRes] = await Promise.all([
+      const [anRes, artRes, setRes, catRes] = await Promise.all([
         safeFetchJson('/api/admin/analytics', { credentials: 'include' }),
         safeFetchJson('/api/news?status=all', { credentials: 'include' }),
         safeFetchJson('/api/settings', { credentials: 'include' }),
-        safeFetchJson('/api/admin/audit-logs', { credentials: 'include' }),
         safeFetchJson('/api/categories/public', { credentials: 'include' }),
       ]);
 
@@ -310,18 +366,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         setSettings(setRes.settings);
         setCategories(setRes.categories || []);
       }
-      if (logRes.success) setLogs(logRes.logs || []);
       if (catRes.success) setCategoryPages(catRes.categories || []);
-      const aiRes = await safeFetchJson('/api/v1/admin/ai/providers', {
-        credentials: 'include',
-        cache: 'no-store',
-      }).catch(() => null);
-      if (aiRes?.success) {
-        const freshList: AIProviderCredential[] = aiRes.providers || [];
-        setAiProviders(freshList);
-        setComposerCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
-        setStudioCredentialId(prev => (prev && !freshList.some(p => p.id === prev) ? '' : prev));
-      }
     } catch {
       // ignore initial non-blocking error
     }
@@ -368,8 +413,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         if (dRes.success) setSavedDrafts(dRes.drafts || []);
         if (mRes?.success) setMediaAssets(mRes.assets || []);
       } else if (mod === 'health') {
-        const res = await safeFetchJson('/api/admin/system/health', { credentials: 'include' });
-        if (res.success) setSystemHealth(res.health);
+        const [hRes, logRes] = await Promise.all([
+          safeFetchJson('/api/admin/system/health', { credentials: 'include' }),
+          safeFetchJson('/api/admin/audit-logs', { credentials: 'include' }),
+        ]);
+        if (hRes.success) setSystemHealth(hRes.health);
+        if (logRes.success) setLogs(logRes.logs || []);
       } else if (mod === 'reports') {
         loadReport(selectedReportId);
       }
@@ -963,9 +1012,17 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     }
   };
 
-  const handleCampaignStatusChange = async (id: string, status: 'draft' | 'active' | 'paused' | 'archived') => {
-    const res = await authorizedFetch(`/api/admin/ads/campaigns/${id}/status`, {
-      method: 'PATCH',
+  const handleCampaignStatusChange = async (
+    id: string,
+    status: 'draft' | 'active' | 'paused' | 'archived' | 'completed'
+  ) => {
+    const endpoint =
+      status === 'archived'
+        ? `/api/admin/ads/campaigns/${id}/archive`
+        : `/api/admin/ads/campaigns/${id}/status`;
+    const method = status === 'archived' ? 'POST' : 'PATCH';
+    const res = await authorizedFetch(endpoint, {
+      method,
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
@@ -979,18 +1036,32 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
     }
   };
 
-  const handleDeleteCampaign = (id: string) => {
+  const handleDeleteCampaign = (camp: AdCampaign) => {
+    const hasHistory = Number(camp.impressions || 0) > 0 || Number(camp.clicks || 0) > 0;
     setConfirmState({
-      title: 'Delete Advertising Campaign',
-      message: 'Remove this direct campaign from active ad rotation?',
+      title: `Delete Campaign "${camp.campaignName}"`,
+      message: hasHistory
+        ? `This campaign has recorded ${camp.impressions} impressions and ${camp.clicks} clicks. Permanent deletion removes the row from PostgreSQL (tombstoned). You can archive it instead to preserve historical reporting.`
+        : `Permanently delete campaign "${camp.campaignName}" (${camp.id}) from PostgreSQL and ad rotation?`,
+      confirmLabel: 'Confirm Permanent Delete',
+      altLabel: hasHistory && camp.status !== 'archived' ? 'Archive Instead' : undefined,
+      onAltAction:
+        hasHistory && camp.status !== 'archived'
+          ? async () => {
+              await handleCampaignStatusChange(camp.id, 'archived');
+            }
+          : undefined,
       onConfirm: async () => {
-        const res = await authorizedFetch(`/api/admin/ads/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
+        const res = await authorizedFetch(`/api/admin/ads/campaigns/${camp.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
         const { data: d } = await safeParseResponse(res);
         if (res.ok && d.success) {
-          notify('Campaign removed.');
+          notify('Campaign permanently deleted.');
           await loadModuleData('ads');
         } else {
-          notify(d.error || 'Failed removing campaign.', 'error');
+          notify(d.error || 'Failed deleting campaign.', 'error');
         }
       },
     });
@@ -2192,41 +2263,50 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
         </div>
       )}
 
-      {/* DELEGATED ENTERPRISE MODULES */}
-      {activeModule === 'categories' && <CategoryPageManager onRefreshParent={loadCoreData} />}
-      {activeModule === 'homepage' && (
-        <HomepageLayoutBuilder categories={categoryPages.length ? categoryPages : categories} onRefreshParent={loadCoreData} />
-      )}
-      {activeModule === 'seo' && (
-        <SEOManager
-          articles={articles}
-          mediaAssets={mediaAssets}
-          categories={categoryPages}
-          onRefreshParent={loadCoreData}
-          onEditArticle={art => {
-            setFormData(art);
-            setEditingArticleId(art.id);
-            setManualSlugEdited(true);
-            setActiveModule('composer');
-          }}
-        />
-      )}
-      {activeModule === 'automation' && (
-        <AutomationManager userRole={session.role} onJumpToAiKeys={() => setActiveModule('ai-keys')} />
-      )}
-      {activeModule === 'ai-keys' && (
-        <APIKeyManager
-          onNotify={msg => notify(msg)}
-          onProvidersChanged={() => loadCoreData()}
-        />
-      )}
-      {activeModule === 'settings' && (
-        <GlobalSettings
-          settings={settings}
-          onSaved={loadCoreData}
-          onJumpToModule={m => setActiveModule(m)}
-        />
-      )}
+      {/* DELEGATED ENTERPRISE MODULES (Lazy-Loaded Chunks) */}
+      <Suspense
+        fallback={
+          <div className="bg-white border border-gray-200 rounded-xl p-10 flex items-center justify-center gap-2 text-xs font-mono text-gray-500">
+            <RefreshCw className="w-4 h-4 animate-spin text-emerald-700" />
+            <span>Loading Admin Module...</span>
+          </div>
+        }
+      >
+        {activeModule === 'categories' && <CategoryPageManager onRefreshParent={loadCoreData} />}
+        {activeModule === 'homepage' && (
+          <HomepageLayoutBuilder categories={categoryPages.length ? categoryPages : categories} onRefreshParent={loadCoreData} />
+        )}
+        {activeModule === 'seo' && (
+          <SEOManager
+            articles={articles}
+            mediaAssets={mediaAssets}
+            categories={categoryPages}
+            onRefreshParent={loadCoreData}
+            onEditArticle={art => {
+              setFormData(art);
+              setEditingArticleId(art.id);
+              setManualSlugEdited(true);
+              setActiveModule('composer');
+            }}
+          />
+        )}
+        {activeModule === 'automation' && (
+          <AutomationManager userRole={session.role} onJumpToAiKeys={() => setActiveModule('ai-keys')} />
+        )}
+        {activeModule === 'ai-keys' && (
+          <APIKeyManager
+            onNotify={msg => notify(msg)}
+            onProvidersChanged={() => loadCoreData()}
+          />
+        )}
+        {activeModule === 'settings' && (
+          <GlobalSettings
+            settings={settings}
+            onSaved={loadCoreData}
+            onJumpToModule={m => setActiveModule(m)}
+          />
+        )}
+      </Suspense>
 
       {/* MODULE: AI CONTENT STUDIO */}
       {activeModule === 'ai-studio' && (
@@ -2520,6 +2600,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                       <td className="p-3">
                         <div className="font-bold text-gray-900">{c.campaignName}</div>
                         <div className="text-gray-500 text-[11px]">{c.advertiserName} • {c.startDate} → {c.endDate}</div>
+                        {Array.isArray(c.placementSlotIds) && c.placementSlotIds.length > 0 && (
+                          <div className="text-[10px] font-mono text-gray-400 mt-0.5">
+                            Slots: {c.placementSlotIds.join(', ')}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3">
                         <span
@@ -2528,6 +2613,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                               ? 'bg-emerald-100 text-emerald-800'
                               : c.status === 'paused'
                               ? 'bg-amber-100 text-amber-800'
+                              : c.status === 'completed'
+                              ? 'bg-blue-100 text-blue-800'
                               : 'bg-gray-200 text-gray-700'
                           }`}
                         >
@@ -2540,6 +2627,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                         {c.impressions?.toLocaleString()} / {c.clicks?.toLocaleString()}
                       </td>
                       <td className="p-3 text-right whitespace-nowrap space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setDetailCampaign(c)}
+                          className="p-1.5 bg-gray-100 hover:bg-blue-100 text-blue-800 rounded"
+                          title="View Campaign Details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => openEditCampaignModal(c)}
@@ -2579,7 +2674,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                         )}
                         <button
                           type="button"
-                          onClick={() => handleDeleteCampaign(c.id)}
+                          onClick={() => handleDeleteCampaign(c)}
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"
                           title="Delete Campaign"
                         >
@@ -2939,7 +3034,31 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       {/* MODULE: SYSTEM HEALTH */}
       {activeModule === 'health' && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-5 text-xs">
-          <h2 className="text-base font-black text-gray-900">System Health & Security Audit Trail</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-black text-gray-900">System Health & Security Audit Trail</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              {session.role === 'Super Admin' && (
+                <button
+                  type="button"
+                  disabled={dbAuditBusy}
+                  onClick={handleRunCompleteDatabaseAudit}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <Activity className={`w-3.5 h-3.5 ${dbAuditBusy ? 'animate-spin' : ''}`} />
+                  <span>{dbAuditBusy ? 'Auditing Database...' : 'Run Complete Database Audit'}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveModule('diagnostics')}
+                className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg inline-flex items-center gap-1.5"
+              >
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>Open Full Diagnostics</span>
+              </button>
+            </div>
+          </div>
+
           {systemHealth && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-4 bg-gray-50 border rounded-xl">
@@ -2962,6 +3081,53 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
               </div>
             </div>
           )}
+
+          {dbAuditReport && (
+            <div className="border border-gray-200 rounded-xl p-4 bg-slate-50 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-black text-gray-900">
+                  Supabase Database Audit Snapshot —{' '}
+                  <span
+                    className={
+                      dbAuditReport.overallStatus === 'PASS'
+                        ? 'text-emerald-700'
+                        : dbAuditReport.overallStatus === 'WARN'
+                        ? 'text-amber-700'
+                        : 'text-rose-700'
+                    }
+                  >
+                    {dbAuditReport.overallStatus}
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-gray-500">
+                  {dbAuditReport.environment?.runtime} • {dbAuditReport.environment?.projectHost || 'Unconfigured'} •{' '}
+                  {dbAuditReport.summary?.passed || 0}/{dbAuditReport.summary?.totalChecks || 0} passed
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[...(dbAuditReport.checks || []), ...(dbAuditReport.rlsChecks || [])].map((chk: any, i: number) => (
+                  <div key={i} className="p-2.5 bg-white border rounded-lg flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-gray-900">{chk.name}</div>
+                      <div className="text-[11px] text-gray-600">{chk.detail}</div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] shrink-0 ${
+                        chk.status === 'pass'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : chk.status === 'warn'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {chk.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto border rounded-xl p-3">
             {logs.map(l => (
               <div key={l.id} className="py-2 flex items-center justify-between gap-4">
@@ -2980,15 +3146,108 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
       )}
 
       {/* MODULE: SYSTEM DIAGNOSTICS CONSOLE */}
-      {activeModule === 'diagnostics' && <SystemDiagnostics />}
+      {activeModule === 'diagnostics' && (
+        <Suspense
+          fallback={
+            <div className="bg-white border border-gray-200 rounded-xl p-10 flex items-center justify-center gap-2 text-xs font-mono text-gray-500">
+              <RefreshCw className="w-4 h-4 animate-spin text-emerald-700" />
+              <span>Loading System Diagnostics Console...</span>
+            </div>
+          }
+        >
+          <SystemDiagnostics />
+        </Suspense>
+      )}
+
+      {/* CAMPAIGN DETAIL MODAL */}
+      {detailCampaign && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-lg w-full p-6 space-y-4 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">{detailCampaign.campaignName}</h3>
+                <p className="font-mono text-[10px] text-gray-500">{detailCampaign.id}</p>
+              </div>
+              <button type="button" onClick={() => setDetailCampaign(null)}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {detailCampaign.bannerUrl && (
+              <img
+                src={detailCampaign.bannerUrl}
+                alt={detailCampaign.campaignName}
+                className="w-full max-h-40 object-contain rounded-lg border bg-gray-50"
+              />
+            )}
+            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-xl border">
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Advertiser</span>
+                <div className="font-bold text-gray-900">{detailCampaign.advertiserName}</div>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Status &amp; Priority</span>
+                <div className="font-bold text-gray-900 uppercase">{detailCampaign.status} (P{detailCampaign.priority ?? 10})</div>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Schedule</span>
+                <div className="font-mono text-gray-800">{detailCampaign.startDate || '—'} → {detailCampaign.endDate || '—'}</div>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Budget</span>
+                <div className="font-mono text-gray-800">Rs. {(detailCampaign.budgetPkr || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Impressions / Clicks</span>
+                <div className="font-mono text-gray-800">
+                  {(detailCampaign.impressions || 0).toLocaleString()} / {(detailCampaign.clicks || 0).toLocaleString()} (CTR {detailCampaign.ctr ?? 0}%)
+                </div>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Target Slots</span>
+                <div className="font-mono text-gray-800">{(detailCampaign.placementSlotIds || []).join(', ') || 'None'}</div>
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase text-gray-500 font-bold">Destination URL</span>
+              <div className="font-mono text-emerald-700 break-all">{detailCampaign.destinationUrl}</div>
+            </div>
+            {detailCampaign.notes && (
+              <div>
+                <span className="text-[10px] uppercase text-gray-500 font-bold">Notes</span>
+                <div className="text-gray-700">{detailCampaign.notes}</div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = detailCampaign;
+                  setDetailCampaign(null);
+                  openEditCampaignModal(target);
+                }}
+                className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg"
+              >
+                Edit Campaign
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailCampaign(null)}
+                className="px-4 py-2 bg-gray-100 font-bold rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* INLINE CONFIRMATION MODAL */}
       {confirmState && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-sm w-full p-6 space-y-4 text-xs shadow-2xl">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-md w-full p-6 space-y-4 text-xs shadow-2xl">
             <h3 className="text-sm font-black text-gray-900">{confirmState.title}</h3>
-            <p className="text-gray-600">{confirmState.message}</p>
-            <div className="flex justify-end gap-2 pt-2">
+            <p className="text-gray-600 leading-relaxed">{confirmState.message}</p>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setConfirmState(null)}
@@ -2996,6 +3255,19 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
               >
                 Cancel
               </button>
+              {confirmState.altLabel && confirmState.onAltAction && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const altFn = confirmState.onAltAction!;
+                    setConfirmState(null);
+                    await altFn();
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg"
+                >
+                  {confirmState.altLabel}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={async () => {
@@ -3003,9 +3275,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                   setConfirmState(null);
                   await fn();
                 }}
-                className="px-4 py-2 bg-rose-600 text-white font-bold rounded-lg"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg"
               >
-                Confirm Delete
+                {confirmState.confirmLabel || 'Confirm Delete'}
               </button>
             </div>
           </div>
@@ -3199,6 +3471,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ session, onLogout }) => {
                   <option value="draft">Draft</option>
                   <option value="active">Active</option>
                   <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
                   <option value="archived">Archived</option>
                 </select>
               </div>

@@ -30,6 +30,7 @@ import {
 } from './AIConnectionValidator.ts';
 import { maskSecret } from '../../src/server/crypto.ts';
 import { isSupabaseConfigured, upsertSupabaseAiCredential } from '../../src/server/supabaseAdmin.ts';
+import { recordServerError } from '../../src/server/errorTracker.ts';
 
 export { AI_TASK_CATALOG };
 
@@ -355,7 +356,13 @@ export class AIProviderRouter {
           };
           db.upsertAiProvider(updatedCred, actor);
           if (isSupabaseConfigured()) {
-            upsertSupabaseAiCredential(updatedCred).catch(() => {});
+            upsertSupabaseAiCredential(updatedCred).catch(err =>
+              recordServerError({
+                source: 'supabase',
+                code: 'AI_CRED_STATUS_SYNC_WARN',
+                message: `AI credential status sync failed: ${err?.message || err}`,
+              })
+            );
           }
         }
 
@@ -436,7 +443,13 @@ export class AIProviderRouter {
           };
           db.upsertAiProvider(failedCred, actor);
           if (isSupabaseConfigured()) {
-            upsertSupabaseAiCredential(failedCred).catch(() => {});
+            upsertSupabaseAiCredential(failedCred).catch(err =>
+              recordServerError({
+                source: 'supabase',
+                code: 'AI_CRED_FAILURE_SYNC_WARN',
+                message: `AI credential failure status sync failed: ${err?.message || err}`,
+              })
+            );
           }
         }
 

@@ -40,6 +40,7 @@ export interface SupabaseDiagnosticsReport {
   projectHost: string | null;
   secretKeyMode: string;
   publishableKeyMode: string;
+  publishableKeyConfigured: boolean;
   secretsRedacted: boolean;
   schemaVersion: string;
   articlesTableAvailable: boolean;
@@ -58,15 +59,27 @@ export interface SupabaseDiagnosticsReport {
   errorCode: string | null;
   errorMessage: string | null;
   missingEnvVars: string[];
+  missingServerEnvVars: string[];
+  optionalMissingEnvVars: string[];
+  schemaMigrationRequired: boolean;
+  envSummaryDetail: string;
 }
 
 export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }): Promise<SupabaseDiagnosticsReport> {
   const started = Date.now();
   const cfg = resolveSupabaseEnvConfig();
-  const missingEnvVars: string[] = [];
-  if (!cfg.supabaseUrlConfigured) missingEnvVars.push('SUPABASE_URL');
-  if (!cfg.publishableKey) missingEnvVars.push('SUPABASE_PUBLISHABLE_KEY');
-  if (!cfg.supabaseSecretConfigured) missingEnvVars.push('SUPABASE_SECRET_KEY');
+  const missingServerEnvVars: string[] = [];
+  const optionalMissingEnvVars: string[] = [];
+  if (!cfg.supabaseUrlConfigured) missingServerEnvVars.push('SUPABASE_URL');
+  if (!cfg.supabaseSecretConfigured) missingServerEnvVars.push('SUPABASE_SECRET_KEY');
+  if (!cfg.publishableKey) optionalMissingEnvVars.push('SUPABASE_PUBLISHABLE_KEY');
+  const missingEnvVars = [...missingServerEnvVars];
+
+  const envSummaryDetail = cfg.configured
+    ? cfg.publishableKey
+      ? 'SUPABASE_URL, SUPABASE_SECRET_KEY, and SUPABASE_PUBLISHABLE_KEY configured cleanly in server runtime.'
+      : 'Server DB active via SUPABASE_URL + SUPABASE_SECRET_KEY. Optional SUPABASE_PUBLISHABLE_KEY not set in runtime environment (live anon RLS probe skipped; browser uses server API proxy unless VITE_SUPABASE_PUBLISHABLE_KEY is provided at build time).'
+    : `Missing required server environment variable(s): ${missingServerEnvVars.join(', ')}. Configure in Vercel Dashboard -> Environment Variables or Google AI Studio Secrets.`;
 
   const recentLogs = db.getPublicationLogs(10);
   const recentErrors = getServerErrorLogs(10).filter(
@@ -79,7 +92,7 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
     const detailedErr =
       cfg.secretKeyMisconfiguration ||
       cfg.urlMisconfiguration ||
-      `Missing required Supabase environment variable(s): ${missingEnvVars.join(', ')}`;
+      `Missing required Supabase server environment variable(s): ${missingServerEnvVars.join(', ')}`;
     return {
       configured: false,
       connected: false,
@@ -89,11 +102,12 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
       projectHost: cfg.projectHost,
       secretKeyMode: cfg.secretKeyMode,
       publishableKeyMode: cfg.publishableKeyMode,
+      publishableKeyConfigured: Boolean(cfg.publishableKey),
       secretsRedacted: true,
-      schemaVersion: 'supabase-core-002 (pending migration)',
+      schemaVersion: 'supabase-core-002 (env unconfigured)',
       articlesTableAvailable: false,
       readTestOk: false,
-      readPermissionDetail: 'Skipped: Supabase credentials missing or misconfigured.',
+      readPermissionDetail: 'Skipped: Required SUPABASE_URL / SUPABASE_SECRET_KEY missing or misconfigured.',
       authorizedWriteTestOk: null,
       writePermissionDetail: 'Skipped: Supabase secret key missing or invalid.',
       rlsPolicyCheckOk: null,
@@ -107,6 +121,10 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
       errorCode: cfg.secretKeyMisconfiguration ? 'SUPABASE_KEY_MISCONFIGURED' : 'SUPABASE_ENV_MISSING',
       errorMessage: sanitizeSupabaseDiagnosticText(detailedErr),
       missingEnvVars,
+      missingServerEnvVars,
+      optionalMissingEnvVars,
+      schemaMigrationRequired: false,
+      envSummaryDetail,
     };
   }
 
@@ -124,6 +142,7 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
   let rlsPolicyDetail = 'Publishable key not set; anon RLS check skipped.';
   let errorCode: string | null = null;
   let errorMessage: string | null = null;
+  let schemaMigrationRequired = false;
 
   try {
     // 1. Database ping + real read & table existence test via official Supabase SDK
@@ -138,6 +157,11 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
       errorCode = totalRes.error.code || 'SUPABASE_TABLE_ERROR';
       errorMessage = sanitizeSupabaseDiagnosticText(totalRes.error.message);
       readPermissionDetail = `Read rejected: ${errorMessage}`;
+      schemaMigrationRequired = Boolean(
+        totalRes.error.code === '42P01' ||
+          totalRes.error.code === 'PGRST205' ||
+          /does not exist|schema cache/i.test(totalRes.error.message || '')
+      );
     } else {
       pingOk = true;
       articlesTableAvailable = true;
@@ -228,8 +252,9 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
     projectHost: cfg.projectHost,
     secretKeyMode: cfg.secretKeyMode,
     publishableKeyMode: cfg.publishableKeyMode,
+    publishableKeyConfigured: Boolean(cfg.publishableKey),
     secretsRedacted: true,
-    schemaVersion: 'supabase-core-002',
+    schemaVersion: schemaMigrationRequired ? 'migration-required' : 'supabase-verified-009',
     articlesTableAvailable,
     readTestOk,
     readPermissionDetail: sanitizeSupabaseDiagnosticText(readPermissionDetail),
@@ -246,5 +271,9 @@ export async function checkSupabaseHealth(options?: { runWriteTest?: boolean }):
     errorCode,
     errorMessage: errorMessage ? sanitizeSupabaseDiagnosticText(errorMessage) : null,
     missingEnvVars,
+    missingServerEnvVars,
+    optionalMissingEnvVars,
+    schemaMigrationRequired,
+    envSummaryDetail,
   };
 }

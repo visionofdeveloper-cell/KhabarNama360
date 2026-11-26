@@ -38,11 +38,18 @@ import {
   isSupabaseConfigured,
   resolveSupabaseEnvConfig,
 } from './src/server/supabaseAdmin.ts';
-import { getServerErrorLogs, recordServerError } from './src/server/errorTracker.ts';
+import {
+  getServerErrorLogs,
+  getSlowQueryLogs,
+  getWebVitalsSummary,
+  recordServerError,
+  recordWebVitalSample,
+} from './src/server/errorTracker.ts';
 import { SEOEngine } from './services/seo/SEOEngine.ts';
 import { SEOAuditService } from './services/seo/SEOAuditService.ts';
 import { SitemapManager } from './services/seo/SitemapManager.ts';
 import { SearchConsoleService } from './services/seo/SearchConsoleService.ts';
+import { GoogleIntegrationsService } from './services/seo/GoogleIntegrationsService.ts';
 import { MetadataGenerator } from './services/seo/MetadataGenerator.ts';
 import { ContentFreshnessEngine } from './services/content/ContentFreshnessEngine.ts';
 import { NewsIngestionEngine } from './services/news/NewsIngestionEngine.ts';
@@ -59,6 +66,7 @@ import { resetAiContentEngineCooldown } from './src/server/automation/aiContentE
 import { runDueCronJobs } from './server/jobs/cron-dispatcher.ts';
 import {
   SupabaseSyncResult,
+  archiveAdCampaignInSupabase,
   checkAllSupabaseModulesHealth,
   deleteAdCampaignFromSupabase,
   deleteAdminUserFromSupabase,
@@ -68,18 +76,25 @@ import {
   deleteMediaAssetFromSupabase,
   deleteRedirectRuleFromSupabase,
   deleteSubscriberFromSupabase,
+  hydratePortalStateFromSupabase,
+  invalidatePortalHydrationCache,
+  recordAuditLogToSupabase,
   recordSaveDiagnosticToSupabase,
+  runCompleteDatabaseAudit,
   syncAdCampaignToSupabase,
   syncAdPlacementToSupabase,
   syncAdminUserToSupabase,
   syncAudienceNotificationToSupabase,
+  syncAutomationSettingsToSupabase,
   syncBrokenLinkToSupabase,
+  syncCategoryDatasetToSupabase,
   syncCategoryPageToSupabase,
   syncCustomBlockToSupabase,
   syncDataProviderToSupabase,
   syncEditorialDraftToSupabase,
   syncHomepageLayoutToSupabase,
   syncMediaAssetToSupabase,
+  syncPublicSubmissionToSupabase,
   syncPushSubscriptionToSupabase,
   syncRedirectRuleToSupabase,
   syncSearchConsoleConfigToSupabase,
@@ -130,12 +145,40 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'public', 'uploads')));
 
-// Prevent browser/proxy/CDN stale caching on dynamic news & admin APIs
-app.use(['/api/news', '/api/v1/news', '/api/admin', '/api/v1/admin', '/api/ads/active'], (_req, res, next) => {
+// Strict no-store on Admin & mutation endpoints
+app.use(['/api/admin', '/api/v1/admin'], (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   next();
+});
+
+// Versioned short-TTL stale-while-revalidate caching for unauthenticated public GET APIs (immediately invalidated on admin writes)
+app.use(['/api/news', '/api/v1/news', '/api/categories/public', '/api/ads/active'], (req, res, next) => {
+  const isDraftOrAdminQuery = req.method !== 'GET' || (typeof req.query.status === 'string' && req.query.status !== 'published');
+  if (isDraftOrAdminQuery) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    return next();
+  }
+  const cacheStatus = db.getCacheStatus();
+  const etag = `W/"v${cacheStatus.newsCacheVersion}-${req.originalUrl}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=45');
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
+  return next();
+});
+
+// Cold-start & TTL-bounded authoritative state hydration from Supabase PostgreSQL
+app.use('/api', async (req, _res, next) => {
+  if (req.path === '/health' || req.path === '/v1/admin/system/database-audit' || req.path === '/admin/system/database-audit') {
+    return next();
+  }
+  if (isSupabaseConfigured()) {
+    await hydratePortalStateFromSupabase().catch(() => {});
+  }
+  return next();
 });
 
 function getActor(req: Request, fallback: string = 'Admin'): string {
@@ -172,13 +215,16 @@ async function persistModuleMutation<T = any>(params: {
     createdAt: new Date().toISOString(),
   };
   db.recordSaveDiagnostic(entry);
-  recordSaveDiagnosticToSupabase(entry).catch(() => {});
+  recordSaveDiagnosticToSupabase(entry).catch(err =>
+    recordServerError({ source: 'supabase', code: 'SAVE_DIAG_SYNC_WARN', message: String(err?.message || err) })
+  );
   if (isSupabaseConfigured() && !syncRes.ok) {
     const err: any = new Error(syncRes.error || `Supabase persistence failed for ${params.module}`);
     err.statusCode = 500;
     err.code = syncRes.code || 'SUPABASE_WRITE_FAILED';
     throw err;
   }
+  invalidatePortalHydrationCache();
   return syncRes;
 }
 
@@ -287,6 +333,97 @@ function normalizeSearchQuery(rawQuery: string): { original: string; normalized:
 // ================= HEALTH & PUBLIC ROOT =================
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), portal: '360Khabarnama' });
+});
+
+app.get('/api/public/tracking-config', async (req, res) => {
+  try {
+    await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
+    const tracking = GoogleIntegrationsService.getPublicTrackingBootstrap(
+      req.hostname || req.get('host'),
+      String(req.query.path || '/')
+    );
+    return res.json({ success: true, tracking });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading tracking configuration.' });
+  }
+});
+
+// Google OAuth 2.0 Callback (authenticated cryptographically via HMAC-signed state token or active admin session)
+app.get('/api/admin/seo/gsc/oauth-callback', async (req, res) => {
+  const esc = (v: string) =>
+    String(v || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const renderPopupResult = (status: number, payload: { ok: boolean; status?: string; message: string; properties?: string[] }) => {
+    const safeJson = JSON.stringify({ type: '360KN_GSC_OAUTH_RESULT', ...payload }).replace(/</g, '\\u003c');
+    return res.status(status).setHeader('Content-Type', 'text/html; charset=utf-8').send(`<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Google Search Console Authorization — 360Khabarnama</title></head>
+  <body style="font-family:system-ui,-apple-system,sans-serif;background:#090d16;color:#f1f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;">
+    <div style="max-width:460px;width:100%;background:#111827;border:1px solid ${payload.ok ? '#059669' : '#e11d48'};border-radius:16px;padding:24px;text-align:center;">
+      <h2 style="margin:0 0 8px;font-size:18px;color:${payload.ok ? '#34d399' : '#fb7185'};">${payload.ok ? 'Google Search Console Connected' : 'Authorization Failed'}</h2>
+      <p style="font-size:13px;line-height:1.5;color:#cbd5e1;margin:0 0 18px;">${esc(payload.message)}</p>
+      <p style="font-size:12px;color:#94a3b8;margin:0 0 14px;">This window will notify your admin panel automatically. If it does not close, click below.</p>
+      <a href="/admin" style="display:inline-block;padding:10px 18px;background:#059669;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:13px;">Return to Admin Panel</a>
+    </div>
+    <script>
+      (function () {
+        var payload = ${safeJson};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, window.location.origin);
+            setTimeout(function () { window.close(); }, 900);
+          }
+        } catch (_e) {}
+      })();
+    </script>
+  </body>
+</html>`);
+  };
+
+  const oauthError = String(req.query.error || '').trim();
+  if (oauthError) {
+    return renderPopupResult(400, { ok: false, status: 'Access Denied', message: `Google OAuth denied: ${oauthError}` });
+  }
+
+  const code = String(req.query.code || '').trim();
+  const stateToken = String(req.query.state || '').trim();
+  if (!code) {
+    return renderPopupResult(400, { ok: false, status: 'API Error', message: 'Missing authorization code from Google.' });
+  }
+
+  const verifiedState = stateToken ? SearchConsoleService.verifySignedOAuthState(stateToken) : null;
+  const fallbackSession = !verifiedState ? await resolveOptionalAdminSession(req).catch(() => null) : null;
+  if (!verifiedState && (!fallbackSession || !hasPermission(fallbackSession.role, 'seo:manage'))) {
+    return renderPopupResult(401, {
+      ok: false,
+      status: 'Access Denied',
+      message: 'Invalid or expired OAuth state parameter. Start the connection flow again from Admin → SEO → Google Integrations.',
+    });
+  }
+
+  try {
+    const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || req.protocol || 'https';
+    const host = req.get('host') || `localhost:${PORT}`;
+    const redirectUri = verifiedState?.redirectUri || `${proto}://${host}/api/admin/seo/gsc/oauth-callback`;
+    const actor = verifiedState?.actor || fallbackSession?.email || 'Super Admin';
+    const outcome = await SearchConsoleService.handleOAuthCallback(code, redirectUri, actor);
+    return renderPopupResult(200, {
+      ok: outcome.status === 'Authorized',
+      status: outcome.status,
+      message: outcome.message,
+      properties: outcome.properties,
+    });
+  } catch (err: any) {
+    return renderPopupResult(400, {
+      ok: false,
+      status: 'API Error',
+      message: err?.message || 'Google Search Console authorization error.',
+    });
+  }
 });
 
 // ================= PRIVATE ADMIN AUTHENTICATION & SECURITY =================
@@ -651,18 +788,30 @@ app.get('/api/news/:id/versions', requireAdminAuth, requirePermission('articles:
 });
 
 app.post('/api/news/:id/rollback', requireAdminAuth, requirePermission('articles:publish'), async (req, res) => {
-  const session: AdminSession = (req as any).adminSession;
-  const { versionId } = req.body || {};
-  const actor = getActor(req, session.email);
-  if (!versionId) {
-    return res.status(400).json({ success: false, error: 'versionId is required' });
+  try {
+    const session: AdminSession = (req as any).adminSession;
+    const { versionId } = req.body || {};
+    const actor = getActor(req, session.email);
+    if (!versionId) {
+      return res.status(400).json({ success: false, error: 'versionId is required' });
+    }
+    const restored = db.rollbackArticle(req.params.id, versionId, actor);
+    if (!restored) {
+      return res.status(404).json({ success: false, error: 'Article or Version snapshot not found' });
+    }
+    const result = await ArticleService.saveArticle(restored, actor, extractFirestoreAuthCtx(req, session));
+    return res.json({
+      success: true,
+      article: result.article,
+      storageEngine: result.storageEngine,
+      verifiedReadBack: result.verifiedReadBack,
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.message || 'Failed rolling back article version.',
+    });
   }
-  const restored = db.rollbackArticle(req.params.id, versionId, actor);
-  if (!restored) {
-    return res.status(404).json({ success: false, error: 'Article or Version snapshot not found' });
-  }
-  const result = await ArticleService.saveArticle(restored, actor, extractFirestoreAuthCtx(req, session)).catch(() => null);
-  return res.json({ success: true, article: result?.article || restored });
 });
 
 app.delete('/api/news/:id', requireAdminAuth, requirePermission('articles:delete'), async (req, res) => {
@@ -934,11 +1083,23 @@ app.get('/api/education/results/search', (req, res) => {
   return res.json({ success: true, result });
 });
 
-app.post('/api/education/results', requireAdminAuth, requirePermission('categories:manage'), (req, res) => {
-  const result = req.body;
-  db.addExamResult(result);
-  db.logAudit(getActor(req, 'Examinations Officer'), 'New Result Record Uploaded', `Roll: ${result.rollNumber} - ${result.boardCode}`);
-  res.json({ success: true, result });
+app.post('/api/education/results', requireAdminAuth, requirePermission('categories:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Examinations Officer');
+    const result = req.body || {};
+    db.addExamResult(result);
+    db.logAudit(actor, 'New Result Record Uploaded', `Roll: ${result.rollNumber} - ${result.boardCode}`);
+    await persistModuleMutation({
+      module: 'category_datasets',
+      action: 'save',
+      recordId: 'results',
+      actor,
+      syncFn: () => syncCategoryDatasetToSupabase('results', db.getCategoryDataset('results'), actor),
+    });
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving exam result.' });
+  }
 });
 
 app.get('/api/weather', (req, res) => {
@@ -965,7 +1126,7 @@ app.get('/api/finance/rates', (_req, res) => {
   });
 });
 
-app.post('/api/admin/finance/rates', requireAnyPermission(['categories:manage', 'settings:manage', 'articles:write']), (req, res) => {
+app.post('/api/admin/finance/rates', requireAnyPermission(['categories:manage', 'settings:manage', 'articles:write']), async (req, res) => {
   try {
     const { goldRates, currencyRates, fuelPrices, psx } = req.body || {};
     const actor = getActor(req, 'Finance Editor');
@@ -994,6 +1155,18 @@ app.post('/api/admin/finance/rates', requireAnyPermission(['categories:manage', 
 
     db.logAudit(actor, 'Financial Rates Updated', `Updated: ${updatedSections.join(', ')}`);
     const data = db.getData();
+    await persistModuleMutation({
+      module: 'category_datasets',
+      action: 'update',
+      recordId: 'financeRatesSnapshot',
+      actor,
+      syncFn: () =>
+        syncCategoryDatasetToSupabase(
+          'financeRatesSnapshot',
+          [{ id: 'latest', goldRates: data.goldRates, currencyRates: data.currencyRates, fuelPrices: data.fuelPrices, psx: data.psx }],
+          actor
+        ),
+    });
     return res.json({
       success: true,
       goldRates: data.goldRates,
@@ -1003,7 +1176,7 @@ app.post('/api/admin/finance/rates', requireAnyPermission(['categories:manage', 
       lastUpdated: new Date().toISOString(),
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message || 'Failed updating financial rates.' });
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating financial rates.' });
   }
 });
 
@@ -1135,14 +1308,21 @@ app.all(['/api/epaper*', '/epaper*', '/en/epaper*', '/ur/epaper*'], (_req, res) 
 });
 
 // ================= SETTINGS, CATEGORIES & HOMEPAGE BUILDER =================
-app.get('/api/settings', (_req, res) => {
+app.get('/api/settings', async (_req, res) => {
+  await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
   res.json({ success: true, settings: db.getData().siteSettings, categories: db.getData().categories });
 });
 
 app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage'), async (req, res) => {
   try {
     const actor = getActor(req, 'Super Admin');
-    const newSettings = db.updateSettings(req.body || {}, actor);
+    await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
+    const incoming = { ...(req.body || {}) };
+    if ('googleAnalyticsId' in incoming || 'googleTagManagerId' in incoming || 'searchConsoleVerification' in incoming) {
+      const mergedPreview = { ...db.getData().siteSettings, ...incoming };
+      incoming.googleIntegrations = GoogleIntegrationsService.buildNormalizedConfigFromSettings(mergedPreview);
+    }
+    const newSettings = db.updateSettings(incoming, actor);
     if (newSettings.runtimeDiagnostics) {
       setRuntimeAiTimeouts({
         discoveryMs: newSettings.runtimeDiagnostics.aiDiscoveryTimeoutMs,
@@ -1150,6 +1330,7 @@ app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage')
         inferenceMs: newSettings.runtimeDiagnostics.aiInferenceTimeoutMs,
       });
     }
+    const persistRes = await GoogleIntegrationsService.persistAllConfigToSupabase(newSettings, actor);
     const syncRes = await persistModuleMutation({
       module: 'site_settings',
       action: 'update',
@@ -1160,8 +1341,8 @@ app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage')
     return res.json({
       success: true,
       settings: newSettings,
-      storageEngine: syncRes.storageEngine,
-      verifiedReadBack: syncRes.verifiedReadBack,
+      storageEngine: persistRes.storageEngine || syncRes.storageEngine,
+      verifiedReadBack: Boolean(persistRes.verifiedReadBack && syncRes.verifiedReadBack),
     });
   } catch (err: any) {
     return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving site settings.' });
@@ -1284,18 +1465,48 @@ app.get('/api/admin/categories/dataset/:dataset', requirePermission('categories:
   return res.json({ success: true, dataset, records });
 });
 
-app.post('/api/admin/categories/dataset/:dataset', requirePermission('categories:manage'), (req, res) => {
+app.post('/api/admin/categories/dataset/:dataset', requirePermission('categories:manage'), async (req, res) => {
   try {
-    const saved = db.saveCategoryDatasetItem(req.params.dataset, req.body || {}, getActor(req));
+    const { dataset } = req.params;
+    if (!SUPPORTED_CATEGORY_DATASETS.has(dataset)) {
+      return res.status(400).json({ success: false, error: `Unsupported dataset: ${dataset}` });
+    }
+    const actor = getActor(req);
+    const saved = db.saveCategoryDatasetItem(dataset, req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'category_datasets',
+      action: 'save',
+      recordId: dataset,
+      actor,
+      syncFn: () => syncCategoryDatasetToSupabase(dataset, db.getCategoryDataset(dataset), actor),
+    });
     return res.json({ success: true, record: saved });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Failed saving record.' });
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Failed saving record.' });
   }
 });
 
-app.delete('/api/admin/categories/dataset/:dataset/:id', requirePermission('categories:manage'), (req, res) => {
-  const success = db.deleteCategoryDatasetItem(req.params.dataset, req.params.id, getActor(req));
-  res.json({ success });
+app.delete('/api/admin/categories/dataset/:dataset/:id', requirePermission('categories:manage'), async (req, res) => {
+  try {
+    const { dataset, id } = req.params;
+    if (!SUPPORTED_CATEGORY_DATASETS.has(dataset)) {
+      return res.status(400).json({ success: false, error: `Unsupported dataset: ${dataset}` });
+    }
+    const actor = getActor(req);
+    const success = db.deleteCategoryDatasetItem(dataset, id, actor);
+    if (success) {
+      await persistModuleMutation({
+        module: 'category_datasets',
+        action: 'delete',
+        recordId: `${dataset}:${id}`,
+        actor,
+        syncFn: () => syncCategoryDatasetToSupabase(dataset, db.getCategoryDataset(dataset), actor),
+      });
+    }
+    return res.json({ success });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting dataset record.' });
+  }
 });
 
 app.get('/api/admin/categories/:slug/versions', requirePermission('categories:manage'), (req, res) => {
@@ -1686,6 +1897,57 @@ app.get('/api/v1/admin/system/storage-health', requirePermission('health:view'),
   }
 });
 
+const handleCompleteDatabaseAudit = async (req: Request, res: Response) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const report = await runCompleteDatabaseAudit();
+    db.logAudit(actor, 'Complete Database Audit Executed', `Status=${report.overallStatus}, Passed=${report.summary.passed}/${report.summary.totalChecks}`);
+    if (isSupabaseConfigured()) {
+      const latestAudit = db.getData().auditLogs[0];
+      if (latestAudit) {
+        recordAuditLogToSupabase(latestAudit).catch(err =>
+          recordServerError({ source: 'supabase', code: 'AUDIT_LOG_SYNC_WARN', message: String(err?.message || err) })
+        );
+      }
+    }
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Database audit failed.' });
+  }
+};
+app.get('/api/v1/admin/system/database-audit', requireSuperAdmin, handleCompleteDatabaseAudit);
+app.get('/api/admin/system/database-audit', requireSuperAdmin, handleCompleteDatabaseAudit);
+app.post('/api/v1/admin/system/database-audit', requireSuperAdmin, handleCompleteDatabaseAudit);
+
+app.post('/api/metrics/vitals', (req, res) => {
+  try {
+    const { name, value, rating, path: metricPath } = req.body || {};
+    if (!['LCP', 'INP', 'CLS', 'TTFB'].includes(name)) {
+      return res.status(400).json({ success: false, error: 'Invalid metric name.' });
+    }
+    const numericVal = Number(value);
+    if (!Number.isFinite(numericVal) || numericVal < 0 || numericVal > 120_000) {
+      return res.status(400).json({ success: false, error: 'Invalid metric value.' });
+    }
+    const safeRating = ['good', 'needs-improvement', 'poor'].includes(rating) ? rating : 'good';
+    const safePath = typeof metricPath === 'string' && metricPath.startsWith('/') ? metricPath.slice(0, 140) : '/';
+    recordWebVitalSample({ name, value: numericVal, rating: safeRating, path: safePath });
+    return res.json({ success: true });
+  } catch {
+    return res.status(400).json({ success: false });
+  }
+});
+
+app.get('/api/v1/admin/system/performance', requirePermission('health:view'), (_req, res) => {
+  res.json({
+    success: true,
+    webVitals: getWebVitalsSummary(),
+    slowQueries: getSlowQueryLogs(30),
+    errorLogs: getServerErrorLogs(30),
+    cacheStatus: db.getCacheStatus(),
+  });
+});
+
 app.post('/api/v1/admin/system/runtime-settings', requirePermission('settings:manage'), async (req, res) => {
   try {
     const actor = getActor(req, 'Super Admin');
@@ -1745,31 +2007,44 @@ app.get('/api/v1/admin/system/deployment', requirePermission('health:view'), (_r
 });
 
 // ================= DYNAMIC SITEMAPS, ROBOTS, FEEDS & ADS.TXT =================
-app.get('/sitemap-index.xml', (_req, res) => {
+app.get('/sitemap-index.xml', async (_req, res) => {
+  await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildSitemapIndexXml());
 });
 
 app.get('/sitemap.xml', async (_req, res) => {
-  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  await Promise.all([
+    GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {}),
+    ArticleService.listArticles({ status: 'published' }).catch(() => {}),
+  ]);
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildMainSitemapXml());
 });
 
 app.get(['/sitemap-news.xml', '/news-sitemap.xml'], async (_req, res) => {
-  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  await Promise.all([
+    GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {}),
+    ArticleService.listArticles({ status: 'published' }).catch(() => {}),
+  ]);
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildNewsSitemapXml());
 });
 
 app.get('/image-sitemap.xml', async (_req, res) => {
-  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  await Promise.all([
+    GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {}),
+    ArticleService.listArticles({ status: 'published' }).catch(() => {}),
+  ]);
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildImageSitemapXml());
 });
 
 app.get('/video-sitemap.xml', async (_req, res) => {
-  await ArticleService.listArticles({ status: 'published' }).catch(() => {});
+  await Promise.all([
+    GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {}),
+    ArticleService.listArticles({ status: 'published' }).catch(() => {}),
+  ]);
   res.header('Content-Type', 'application/xml; charset=utf-8');
   res.send(SitemapManager.buildVideoSitemapXml());
 });
@@ -1875,34 +2150,49 @@ app.get('/llms.txt', (_req, res) => {
 });
 
 // ================= PUBLIC SUBMISSIONS & SEARCH =================
-const publicSubmissions: any[] = [];
-const handlePublicSubmission = (type: string) => (req: Request, res: Response) => {
-  const { name, email, subject, message, category, targetUrl, privacyAccepted } = req.body || {};
-  if (!name || !email || !subject || !message || !privacyAccepted) {
-    return res.status(400).json({ success: false, error: 'All required fields and privacy acknowledgement must be provided.' });
+const handlePublicSubmission = (type: string) => async (req: Request, res: Response) => {
+  try {
+    const { name, email, subject, message, category, targetUrl, privacyAccepted } = req.body || {};
+    if (!name || !email || !subject || !message || !privacyAccepted) {
+      return res.status(400).json({ success: false, error: 'All required fields and privacy acknowledgement must be provided.' });
+    }
+    const entry = db.addPublicSubmission({
+      id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      type,
+      name: String(name).slice(0, 120),
+      email: String(email).slice(0, 160),
+      subject: String(subject).slice(0, 200),
+      category: category ? String(category) : type,
+      targetUrl: targetUrl ? String(targetUrl) : undefined,
+      message: String(message).slice(0, 4000),
+      status: 'new',
+      createdAt: new Date().toISOString(),
+    });
+    await persistModuleMutation({
+      module: 'public_submissions',
+      action: 'save',
+      recordId: entry.id,
+      actor: String(email).slice(0, 120),
+      syncFn: () => syncPublicSubmissionToSupabase(entry),
+    });
+    return res.json({ success: true, id: entry.id });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.message || 'Failed saving public submission.',
+    });
   }
-  const entry = {
-    id: `sub-${Date.now()}`,
-    type,
-    name: String(name).slice(0, 120),
-    email: String(email).slice(0, 160),
-    subject: String(subject).slice(0, 200),
-    category: category ? String(category) : type,
-    targetUrl: targetUrl ? String(targetUrl) : undefined,
-    message: String(message).slice(0, 4000),
-    createdAt: new Date().toISOString(),
-  };
-  publicSubmissions.unshift(entry);
-  return res.json({ success: true, id: entry.id });
 };
 
 app.post('/api/public/contact', handlePublicSubmission('contact'));
 app.post('/api/public/correction', handlePublicSubmission('correction'));
 app.post('/api/public/copyright', handlePublicSubmission('copyright'));
 app.post('/api/public/advertise', handlePublicSubmission('advertise'));
+app.post('/api/public/news-tip', handlePublicSubmission('news_tip'));
+app.post('/api/public/feedback', handlePublicSubmission('feedback'));
 
 app.get('/api/admin/submissions', requirePermission('audience:manage'), (_req, res) => {
-  res.json({ success: true, submissions: publicSubmissions });
+  res.json({ success: true, submissions: db.getPublicSubmissions() });
 });
 
 app.get('/api/search', (req, res) => {
@@ -2216,16 +2506,41 @@ app.post('/api/admin/ads/campaigns', requirePermission('ads:manage'), async (req
   try {
     const actor = getActor(req, 'Ad Manager');
     const saved = db.upsertAdCampaign(req.body || {}, actor);
-    await persistModuleMutation({
+    const syncRes = await persistModuleMutation({
       module: 'ad_campaigns',
       action: 'save',
       recordId: saved.id,
       actor,
       syncFn: () => syncAdCampaignToSupabase(saved),
     });
+    db.bumpNewsCacheVersion();
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Supabase ad_campaigns save failed.', campaign: saved });
+    }
     return res.json({ success: true, campaign: saved });
   } catch (err: any) {
     return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving ad campaign.' });
+  }
+});
+
+app.put('/api/admin/ads/campaigns/:id', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const saved = db.upsertAdCampaign({ ...(req.body || {}), id: req.params.id }, actor);
+    const syncRes = await persistModuleMutation({
+      module: 'ad_campaigns',
+      action: 'update',
+      recordId: saved.id,
+      actor,
+      syncFn: () => syncAdCampaignToSupabase(saved),
+    });
+    db.bumpNewsCacheVersion();
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Supabase ad_campaigns update failed.', campaign: saved });
+    }
+    return res.json({ success: true, campaign: saved });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating ad campaign.' });
   }
 });
 
@@ -2233,41 +2548,75 @@ app.patch('/api/admin/ads/campaigns/:id/status', requirePermission('ads:manage')
   try {
     const actor = getActor(req, 'Ad Manager');
     const nextStatus = req.body?.status;
-    if (!['draft', 'active', 'paused', 'archived'].includes(nextStatus)) {
-      return res.status(400).json({ success: false, error: 'Status must be draft, active, paused, or archived.' });
+    if (!['draft', 'active', 'paused', 'archived', 'completed'].includes(nextStatus)) {
+      return res.status(400).json({ success: false, error: 'Status must be draft, active, paused, archived, or completed.' });
     }
     const existing = db.getAdCampaigns().find(c => c.id === req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Ad campaign not found.' });
     }
     const saved = db.upsertAdCampaign({ ...existing, status: nextStatus }, actor);
-    await persistModuleMutation({
+    const syncRes = await persistModuleMutation({
       module: 'ad_campaigns',
       action: 'update',
       recordId: saved.id,
       actor,
       syncFn: () => syncAdCampaignToSupabase(saved),
     });
+    db.bumpNewsCacheVersion();
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Supabase status update failed.', campaign: saved });
+    }
     return res.json({ success: true, campaign: saved });
   } catch (err: any) {
     return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed updating campaign status.' });
   }
 });
 
+app.post('/api/admin/ads/campaigns/:id/archive', requirePermission('ads:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Ad Manager');
+    const archived = db.archiveAdCampaign(req.params.id, actor);
+    if (!archived) {
+      return res.status(404).json({ success: false, error: 'Ad campaign not found.' });
+    }
+    const syncRes = await persistModuleMutation({
+      module: 'ad_campaigns',
+      action: 'update',
+      recordId: req.params.id,
+      actor,
+      syncFn: () => archiveAdCampaignInSupabase(req.params.id, actor),
+    });
+    db.bumpNewsCacheVersion();
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Supabase archival failed.', campaign: archived });
+    }
+    return res.json({ success: true, campaign: archived });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed archiving campaign.' });
+  }
+});
+
 app.delete('/api/admin/ads/campaigns/:id', requirePermission('ads:manage'), async (req, res) => {
   try {
     const actor = getActor(req, 'Ad Manager');
-    const success = db.deleteAdCampaign(req.params.id, actor);
-    if (success) {
-      await persistModuleMutation({
-        module: 'ad_campaigns',
-        action: 'delete',
-        recordId: req.params.id,
-        actor,
-        syncFn: () => deleteAdCampaignFromSupabase(req.params.id),
+    const syncRes = await persistModuleMutation({
+      module: 'ad_campaigns',
+      action: 'delete',
+      recordId: req.params.id,
+      actor,
+      syncFn: () => deleteAdCampaignFromSupabase(req.params.id, actor),
+    });
+    if (!syncRes.ok) {
+      return res.status(502).json({
+        success: false,
+        error: syncRes.error || 'ad_campaigns delete failed in PostgreSQL.',
+        code: syncRes.code,
       });
     }
-    return res.json({ success });
+    const success = db.deleteAdCampaign(req.params.id, actor);
+    db.bumpNewsCacheVersion();
+    return res.json({ success, deletedId: req.params.id, remainingCount: db.getAdCampaigns().length });
   } catch (err: any) {
     return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting campaign.' });
   }
@@ -2391,17 +2740,27 @@ app.get('/api/admin/audience/subscribers/export', requirePermission('audience:ma
 });
 
 app.post('/api/audience/subscribe', async (req, res) => {
-  const { email, language, frequency } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ success: false, error: 'A valid email address is required' });
+  try {
+    const { email, language, frequency } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ success: false, error: 'A valid email address is required' });
+    }
+    const added = db.addSubscriber(cleanEmail, language, frequency, 'public_form');
+    const record = db.getSubscribers().find(s => s.email.toLowerCase() === cleanEmail);
+    if (record) {
+      await persistModuleMutation({
+        module: 'newsletter_subscribers',
+        action: 'save',
+        recordId: record.id,
+        actor: cleanEmail,
+        syncFn: () => syncSubscriberToSupabase(record),
+      });
+    }
+    return res.json({ success: added, message: added ? 'Subscribed successfully' : 'Email is already subscribed' });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Subscription failed.' });
   }
-  const added = db.addSubscriber(cleanEmail, language, frequency, 'public_form');
-  const record = db.getSubscribers().find(s => s.email.toLowerCase() === cleanEmail);
-  if (record) {
-    syncSubscriberToSupabase(record).catch(() => {});
-  }
-  return res.json({ success: added, message: added ? 'Subscribed successfully' : 'Email is already subscribed' });
 });
 
 app.get('/api/admin/audience/notifications', requirePermission('audience:manage'), (_req, res) => {
@@ -2442,7 +2801,9 @@ app.post('/api/admin/notifications/broadcast', requirePermission('audience:manag
     });
     const sentNotif = db.getNotifications()[0];
     if (sentNotif) {
-      syncAudienceNotificationToSupabase(sentNotif).catch(() => {});
+      await syncAudienceNotificationToSupabase(sentNotif).catch(err =>
+        recordServerError({ source: 'supabase', code: 'BROADCAST_SYNC_WARN', message: String(err?.message || err) })
+      );
     }
     db.logAudit(actor, 'Web Push Broadcast Sent', `Delivered=${result.successful || 0}, Failed=${result.failed || 0}`);
     return res.json({ success: true, result });
@@ -2462,20 +2823,30 @@ app.get('/api/notifications/vapid-key', (_req, res) => {
   res.json({ success: true, publicKey: pushNotificationService.getPublicKey() });
 });
 
-app.post('/api/notifications/subscribe', (req, res) => {
-  const { endpoint, keys, topics, language, userAgent } = req.body || {};
-  if (!endpoint) {
-    return res.status(400).json({ success: false, error: 'Subscription endpoint is required' });
+app.post('/api/notifications/subscribe', async (req, res) => {
+  try {
+    const { endpoint, keys, topics, language, userAgent } = req.body || {};
+    if (!endpoint) {
+      return res.status(400).json({ success: false, error: 'Subscription endpoint is required' });
+    }
+    const sub = db.upsertPushSubscription({
+      endpoint,
+      keys,
+      topics,
+      language: language || 'both',
+      userAgent: userAgent || req.headers['user-agent'] || '',
+    });
+    await persistModuleMutation({
+      module: 'push_subscriptions',
+      action: 'save',
+      recordId: sub.id,
+      actor: 'Public Subscriber',
+      syncFn: () => syncPushSubscriptionToSupabase(sub),
+    });
+    return res.json({ success: true, subscription: sub });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Push subscription failed.' });
   }
-  const sub = db.upsertPushSubscription({
-    endpoint,
-    keys,
-    topics,
-    language: language || 'both',
-    userAgent: userAgent || req.headers['user-agent'] || '',
-  });
-  syncPushSubscriptionToSupabase(sub).catch(() => {});
-  return res.json({ success: true, subscription: sub });
 });
 
 app.post('/api/notifications/unsubscribe', (req, res) => {
@@ -2631,59 +3002,199 @@ app.get('/api/admin/seo/audit-logs', requirePermission('seo:manage'), (_req, res
   res.json({ success: true, logs: db.getSeoAuditLogs() });
 });
 
-app.get('/api/admin/seo/search-console', requirePermission('seo:manage'), (_req, res) => {
-  res.json({
-    success: true,
-    metrics: db.getSearchConsoleMetrics(),
-    connection: SearchConsoleService.getSanitizedConnection(),
-  });
-});
-
-app.post('/api/admin/seo/search-console', requirePermission('seo:manage'), async (req, res) => {
-  db.updateSearchConsoleMetrics(req.body || {});
-  syncSearchConsoleConfigToSupabase(
-    SearchConsoleService.getSanitizedConnection(),
-    db.getSearchConsoleMetrics()
-  ).catch(() => {});
-  res.json({
-    success: true,
-    metrics: db.getSearchConsoleMetrics(),
-    connection: SearchConsoleService.getSanitizedConnection(),
-  });
-});
-
-app.post('/api/admin/seo/gsc/oauth-config', requirePermission('seo:manage'), (req, res) => {
+// ================= UNIFIED GOOGLE INTEGRATIONS (GA4 + GTM + SEARCH CONSOLE) =================
+app.get('/api/admin/seo/google-integrations', requirePermission('seo:manage'), async (_req, res) => {
   try {
-    SearchConsoleService.saveOAuthConfig(req.body || {}, getActor(req, 'SEO Manager'));
-    return res.json({ success: true, connection: SearchConsoleService.getSanitizedConnection() });
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({
+      success: true,
+      config: GoogleIntegrationsService.getResolvedConfig(),
+      connection: SearchConsoleService.getSanitizedConnection(),
+      metrics: db.getSearchConsoleMetrics(),
+      diagnostics,
+      logs: diagnostics.logs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed loading Google Integrations.' });
+  }
+});
+
+app.put('/api/admin/seo/google-integrations/ga4', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const out = await GoogleIntegrationsService.saveAnalyticsConfig(req.body || {}, actor);
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({
+      success: true,
+      config: out.config,
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+      diagnostics,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed saving GA4 configuration.' });
+  }
+});
+
+app.put('/api/admin/seo/google-integrations/gtm', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const out = await GoogleIntegrationsService.saveTagManagerConfig(req.body || {}, actor);
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({
+      success: true,
+      config: out.config,
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+      diagnostics,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed saving GTM configuration.' });
+  }
+});
+
+app.put('/api/admin/seo/google-integrations/gsc-meta', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const verificationCode = String(req.body?.verificationCode || '');
+    const out = await GoogleIntegrationsService.saveSearchConsoleMetaCode(verificationCode, actor);
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({
+      success: true,
+      config: out.config,
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+      diagnostics,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed saving Search Console verification meta tag.' });
+  }
+});
+
+app.delete('/api/admin/seo/google-integrations/:target', requireSuperAdmin, async (req, res) => {
+  const target = req.params.target as 'ga4' | 'gtm' | 'gsc_meta';
+  if (!['ga4', 'gtm', 'gsc_meta'].includes(target)) {
+    return res.status(400).json({ success: false, error: 'Invalid integration target. Use ga4, gtm, or gsc_meta.' });
+  }
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const out = await GoogleIntegrationsService.removeIntegration(target, actor);
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({
+      success: true,
+      config: out.config,
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+      diagnostics,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed removing Google integration.' });
+  }
+});
+
+app.post('/api/admin/seo/google-integrations/test', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'SEO Manager');
+    const target = (req.body?.target || 'ga4') as 'ga4' | 'gtm' | 'gsc_meta';
+    if (!['ga4', 'gtm', 'gsc_meta'].includes(target)) {
+      return res.status(400).json({ success: false, error: 'Invalid test target.' });
+    }
+    const result = await GoogleIntegrationsService.testLiveInjection({
+      target,
+      testPath: req.body?.testPath,
+      checkProductionLive: Boolean(req.body?.checkProductionLive),
+      actor,
+    });
+    return res.json({ success: result.ok, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Integration verification test failed.' });
+  }
+});
+
+app.get('/api/admin/seo/google-integrations/diagnostics', requirePermission('seo:manage'), async (_req, res) => {
+  try {
+    const diagnostics = await GoogleIntegrationsService.getDiagnosticsReport();
+    return res.json({ success: true, diagnostics });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed gathering diagnostics.' });
+  }
+});
+
+app.get('/api/admin/seo/search-console', requirePermission('seo:manage'), async (_req, res) => {
+  await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
+  res.json({
+    success: true,
+    metrics: db.getSearchConsoleMetrics(),
+    connection: SearchConsoleService.getSanitizedConnection(),
+  });
+});
+
+app.post('/api/admin/seo/search-console', requireSuperAdmin, async (req, res) => {
+  try {
+    db.updateSearchConsoleMetrics(req.body || {});
+    const actor = getActor(req, 'Super Admin');
+    const syncRes = await syncSearchConsoleConfigToSupabase(
+      SearchConsoleService.getSanitizedConnection(),
+      db.getSearchConsoleMetrics()
+    );
+    if (isSupabaseConfigured() && !syncRes.ok) {
+      return res.status(500).json({ success: false, error: syncRes.error || 'Failed persisting Search Console metrics.' });
+    }
+    return res.json({
+      success: true,
+      metrics: db.getSearchConsoleMetrics(),
+      connection: SearchConsoleService.getSanitizedConnection(),
+      actor,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed updating Search Console metrics.' });
+  }
+});
+
+app.post('/api/admin/seo/gsc/oauth-config', requireSuperAdmin, async (req, res) => {
+  try {
+    const out = await SearchConsoleService.saveOAuthConfig(req.body || {}, getActor(req, 'Super Admin'));
+    return res.json({
+      success: true,
+      connection: SearchConsoleService.getSanitizedConnection(),
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+    });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err?.message || 'Failed saving OAuth config.' });
   }
 });
 
-app.get('/api/admin/seo/gsc/oauth-url', requirePermission('seo:manage'), (req, res) => {
+app.post('/api/admin/seo/gsc/property', requirePermission('seo:manage'), async (req, res) => {
   try {
-    const redirectUri = String(req.query.redirectUri || '');
-    const authUrl = SearchConsoleService.getOAuthAuthorizeUrl(redirectUri);
-    return res.json({ success: true, authUrl });
+    const out = await SearchConsoleService.selectProperty(String(req.body?.propertyUrl || ''), getActor(req, 'SEO Manager'));
+    return res.json({
+      success: out.status === 'Authorized',
+      connection: SearchConsoleService.getSanitizedConnection(),
+      ...out,
+    });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: err?.message || 'Could not generate OAuth URL.' });
+    return res.status(400).json({ success: false, error: err?.message || 'Failed selecting property.' });
   }
 });
 
-app.get('/api/admin/seo/gsc/oauth-callback', requirePermission('seo:manage'), async (req, res) => {
-  const code = String(req.query.code || '');
-  if (!code) {
-    return res.status(400).send('Missing authorization code from Google.');
-  }
+app.get('/api/admin/seo/gsc/oauth-url', requirePermission('seo:manage'), async (req, res) => {
   try {
-    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+    await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
+    const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || req.protocol || 'https';
     const host = req.get('host') || `localhost:${PORT}`;
-    const redirectUri = `${proto}://${host}/api/admin/seo/gsc/oauth-callback`;
-    await SearchConsoleService.handleOAuthCallback(code, redirectUri, getActor(req, 'SEO Manager'));
-    return res.redirect('/admin?gsc=authorized');
+    const redirectUri = String(req.query.redirectUri || `${proto}://${host}/api/admin/seo/gsc/oauth-callback`);
+    const scopeMode = req.query.scopeMode === 'readonly' ? 'readonly' : undefined;
+    const sess = (req as any).adminSession as AdminSession;
+    const out = SearchConsoleService.getOAuthAuthorizeUrl({
+      redirectUri,
+      actor: sess?.email || getActor(req, 'Super Admin'),
+      userId: sess?.userId || 'super-admin',
+      scopeMode,
+    });
+    return res.json({ success: true, authUrl: out.authUrl, redirectUri, scope: out.scope });
   } catch (err: any) {
-    return res.status(400).send(`Google Search Console authorization error: ${err?.message || 'Unknown error'}`);
+    return res.status(400).json({ success: false, error: err?.message || 'Could not generate OAuth URL.' });
   }
 });
 
@@ -2691,16 +3202,25 @@ app.post('/api/admin/seo/gsc/oauth-exchange', requirePermission('seo:manage'), a
   try {
     const { code, redirectUri } = req.body || {};
     const outcome = await SearchConsoleService.handleOAuthCallback(code, redirectUri, getActor(req, 'SEO Manager'));
-    return res.json({ success: outcome.status === 'Authorized', ...outcome });
+    return res.json({
+      success: outcome.status === 'Authorized',
+      connection: SearchConsoleService.getSanitizedConnection(),
+      ...outcome,
+    });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err?.message || 'OAuth code exchange failed.' });
   }
 });
 
-app.post('/api/admin/seo/gsc/service-account', requirePermission('seo:manage'), (req, res) => {
+app.post('/api/admin/seo/gsc/service-account', requireSuperAdmin, async (req, res) => {
   try {
-    SearchConsoleService.saveServiceAccountConfig(req.body || {}, getActor(req, 'SEO Manager'));
-    return res.json({ success: true, connection: SearchConsoleService.getSanitizedConnection() });
+    const out = await SearchConsoleService.saveServiceAccountConfig(req.body || {}, getActor(req, 'Super Admin'));
+    return res.json({
+      success: true,
+      connection: SearchConsoleService.getSanitizedConnection(),
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+    });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err?.message || 'Invalid service account JSON.' });
   }
@@ -2709,7 +3229,11 @@ app.post('/api/admin/seo/gsc/service-account', requirePermission('seo:manage'), 
 app.post('/api/admin/seo/gsc/test', requirePermission('seo:manage'), async (req, res) => {
   try {
     const outcome = await SearchConsoleService.testAndVerifyConnection(getActor(req, 'SEO Manager'));
-    return res.json({ success: outcome.status === 'Authorized', ...outcome });
+    return res.json({
+      success: outcome.status === 'Authorized',
+      connection: SearchConsoleService.getSanitizedConnection(),
+      ...outcome,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Search Console check failed.' });
   }
@@ -2717,17 +3241,66 @@ app.post('/api/admin/seo/gsc/test', requirePermission('seo:manage'), async (req,
 
 app.post('/api/admin/seo/gsc/sync', requirePermission('seo:manage'), async (req, res) => {
   try {
-    const metrics = await SearchConsoleService.syncLiveAnalytics(getActor(req, 'SEO Manager'));
-    syncSearchConsoleConfigToSupabase(SearchConsoleService.getSanitizedConnection(), metrics).catch(() => {});
-    return res.json({ success: metrics.connected, metrics });
+    const { range, startDate, endDate, comparePrevious, forceRefresh } = req.body || {};
+    const metrics = await SearchConsoleService.syncLiveAnalytics(getActor(req, 'SEO Manager'), {
+      range,
+      startDate,
+      endDate,
+      comparePrevious: Boolean(comparePrevious),
+      forceRefresh: Boolean(forceRefresh),
+    });
+    return res.json({
+      success: metrics.connected,
+      metrics,
+      connection: SearchConsoleService.getSanitizedConnection(),
+    });
   } catch (err: any) {
     return res.status(502).json({ success: false, error: err?.message || 'Failed syncing Search Console metrics.' });
   }
 });
 
-app.post('/api/admin/seo/gsc/disconnect', requirePermission('seo:manage'), (req, res) => {
-  SearchConsoleService.disconnect(getActor(req, 'SEO Manager'));
-  res.json({ success: true });
+app.get('/api/admin/seo/gsc/sitemaps', requirePermission('seo:manage'), async (_req, res) => {
+  try {
+    const data = await SearchConsoleService.listSitemaps();
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed listing sitemaps.' });
+  }
+});
+
+app.post('/api/admin/seo/gsc/sitemaps/submit', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const result = await SearchConsoleService.submitSitemap(
+      String(req.body?.sitemapUrl || '/sitemap-index.xml'),
+      getActor(req, 'SEO Manager')
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed submitting sitemap.' });
+  }
+});
+
+app.post('/api/admin/seo/gsc/inspect-url', requirePermission('seo:manage'), async (req, res) => {
+  try {
+    const result = await SearchConsoleService.inspectUrl(String(req.body?.url || ''), getActor(req, 'SEO Manager'));
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'URL inspection failed.' });
+  }
+});
+
+app.post('/api/admin/seo/gsc/disconnect', requireSuperAdmin, async (req, res) => {
+  try {
+    const out = await SearchConsoleService.disconnect(getActor(req, 'Super Admin'));
+    return res.json({
+      success: true,
+      connection: SearchConsoleService.getSanitizedConnection(),
+      storageEngine: out.storageEngine,
+      verifiedReadBack: out.verifiedReadBack,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed disconnecting Search Console.' });
+  }
 });
 
 app.get('/api/admin/seo/redirects', requirePermission('seo:manage'), (_req, res) => {
@@ -4297,16 +4870,66 @@ app.post('/api/admin/automation/providers', requirePermission('automation:manage
   try {
     const actor = getActor(req, 'Automation Manager');
     const provider = ProviderRegistry.upsertProvider(req.body || {}, actor);
-    await persistModuleMutation({
+    const syncRes = await persistModuleMutation({
       module: 'sync_providers',
       action: 'save',
       recordId: provider.id,
       actor,
       syncFn: () => syncDataProviderToSupabase(provider),
     });
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Failed saving provider to Supabase.', provider });
+    }
     return res.json({ success: true, provider });
   } catch (err: any) {
     return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Failed saving provider.' });
+  }
+});
+
+app.put('/api/admin/automation/providers/:id', requirePermission('automation:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Automation Manager');
+    const provider = ProviderRegistry.upsertProvider({ ...(req.body || {}), id: req.params.id }, actor);
+    const syncRes = await persistModuleMutation({
+      module: 'sync_providers',
+      action: 'update',
+      recordId: provider.id,
+      actor,
+      syncFn: () => syncDataProviderToSupabase(provider),
+    });
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Failed updating provider in Supabase.', provider });
+    }
+    return res.json({ success: true, provider });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Failed updating provider.' });
+  }
+});
+
+app.patch('/api/admin/automation/providers/:id/status', requirePermission('automation:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Automation Manager');
+    const nextStatus = req.body?.status;
+    if (!['active', 'paused', 'disabled'].includes(nextStatus)) {
+      return res.status(400).json({ success: false, error: 'Status must be active, paused, or disabled.' });
+    }
+    const provider = ProviderRegistry.toggleProviderStatus(req.params.id, nextStatus, actor);
+    if (!provider) {
+      return res.status(404).json({ success: false, error: 'Feed provider not found.' });
+    }
+    const syncRes = await persistModuleMutation({
+      module: 'sync_providers',
+      action: 'update',
+      recordId: provider.id,
+      actor,
+      syncFn: () => syncDataProviderToSupabase(provider),
+    });
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Failed updating provider status in Supabase.', provider });
+    }
+    return res.json({ success: true, provider });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 400).json({ success: false, error: err?.message || 'Failed toggling provider status.' });
   }
 });
 
@@ -4322,17 +4945,19 @@ app.post('/api/admin/automation/providers/:id/test', requirePermission('automati
 app.delete('/api/admin/automation/providers/:id', requirePermission('automation:manage'), async (req, res) => {
   try {
     const actor = getActor(req, 'Automation Manager');
-    const success = ProviderRegistry.deleteProvider(req.params.id, actor);
-    if (success) {
-      await persistModuleMutation({
-        module: 'sync_providers',
-        action: 'delete',
-        recordId: req.params.id,
-        actor,
-        syncFn: () => deleteDataProviderFromSupabase(req.params.id),
-      });
+    const syncRes = await persistModuleMutation({
+      module: 'sync_providers',
+      action: 'delete',
+      recordId: req.params.id,
+      actor,
+      syncFn: () => deleteDataProviderFromSupabase(req.params.id, actor),
+    });
+    if (!syncRes.ok) {
+      return res.status(502).json({ success: false, error: syncRes.error || 'Failed deleting feed from Supabase.' });
     }
-    return res.json({ success });
+    const success = ProviderRegistry.deleteProvider(req.params.id, actor);
+    const remainingCount = ProviderRegistry.getAllSanitized().length;
+    return res.json({ success, removedId: req.params.id, remainingCount });
   } catch (err: any) {
     return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed deleting provider.' });
   }
@@ -4391,29 +5016,60 @@ app.get('/api/admin/automation/drafts', requirePermission('automation:manage'), 
   res.json({ success: true, count: drafts.length, drafts });
 });
 
-app.post('/api/admin/automation/drafts/:id/publish', requirePermission('automation:manage'), (req, res) => {
-  const result = db.approveAiDraft(req.params.id, getActor(req, 'Chief Editor'));
-  if (!result.success) {
-    return res.status(404).json({ success: false, error: 'Draft not found or could not be approved' });
+app.post('/api/admin/automation/drafts/:id/publish', requirePermission('automation:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Chief Editor');
+    const result = db.approveAiDraft(req.params.id, actor);
+    if (!result.success || !result.article) {
+      return res.status(404).json({ success: false, error: 'Draft not found or could not be approved' });
+    }
+    const saved = await ArticleService.saveArticle(result.article, actor, extractFirestoreAuthCtx(req));
+    return res.json({
+      success: true,
+      article: saved.article,
+      storageEngine: saved.storageEngine,
+      verifiedReadBack: saved.verifiedReadBack,
+    });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed publishing AI draft.' });
   }
-  return res.json({ success: true, article: result.article });
 });
 
-app.post('/api/admin/automation/drafts/:id/reject', requirePermission('automation:manage'), (req, res) => {
-  const success = db.rejectAiDraft(req.params.id, getActor(req, 'Chief Editor'));
-  res.json({ success });
+app.post('/api/admin/automation/drafts/:id/reject', requirePermission('automation:manage'), async (req, res) => {
+  const actor = getActor(req, 'Chief Editor');
+  const success = db.rejectAiDraft(req.params.id, actor);
+  if (success) {
+    const draft = db.getAiDrafts('all').find(d => d.id === req.params.id);
+    if (draft) {
+      db.logAudit(actor, 'AI Draft Rejected Persistence', `Draft ${draft.id} rejected`);
+    }
+    invalidatePortalHydrationCache();
+  }
+  return res.json({ success });
 });
 
 app.get('/api/admin/automation/settings', requirePermission('automation:manage'), (_req, res) => {
   res.json({ success: true, settings: db.getAutomationSettings() });
 });
 
-app.post('/api/admin/automation/settings', requirePermission('automation:manage'), (req, res) => {
-  const updated = db.updateAutomationSettings(req.body || {}, getActor(req, 'Super Admin'));
-  res.json({ success: true, settings: updated });
+app.post('/api/admin/automation/settings', requirePermission('automation:manage'), async (req, res) => {
+  try {
+    const actor = getActor(req, 'Super Admin');
+    const updated = db.updateAutomationSettings(req.body || {}, actor);
+    await persistModuleMutation({
+      module: 'automation_settings',
+      action: 'update',
+      recordId: 'default',
+      actor,
+      syncFn: () => syncAutomationSettingsToSupabase(updated, actor),
+    });
+    return res.json({ success: true, settings: updated });
+  } catch (err: any) {
+    return res.status(err?.statusCode || 500).json({ success: false, error: err?.message || 'Failed saving automation settings.' });
+  }
 });
 
-// External Namecheap / Vercel Cron / Cloud Scheduler Webhook protected by CRON_SECRET
+// External Namecheap / Vercel Cron / Cloud Scheduler Webhook protected by CRON_SECRET or verified admin session
 const handleCronRun = async (req: Request, res: Response) => {
   const configuredSecret = process.env.CRON_SECRET;
   const authBearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : '';
@@ -4427,11 +5083,14 @@ const handleCronRun = async (req: Request, res: Response) => {
     if (!providedSecret || providedSecret !== configuredSecret) {
       return res.status(401).json({ success: false, error: 'Unauthorized cron trigger.' });
     }
-  } else if (!getSessionFromRequest(req) && !req.headers['x-vercel-cron']) {
-    return res.status(403).json({
-      success: false,
-      error: 'CRON_SECRET environment variable is not configured and no admin session is present.',
-    });
+  } else {
+    const cronSession = await resolveOptionalAdminSession(req).catch(() => null);
+    if (!cronSession || !hasPermission(cronSession.role, 'automation:manage')) {
+      return res.status(403).json({
+        success: false,
+        error: 'CRON_SECRET environment variable is not configured and no authorized admin session is present.',
+      });
+    }
   }
 
   try {
@@ -4570,6 +5229,7 @@ async function setupVite() {
     app.get('*', async (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
       try {
+        await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
         let preloadedArticle: any = null;
         const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
         if (newsSlugMatch && newsSlugMatch[1]) {
@@ -4580,7 +5240,12 @@ async function setupVite() {
         }
         const rawHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
         const transformed = await vite.transformIndexHtml(req.originalUrl, rawHtml);
-        const withSeo = MetadataGenerator.injectMetadataIntoHtml(transformed, req.originalUrl, preloadedArticle);
+        const withSeo = MetadataGenerator.injectMetadataIntoHtml(
+          transformed,
+          req.originalUrl,
+          preloadedArticle,
+          req.get('host')
+        );
         if (req.path === '/admin' || req.path.startsWith('/admin/')) {
           res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
         }
@@ -4599,6 +5264,7 @@ async function setupVite() {
       if (!fs.existsSync(indexFile)) {
         return res.status(404).send('Production bundle not built yet.');
       }
+      await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
       let preloadedArticle: any = null;
       const newsSlugMatch = req.path.match(/^\/(?:en|ur)\/news\/([^/]+)\/?$/i);
       if (newsSlugMatch && newsSlugMatch[1]) {
@@ -4608,7 +5274,12 @@ async function setupVite() {
         }
       }
       const rawHtml = fs.readFileSync(indexFile, 'utf-8');
-      const withSeo = MetadataGenerator.injectMetadataIntoHtml(rawHtml, req.originalUrl, preloadedArticle);
+      const withSeo = MetadataGenerator.injectMetadataIntoHtml(
+        rawHtml,
+        req.originalUrl,
+        preloadedArticle,
+        req.get('host')
+      );
       if (req.path === '/admin' || req.path.startsWith('/admin/')) {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
       }
@@ -4617,7 +5288,11 @@ async function setupVite() {
   }
 
   try {
-    await AIProviderManager.hydrateFromSupabaseIfConfigured().catch(() => {});
+    await Promise.all([
+      hydratePortalStateFromSupabase({ force: true }).catch(() => {}),
+      AIProviderManager.hydrateFromSupabaseIfConfigured().catch(() => {}),
+      GoogleIntegrationsService.ensureHydratedIfConfigured(true).catch(() => {}),
+    ]);
   } catch {}
 
   try {

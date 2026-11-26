@@ -1,0 +1,820 @@
+-- =============================================================================
+-- 360Khabarnama — Master Schema Reconciliation, Missing Persistence Tables,
+-- Tombstone Anti-Resurrection & Hardened Least-Privilege RLS Repair Migration
+-- =============================================================================
+-- SAFETY GUARANTEES FOR PRODUCTION EXECUTION:
+--   1. Non-destructive, 100% idempotent (safe on fresh or partially migrated DBs)
+--   2. NEVER drops, truncates, or recreates any existing table
+--   3. Preserves ALL existing articles, users, categories, settings & credentials
+--   4. Preserves public.ai_provider_credentials BIGINT PK & existing row IDs
+--   5. Backfills legacy columns (`icon` -> `icon_name`, `route_path` <-> `path`, etc.)
+--   6. Locks all credential, auth, session, cron-lock & secret tables to service_role
+--   7. Ends with NOTIFY pgrst, 'reload schema' + structural verification query
+-- =============================================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.kn360_set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- -----------------------------------------------------------------------------
+-- 1. Migration Tracking Ledger (public.schema_migrations)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
+  version TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  applied_by TEXT NOT NULL DEFAULT CURRENT_USER,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
+-- 2. Deletion Tombstones (Prevents Deleted Seed Records From Reappearing)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.deleted_tombstones (
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  deleted_by TEXT NOT NULL DEFAULT 'Admin',
+  reason TEXT NOT NULL DEFAULT '',
+  deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (entity_type, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deleted_tombstones_type
+  ON public.deleted_tombstones (entity_type, deleted_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- 3. Reconcile Existing Core & Admin Module Columns (Fixes PGRST204 / 23502 / 23514)
+-- -----------------------------------------------------------------------------
+
+-- 3A. public.categories (`icon` vs `icon_name`)
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name_en TEXT NOT NULL,
+  name_ur TEXT NOT NULL,
+  description_en TEXT DEFAULT '',
+  description_ur TEXT DEFAULT '',
+  icon TEXT DEFAULT 'Newspaper',
+  icon_name TEXT DEFAULT 'Newspaper',
+  color TEXT DEFAULT '#0f6a44',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.categories
+  ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT 'Newspaper',
+  ADD COLUMN IF NOT EXISTS icon_name TEXT DEFAULT 'Newspaper',
+  ADD COLUMN IF NOT EXISTS color TEXT DEFAULT '#0f6a44',
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+UPDATE public.categories
+SET icon_name = COALESCE(NULLIF(icon_name, ''), NULLIF(icon, ''), 'Newspaper'),
+    icon      = COALESCE(NULLIF(icon, ''), NULLIF(icon_name, ''), 'Newspaper')
+WHERE icon_name IS DISTINCT FROM COALESCE(NULLIF(icon_name, ''), NULLIF(icon, ''), 'Newspaper')
+   OR icon      IS DISTINCT FROM COALESCE(NULLIF(icon, ''), NULLIF(icon_name, ''), 'Newspaper');
+
+-- 3B. public.category_pages (missing `updated_by`; safe defaults on `id/name_en/name_ur`)
+CREATE TABLE IF NOT EXISTS public.category_pages (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name_en TEXT NOT NULL DEFAULT '',
+  name_ur TEXT NOT NULL DEFAULT '',
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'draft')),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.category_pages
+  ADD COLUMN IF NOT EXISTS updated_by TEXT NULL,
+  ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE public.category_pages
+  ALTER COLUMN id SET DEFAULT gen_random_uuid()::text,
+  ALTER COLUMN name_en SET DEFAULT '',
+  ALTER COLUMN name_ur SET DEFAULT '';
+
+-- 3C. public.media_assets (`filename`, `alt_text_en`, `alt_text_ur`, safe default on `title`)
+CREATE TABLE IF NOT EXISTS public.media_assets (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  filename TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL,
+  thumbnail_url TEXT NULL,
+  size_bytes BIGINT DEFAULT 0,
+  mime_type TEXT DEFAULT 'image/jpeg',
+  category TEXT DEFAULT 'editorial',
+  caption_en TEXT DEFAULT '',
+  caption_ur TEXT DEFAULT '',
+  alt_en TEXT DEFAULT '',
+  alt_ur TEXT DEFAULT '',
+  alt_text_en TEXT DEFAULT '',
+  alt_text_ur TEXT DEFAULT '',
+  credit TEXT DEFAULT '',
+  source TEXT DEFAULT '',
+  license TEXT DEFAULT '',
+  storage_path TEXT NULL,
+  width INTEGER NULL,
+  height INTEGER NULL,
+  uploaded_by TEXT DEFAULT 'Editorial',
+  usage_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.media_assets
+  ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS filename TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS thumbnail_url TEXT NULL,
+  ADD COLUMN IF NOT EXISTS size_bytes BIGINT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'editorial',
+  ADD COLUMN IF NOT EXISTS caption_en TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS caption_ur TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS alt_en TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS alt_ur TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS alt_text_en TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS alt_text_ur TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS credit TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS license TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS storage_path TEXT NULL,
+  ADD COLUMN IF NOT EXISTS width INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS height INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0;
+
+ALTER TABLE public.media_assets
+  ALTER COLUMN title SET DEFAULT '';
+
+UPDATE public.media_assets
+SET filename    = COALESCE(NULLIF(filename, ''), NULLIF(title, ''), id),
+    title       = COALESCE(NULLIF(title, ''), NULLIF(filename, ''), id),
+    alt_text_en = COALESCE(NULLIF(alt_text_en, ''), alt_en, ''),
+    alt_en      = COALESCE(NULLIF(alt_en, ''), alt_text_en, ''),
+    alt_text_ur = COALESCE(NULLIF(alt_text_ur, ''), alt_ur, ''),
+    alt_ur      = COALESCE(NULLIF(alt_ur, ''), alt_text_ur, '');
+
+-- 3D. public.seo_pages (`path`, `og_image`, `focus_keyword`, `config_json` & safe `route_path`/`canonical_url`)
+CREATE TABLE IF NOT EXISTS public.seo_pages (
+  id TEXT PRIMARY KEY,
+  route_path TEXT NOT NULL UNIQUE,
+  path TEXT NULL UNIQUE,
+  title_en TEXT NOT NULL DEFAULT '',
+  title_ur TEXT NOT NULL DEFAULT '',
+  meta_desc_en TEXT DEFAULT '',
+  meta_desc_ur TEXT DEFAULT '',
+  canonical_url TEXT NOT NULL DEFAULT '',
+  robots_directives TEXT NOT NULL DEFAULT 'index, follow',
+  og_image TEXT DEFAULT '',
+  schema_type TEXT NOT NULL DEFAULT 'WebPage',
+  focus_keyword TEXT DEFAULT '',
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.seo_pages
+  ADD COLUMN IF NOT EXISTS path TEXT NULL,
+  ADD COLUMN IF NOT EXISTS og_image TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS focus_keyword TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE public.seo_pages
+  ALTER COLUMN title_en SET DEFAULT '',
+  ALTER COLUMN title_ur SET DEFAULT '',
+  ALTER COLUMN canonical_url SET DEFAULT '';
+
+UPDATE public.seo_pages
+SET path = COALESCE(NULLIF(path, ''), route_path),
+    route_path = COALESCE(NULLIF(route_path, ''), path)
+WHERE path IS NULL OR path = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_pages_path
+  ON public.seo_pages (path) WHERE path IS NOT NULL;
+
+-- 3E. public.seo_redirects (`notes`, `updated_at`)
+CREATE TABLE IF NOT EXISTS public.seo_redirects (
+  id TEXT PRIMARY KEY,
+  source_path TEXT NOT NULL UNIQUE,
+  target_path TEXT NOT NULL,
+  status_code INTEGER NOT NULL DEFAULT 301 CHECK (status_code IN (301, 302, 410)),
+  hits INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.seo_redirects
+  ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- 3F. public.sync_providers (full reconciliation incl. field_mapping_json, custom_headers_json & counters)
+CREATE TABLE IF NOT EXISTS public.sync_providers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  interval_minutes INTEGER NOT NULL DEFAULT 30,
+  attribution TEXT DEFAULT '',
+  last_sync_at TIMESTAMPTZ NULL,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.sync_providers
+  ADD COLUMN IF NOT EXISTS method TEXT NOT NULL DEFAULT 'GET',
+  ADD COLUMN IF NOT EXISTS daily_quota_limit INTEGER NOT NULL DEFAULT 1000,
+  ADD COLUMN IF NOT EXISTS daily_calls_used INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS requires_api_key BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS has_api_key BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT NULL,
+  ADD COLUMN IF NOT EXISTS masked_api_key TEXT NULL,
+  ADD COLUMN IF NOT EXISTS auth_header_name TEXT DEFAULT 'Authorization',
+  ADD COLUMN IF NOT EXISTS attribution_required BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS commercial_rights BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS is_licensed BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS license_type TEXT DEFAULT 'public_open',
+  ADD COLUMN IF NOT EXISTS last_error TEXT NULL,
+  ADD COLUMN IF NOT EXISTS next_sync_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS field_mapping_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS custom_headers_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS is_built_in BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS total_syncs INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS successful_syncs INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_sync_providers_status_next
+  ON public.sync_providers (status, next_sync_at);
+
+-- 3G. public.automation_jobs (`records_updated`; preserve historical logs if provider is deleted)
+CREATE TABLE IF NOT EXISTS public.automation_jobs (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  trigger_source TEXT NOT NULL DEFAULT 'cron',
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  summary TEXT DEFAULT '',
+  error_message TEXT DEFAULT '',
+  executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.automation_jobs
+  ADD COLUMN IF NOT EXISTS records_updated INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_automation_jobs_provider_exec
+  ON public.automation_jobs (provider_id, executed_at DESC);
+
+-- 3H. public.admin_users (`mfa_enabled`, `bio_en`, `bio_ur`)
+ALTER TABLE public.admin_users
+  ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS bio_en TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS bio_ur TEXT DEFAULT '';
+
+-- 3I. public.site_settings (`updated_by`)
+ALTER TABLE public.site_settings
+  ADD COLUMN IF NOT EXISTS updated_by TEXT NULL;
+
+-- 3J. public.editorial_drafts (`category`, `status`)
+CREATE TABLE IF NOT EXISTS public.editorial_drafts (
+  id TEXT PRIMARY KEY,
+  template TEXT NOT NULL,
+  title_en TEXT NOT NULL DEFAULT '',
+  title_ur TEXT NOT NULL DEFAULT '',
+  summary_en TEXT NOT NULL DEFAULT '',
+  summary_ur TEXT NOT NULL DEFAULT '',
+  content_en TEXT NOT NULL DEFAULT '',
+  content_ur TEXT NOT NULL DEFAULT '',
+  category TEXT DEFAULT 'pakistan',
+  provider_type TEXT NULL,
+  model TEXT NULL,
+  total_tokens INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_by TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.editorial_drafts
+  ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'pakistan',
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
+
+-- 3J2. public.ad_placements & public.ad_campaigns (Fixes missing table error when 001/002 were applied without 003)
+CREATE TABLE IF NOT EXISTS public.ad_placements (
+  id TEXT PRIMARY KEY,
+  slot_id TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  location TEXT NOT NULL DEFAULT 'header_top',
+  dimensions TEXT DEFAULT 'responsive',
+  target_devices TEXT NOT NULL DEFAULT 'all',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  type TEXT DEFAULT 'banner',
+  impressions BIGINT NOT NULL DEFAULT 0,
+  clicks BIGINT NOT NULL DEFAULT 0,
+  ad_code_snippet TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.ad_placements
+  ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'header_top',
+  ADD COLUMN IF NOT EXISTS dimensions TEXT DEFAULT 'responsive',
+  ADD COLUMN IF NOT EXISTS target_devices TEXT NOT NULL DEFAULT 'all',
+  ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'banner',
+  ADD COLUMN IF NOT EXISTS impressions BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS clicks BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS ad_code_snippet TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE TABLE IF NOT EXISTS public.ad_campaigns (
+  id TEXT PRIMARY KEY,
+  campaign_name TEXT NOT NULL,
+  advertiser_name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('draft', 'active', 'paused', 'archived', 'completed')),
+  budget_pkr NUMERIC(14,2) NOT NULL DEFAULT 0,
+  spent_pkr NUMERIC(14,2) NOT NULL DEFAULT 0,
+  impressions BIGINT NOT NULL DEFAULT 0,
+  clicks BIGINT NOT NULL DEFAULT 0,
+  ctr NUMERIC(6,2) NOT NULL DEFAULT 0,
+  start_date TEXT NULL,
+  end_date TEXT NULL,
+  target_slots_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  banner_image_url TEXT DEFAULT '',
+  destination_url TEXT DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 10,
+  notes TEXT DEFAULT '',
+  updated_by TEXT NULL,
+  deleted_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.ad_campaigns
+  ADD COLUMN IF NOT EXISTS advertiser_name TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS budget_pkr NUMERIC(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS spent_pkr NUMERIC(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS impressions BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS clicks BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS ctr NUMERIC(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS start_date TEXT NULL,
+  ADD COLUMN IF NOT EXISTS end_date TEXT NULL,
+  ADD COLUMN IF NOT EXISTS target_slots_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS banner_image_url TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS destination_url TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS updated_by TEXT NULL,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+DO $$
+DECLARE
+  con_name TEXT;
+BEGIN
+  SELECT c.conname INTO con_name
+  FROM pg_constraint c
+  WHERE c.conrelid = 'public.ad_campaigns'::regclass
+    AND c.contype = 'c'
+    AND pg_get_constraintdef(c.oid) ILIKE '%paused%';
+
+  IF con_name IS NOT NULL AND con_name <> 'chk_ad_campaigns_status' THEN
+    EXECUTE format('ALTER TABLE public.ad_campaigns DROP CONSTRAINT %I', con_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.ad_campaigns'::regclass
+      AND conname = 'chk_ad_campaigns_status'
+  ) THEN
+    ALTER TABLE public.ad_campaigns
+      ADD CONSTRAINT chk_ad_campaigns_status
+      CHECK (status IN ('draft', 'active', 'paused', 'archived', 'completed'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_ad_campaigns_active_slots
+  ON public.ad_campaigns (status, priority DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ad_placements_slot_enabled
+  ON public.ad_placements (slot_id, enabled);
+
+-- 3K. public.articles: Expand workflow status CHECK cleanly without breaking existing rows
+DO $$
+DECLARE
+  con_name TEXT;
+BEGIN
+  SELECT c.conname INTO con_name
+  FROM pg_constraint c
+  WHERE c.conrelid = 'public.articles'::regclass
+    AND c.contype = 'c'
+    AND pg_get_constraintdef(c.oid) ILIKE '%in_review%';
+
+  IF con_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE public.articles DROP CONSTRAINT %I', con_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.articles'::regclass
+      AND conname = 'chk_articles_status'
+  ) THEN
+    ALTER TABLE public.articles
+      ADD CONSTRAINT chk_articles_status
+      CHECK (status IN ('draft', 'review', 'in_review', 'approved', 'scheduled', 'published', 'archived', 'rejected', 'failed'));
+  END IF;
+END $$;
+
+-- Performance composite indexes for high-traffic public & admin reads
+CREATE INDEX IF NOT EXISTS idx_articles_pub_feed
+  ON public.articles (status, published_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_articles_cat_pub
+  ON public.articles (category, status, published_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_articles_slug_active
+  ON public.articles (slug) WHERE deleted_at IS NULL;
+
+-- 3L. public.ai_provider_credentials (Complete non-destructive backfill matching Migration 007)
+CREATE TABLE IF NOT EXISTS public.ai_provider_credentials (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.ai_provider_credentials
+  ADD COLUMN IF NOT EXISTS provider_type TEXT NOT NULL DEFAULT 'gemini',
+  ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT 'AI Provider',
+  ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT 'default-project',
+  ADD COLUMN IF NOT EXISTS endpoint_url TEXT NULL,
+  ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS encrypted_secret TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS masked_key TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS daily_token_limit INTEGER NOT NULL DEFAULT 500000,
+  ADD COLUMN IF NOT EXISTS daily_tokens_used INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS monthly_budget_usd NUMERIC(10,2) NOT NULL DEFAULT 25.00,
+  ADD COLUMN IF NOT EXISTS monthly_spend_usd NUMERIC(12,6) NOT NULL DEFAULT 0.000000,
+  ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'unknown',
+  ADD COLUMN IF NOT EXISTS billing_note TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS model_list_status TEXT NOT NULL DEFAULT 'untested',
+  ADD COLUMN IF NOT EXISTS generation_test_status TEXT NOT NULL DEFAULT 'untested',
+  ADD COLUMN IF NOT EXISTS connection_status TEXT NOT NULL DEFAULT 'untested',
+  ADD COLUMN IF NOT EXISTS available_models_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS last_tested_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_successful_verification_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_successful_generation_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_test_status TEXT NOT NULL DEFAULT 'untested',
+  ADD COLUMN IF NOT EXISTS last_test_message TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS last_correlation_id TEXT NULL,
+  ADD COLUMN IF NOT EXISTS last_diagnostic_json JSONB NULL,
+  ADD COLUMN IF NOT EXISTS rate_limit_info_json JSONB NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE OR REPLACE VIEW public.ai_provider_credentials_metadata
+WITH (security_invoker = true) AS
+SELECT
+  id, provider_type, label, project_id, endpoint_url, model, masked_key, enabled, priority,
+  daily_token_limit, daily_tokens_used, monthly_budget_usd, monthly_spend_usd,
+  connection_status, billing_status, billing_note, model_list_status, generation_test_status,
+  available_models_json, last_tested_at, last_successful_verification_at,
+  last_successful_generation_at, last_failure_at, last_test_status, last_test_message,
+  last_latency_ms, last_correlation_id, created_at, updated_at, rate_limit_info_json
+FROM public.ai_provider_credentials;
+
+-- -----------------------------------------------------------------------------
+-- 4. New Persistent Tables Replacing Previously Ephemeral JSON / RAM Storage
+-- -----------------------------------------------------------------------------
+
+-- 4A. Admin Local Password & TOTP MFA Vault (Backend Service Role Only)
+CREATE TABLE IF NOT EXISTS public.admin_auth_credentials (
+  email TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  password_hash TEXT NOT NULL DEFAULT '',
+  mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  mfa_secret_enc TEXT NULL,
+  reset_token_hash TEXT NULL,
+  reset_token_expires_at BIGINT NULL,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until BIGINT NULL,
+  last_login_at TIMESTAMPTZ NULL,
+  password_updated_at TIMESTAMPTZ NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4B. Persistent Admin Sessions & Revocation Registry (Serverless Safe)
+CREATE TABLE IF NOT EXISTS public.admin_sessions (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  name_en TEXT NOT NULL DEFAULT 'Administrator',
+  role TEXT NOT NULL,
+  ip_address TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  revoked BOOLEAN NOT NULL DEFAULT FALSE,
+  revoked_at TIMESTAMPTZ NULL,
+  expires_at BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires
+  ON public.admin_sessions (expires_at, revoked);
+
+-- 4C. Automation Global Settings
+CREATE TABLE IF NOT EXISTS public.automation_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  settings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4D. Distributed Cron Lock Table (Replaces /tmp ephemeral locks)
+CREATE TABLE IF NOT EXISTS public.cron_locks (
+  lock_key TEXT PRIMARY KEY,
+  locked_by TEXT NOT NULL,
+  locked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- 4E. Structured Category & Utility Datasets (Education, Finance, Jobs, etc.)
+CREATE TABLE IF NOT EXISTS public.category_datasets (
+  dataset TEXT PRIMARY KEY,
+  items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_by TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4F. Public News Tips, Corrections, Contact & Feedback Submissions
+CREATE TABLE IF NOT EXISTS public.public_submissions (
+  id TEXT PRIMARY KEY,
+  submission_type TEXT NOT NULL
+    CHECK (submission_type IN ('news_tip', 'correction', 'copyright', 'advertise', 'feedback', 'contact')),
+  name TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  article_url TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'new'
+    CHECK (status IN ('new', 'reviewed', 'resolved', 'archived')),
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_public_submissions_created
+  ON public.public_submissions (created_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- 5. Updated-at Triggers for Reconciled & New Tables
+-- -----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_seo_pages_updated_at ON public.seo_pages;
+CREATE TRIGGER trg_seo_pages_updated_at
+  BEFORE UPDATE ON public.seo_pages
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_seo_redirects_updated_at ON public.seo_redirects;
+CREATE TRIGGER trg_seo_redirects_updated_at
+  BEFORE UPDATE ON public.seo_redirects
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_category_pages_updated_at ON public.category_pages;
+CREATE TRIGGER trg_category_pages_updated_at
+  BEFORE UPDATE ON public.category_pages
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_admin_auth_credentials_updated_at ON public.admin_auth_credentials;
+CREATE TRIGGER trg_admin_auth_credentials_updated_at
+  BEFORE UPDATE ON public.admin_auth_credentials
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_automation_settings_updated_at ON public.automation_settings;
+CREATE TRIGGER trg_automation_settings_updated_at
+  BEFORE UPDATE ON public.automation_settings
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_category_datasets_updated_at ON public.category_datasets;
+CREATE TRIGGER trg_category_datasets_updated_at
+  BEFORE UPDATE ON public.category_datasets
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_public_submissions_updated_at ON public.public_submissions;
+CREATE TRIGGER trg_public_submissions_updated_at
+  BEFORE UPDATE ON public.public_submissions
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_ad_placements_updated_at ON public.ad_placements;
+CREATE TRIGGER trg_ad_placements_updated_at
+  BEFORE UPDATE ON public.ad_placements
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_ad_campaigns_updated_at ON public.ad_campaigns;
+CREATE TRIGGER trg_ad_campaigns_updated_at
+  BEFORE UPDATE ON public.ad_campaigns
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_sync_providers_updated_at ON public.sync_providers;
+CREATE TRIGGER trg_sync_providers_updated_at
+  BEFORE UPDATE ON public.sync_providers
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+-- -----------------------------------------------------------------------------
+-- 6. Hardened Least-Privilege RLS & Role Reconciliation
+-- -----------------------------------------------------------------------------
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.deleted_tombstones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_auth_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.automation_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cron_locks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.category_datasets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.public_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ad_placements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ad_campaigns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sync_providers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.automation_jobs ENABLE ROW LEVEL SECURITY;
+
+-- Server-only private tables: ZERO direct browser / PostgREST access for anon or authenticated
+REVOKE ALL ON public.admin_auth_credentials FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.admin_sessions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.cron_locks FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.deleted_tombstones FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.public_submissions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.schema_migrations FROM PUBLIC, anon, authenticated;
+
+DROP POLICY IF EXISTS "admin_auth_credentials_deny_browser" ON public.admin_auth_credentials;
+CREATE POLICY "admin_auth_credentials_deny_browser"
+  ON public.admin_auth_credentials FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "admin_sessions_deny_browser" ON public.admin_sessions;
+CREATE POLICY "admin_sessions_deny_browser"
+  ON public.admin_sessions FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "cron_locks_deny_browser" ON public.cron_locks;
+CREATE POLICY "cron_locks_deny_browser"
+  ON public.cron_locks FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "deleted_tombstones_deny_browser" ON public.deleted_tombstones;
+CREATE POLICY "deleted_tombstones_deny_browser"
+  ON public.deleted_tombstones FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "public_submissions_deny_browser" ON public.public_submissions;
+CREATE POLICY "public_submissions_deny_browser"
+  ON public.public_submissions FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "schema_migrations_super_admin_read" ON public.schema_migrations;
+CREATE POLICY "schema_migrations_super_admin_read"
+  ON public.schema_migrations FOR SELECT
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+
+-- Fix category_pages draft exposure introduced in Migration 004 (`USING (TRUE)` -> published only)
+DROP POLICY IF EXISTS "category_pages_public_read" ON public.category_pages;
+CREATE POLICY "category_pages_public_read"
+  ON public.category_pages FOR SELECT
+  TO anon, authenticated
+  USING ((status = 'published' AND enabled = TRUE) OR public.is_active_admin());
+
+DROP POLICY IF EXISTS "category_pages_admin_write" ON public.category_pages;
+DROP POLICY IF EXISTS "category_pages_admin_manage" ON public.category_pages;
+CREATE POLICY "category_pages_admin_manage"
+  ON public.category_pages FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']));
+
+-- Reconcile canonical & alias role names on Ads, Audience, SEO & Automation policies
+DROP POLICY IF EXISTS "ad_placements_admin_all" ON public.ad_placements;
+CREATE POLICY "ad_placements_admin_all"
+  ON public.ad_placements FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']));
+
+DROP POLICY IF EXISTS "ad_campaigns_admin_all" ON public.ad_campaigns;
+CREATE POLICY "ad_campaigns_admin_all"
+  ON public.ad_campaigns FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']));
+
+DROP POLICY IF EXISTS "subscribers_public_insert" ON public.newsletter_subscribers;
+REVOKE SELECT, UPDATE, DELETE ON public.newsletter_subscribers FROM anon;
+DROP POLICY IF EXISTS "subscribers_admin_all" ON public.newsletter_subscribers;
+CREATE POLICY "subscribers_admin_all"
+  ON public.newsletter_subscribers FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Audience Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Audience Manager']));
+
+DROP POLICY IF EXISTS "broken_links_admin_all" ON public.broken_links;
+CREATE POLICY "broken_links_admin_all"
+  ON public.broken_links FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist', 'Managing Editor']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist', 'Managing Editor']));
+
+DROP POLICY IF EXISTS "seo_pages_admin_manage" ON public.seo_pages;
+CREATE POLICY "seo_pages_admin_manage"
+  ON public.seo_pages FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']));
+
+DROP POLICY IF EXISTS "seo_redirects_public_read" ON public.seo_redirects;
+CREATE POLICY "seo_redirects_public_read"
+  ON public.seo_redirects FOR SELECT
+  TO anon, authenticated
+  USING (active = TRUE OR public.is_active_admin());
+
+DROP POLICY IF EXISTS "seo_redirects_admin_manage" ON public.seo_redirects;
+CREATE POLICY "seo_redirects_admin_manage"
+  ON public.seo_redirects FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']));
+
+DROP POLICY IF EXISTS "automation_settings_admin_all" ON public.automation_settings;
+CREATE POLICY "automation_settings_admin_all"
+  ON public.automation_settings FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']));
+
+DROP POLICY IF EXISTS "category_datasets_public_read" ON public.category_datasets;
+CREATE POLICY "category_datasets_public_read"
+  ON public.category_datasets FOR SELECT
+  TO anon, authenticated
+  USING (TRUE);
+
+DROP POLICY IF EXISTS "category_datasets_admin_manage" ON public.category_datasets;
+CREATE POLICY "category_datasets_admin_manage"
+  ON public.category_datasets FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
+
+-- Grant full operational rights to trusted backend service_role across every table & sequence
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+REVOKE ALL ON public.ai_provider_credentials_metadata FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.ai_provider_credentials_metadata TO service_role;
+
+-- -----------------------------------------------------------------------------
+-- 7. Record Repair Migration & Reload PostgREST Schema Cache
+-- -----------------------------------------------------------------------------
+INSERT INTO public.schema_migrations (version, name, description)
+VALUES (
+  '009_next_verified_repair',
+  'next_verified_repair.sql',
+  'Complete schema reconciliation, tombstones, auth/session/cron/datasets/submissions persistence, and hardened RLS.'
+)
+ON CONFLICT (version) DO UPDATE SET
+  applied_at = NOW(),
+  description = EXCLUDED.description;
+
+NOTIFY pgrst, 'reload schema';
+
+-- -----------------------------------------------------------------------------
+-- 8. Post-Migration Structural Verification
+-- -----------------------------------------------------------------------------
+SELECT
+  t.table_name,
+  c.relrowsecurity AS rls_enabled,
+  COUNT(col.column_name) AS column_count
+FROM information_schema.tables t
+JOIN pg_class c ON c.relname = t.table_name
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.table_schema
+JOIN information_schema.columns col ON col.table_schema = t.table_schema AND col.table_name = t.table_name
+WHERE t.table_schema = 'public'
+  AND t.table_type = 'BASE TABLE'
+GROUP BY t.table_name, c.relrowsecurity
+ORDER BY t.table_name;

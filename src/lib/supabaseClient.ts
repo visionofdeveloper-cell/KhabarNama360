@@ -22,6 +22,23 @@ export function isBrowserSupabaseConfigured(): boolean {
   return Boolean(String(supabaseUrl).trim() && String(supabasePublishableKey).trim());
 }
 
+export function getBrowserSupabaseDiagnostics(): {
+  urlConfigured: boolean;
+  publishableKeyConfigured: boolean;
+  configured: boolean;
+  mode: 'browser_publishable' | 'server_proxy_only';
+} {
+  const urlConfigured = Boolean(String(supabaseUrl).trim());
+  const publishableKeyConfigured = Boolean(String(supabasePublishableKey).trim());
+  const configured = urlConfigured && publishableKeyConfigured;
+  return {
+    urlConfigured,
+    publishableKeyConfigured,
+    configured,
+    mode: configured ? 'browser_publishable' : 'server_proxy_only',
+  };
+}
+
 let cachedClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {

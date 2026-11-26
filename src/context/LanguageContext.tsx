@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Language } from '../types/index.ts';
+import { trackGoogleEvent } from '../utils/googleTracking.ts';
 
 interface LanguageContextType {
   language: Language;
@@ -8,6 +9,8 @@ interface LanguageContextType {
   t: (key: string) => string;
   currentRoute: string;
   articleSlug: string | null;
+  adminSubPath: string | null;
+  setAdminPath: (subpath: string, replace?: boolean) => void;
   navigateTo: (route: string) => void;
   navigateToArticle: (slug: string) => void;
   selectedArticleId: string | null;
@@ -64,34 +67,40 @@ function parseRouteDetails(
   pathname: string,
   hash = '',
   search = ''
-): { route: string; articleSlug: string | null } {
-  if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
-    return { route: 'admin', articleSlug: null };
-  }
+): { route: string; articleSlug: string | null; adminSubPath: string | null } {
   const cleanPath = (pathname || '/').replace(/\/+$/, '') || '/';
+  const extractAdminSub = (raw: string): string => {
+    const trimmed = raw.replace(/^#?\/admin\/?/, '').replace(/^\/+|\/+$/g, '');
+    return trimmed || '';
+  };
+
+  if (typeof window !== 'undefined' && window.location.hostname.startsWith('admin.')) {
+    const sub = cleanPath === '/' ? '' : cleanPath.replace(/^\/+/, '');
+    return { route: 'admin', articleSlug: null, adminSubPath: sub };
+  }
   if (cleanPath === '/admin' || cleanPath.startsWith('/admin/')) {
-    return { route: 'admin', articleSlug: null };
+    return { route: 'admin', articleSlug: null, adminSubPath: extractAdminSub(cleanPath) };
   }
   if (hash === '#/admin' || hash.startsWith('#/admin/')) {
-    return { route: 'admin', articleSlug: null };
+    return { route: 'admin', articleSlug: null, adminSubPath: extractAdminSub(hash) };
   }
   if (search) {
     const params = new URLSearchParams(search);
     if (params.get('route') === 'admin') {
-      return { route: 'admin', articleSlug: null };
+      return { route: 'admin', articleSlug: null, adminSubPath: params.get('module') || '' };
     }
   }
   const stripped = cleanPath.replace(/^\/(en|ur)(\/|$)/, '').replace(/\/+$/, '');
-  if (!stripped) return { route: 'home', articleSlug: null };
+  if (!stripped) return { route: 'home', articleSlug: null, adminSubPath: null };
   const parts = stripped.split('/').filter(Boolean);
   if (parts[0] === 'news' && parts[1]) {
     try {
-      return { route: 'article', articleSlug: decodeURIComponent(parts.slice(1).join('/')) };
+      return { route: 'article', articleSlug: decodeURIComponent(parts.slice(1).join('/')), adminSubPath: null };
     } catch {
-      return { route: 'article', articleSlug: parts.slice(1).join('/') };
+      return { route: 'article', articleSlug: parts.slice(1).join('/'), adminSubPath: null };
     }
   }
-  return { route: parts[0] || 'home', articleSlug: null };
+  return { route: parts[0] || 'home', articleSlug: null, adminSubPath: null };
 }
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -107,10 +116,11 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const initialParsed =
     typeof window !== 'undefined'
       ? parseRouteDetails(window.location.pathname, window.location.hash, window.location.search)
-      : { route: 'home', articleSlug: null };
+      : { route: 'home', articleSlug: null, adminSubPath: null };
 
   const [currentRoute, setCurrentRoute] = useState<string>(initialParsed.route);
   const [articleSlug, setArticleSlug] = useState<string | null>(initialParsed.articleSlug);
+  const [adminSubPath, setAdminSubPath] = useState<string | null>(initialParsed.adminSubPath);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -121,6 +131,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const parsed = parseRouteDetails(path, window.location.hash, window.location.search);
       setCurrentRoute(parsed.route);
       setArticleSlug(parsed.articleSlug);
+      setAdminSubPath(parsed.adminSubPath);
     };
     window.addEventListener('popstate', syncRoute);
     window.addEventListener('hashchange', syncRoute);
@@ -131,6 +142,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const setLanguage = (lang: Language) => {
+    const prevLang = language;
     setLanguageState(lang);
     localStorage.setItem('pdp_lang', lang);
     if (typeof window !== 'undefined' && currentRoute !== 'admin') {
@@ -141,6 +153,14 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           ? `/${lang}`
           : `/${lang}/${currentRoute}`;
       window.history.pushState({}, '', targetPath);
+      if (prevLang !== lang) {
+        trackGoogleEvent('language_switch', {
+          from_language: prevLang,
+          to_language: lang,
+          page_path: targetPath,
+          route_type: currentRoute,
+        });
+      }
     }
   };
 
@@ -169,16 +189,37 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return isUrdu ? item.ur : item.en;
   };
 
+  const setAdminPath = (subpath: string, replace = false) => {
+    const cleanSub = (subpath || 'overview').replace(/^\/+|\/+$/g, '');
+    setCurrentRoute('admin');
+    setAdminSubPath(cleanSub);
+    if (typeof window !== 'undefined') {
+      const targetUrl = cleanSub ? `/admin/${cleanSub}` : '/admin/overview';
+      if (window.location.pathname !== targetUrl) {
+        if (replace) {
+          window.history.replaceState({}, '', targetUrl);
+        } else {
+          window.history.pushState({}, '', targetUrl);
+        }
+      }
+    }
+  };
+
   const navigateTo = (route: string) => {
     setCurrentRoute(route);
     if (route !== 'article') {
       setSelectedArticleId(null);
       setArticleSlug(null);
     }
+    if (route !== 'admin') {
+      setAdminSubPath(null);
+    } else if (!adminSubPath) {
+      setAdminSubPath('overview');
+    }
     if (typeof window !== 'undefined') {
       const targetUrl =
         route === 'admin'
-          ? '/admin'
+          ? '/admin/overview'
           : route === 'home'
           ? `/${language}`
           : `/${language}/${route}`;
@@ -194,6 +235,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!cleanSlug) return;
     setCurrentRoute('article');
     setArticleSlug(cleanSlug);
+    setAdminSubPath(null);
     if (typeof window !== 'undefined') {
       const targetUrl = `/${language}/news/${encodeURIComponent(cleanSlug)}`;
       if (window.location.pathname !== targetUrl) {
@@ -212,6 +254,8 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         t,
         currentRoute,
         articleSlug,
+        adminSubPath,
+        setAdminPath,
         navigateTo,
         navigateToArticle,
         selectedArticleId,

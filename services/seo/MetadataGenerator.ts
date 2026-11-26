@@ -201,7 +201,13 @@ export class MetadataGenerator {
     };
   }
 
-  public static injectMetadataIntoHtml(html: string, requestPath: string, preloadedArticle?: Article | null): string {
+  public static injectMetadataIntoHtml(
+    html: string,
+    requestPath: string,
+    preloadedArticle?: Article | null,
+    requestHost?: string
+  ): string {
+    const cleanPath = (requestPath || '/').split('?')[0];
     const meta = this.resolveForPath(requestPath, preloadedArticle);
     let out = html;
 
@@ -226,30 +232,101 @@ export class MetadataGenerator {
     }
 
     const settings = db.getData().siteSettings;
-    const isAdminRoute = meta.canonicalUrl.endsWith('/admin');
-    const gaId = (settings.googleAnalyticsId || '').trim();
-    const gtmId = (settings.googleTagManagerId || '').trim();
+    const gi = settings.googleIntegrations;
+    const isAdminRoute = cleanPath === '/admin' || cleanPath.startsWith('/admin/');
     const bingCode = (settings.bingWebmasterVerification || '').trim();
-    const gscCode = (settings.searchConsoleVerification || '').trim();
+    const gscCode = (gi?.searchConsole?.verificationCode || settings.searchConsoleVerification || '').trim();
+
+    const rawGa = (gi?.analytics?.measurementId ?? settings.googleAnalyticsId ?? '').trim().toUpperCase();
+    const gaId =
+      rawGa === 'G-KHABAR360' || rawGa === 'G-PAKPORTAL2026' || !/^G-[A-Z0-9]{6,16}$/.test(rawGa)
+        ? ''
+        : rawGa;
+    const rawGtm = (gi?.tagManager?.containerId ?? settings.googleTagManagerId ?? '').trim().toUpperCase();
+    const gtmId = /^GTM-[A-Z0-9]{4,14}$/.test(rawGtm) ? rawGtm : '';
+
+    const gaEnabled = Boolean((gi?.analytics?.enabled ?? Boolean(gaId)) && gaId);
+    const gtmEnabled = Boolean((gi?.tagManager?.enabled ?? Boolean(gtmId)) && gtmId);
+    const excludeAdmin = gi?.analytics?.excludeAdmin ?? gi?.tagManager?.excludeAdmin ?? true;
+    const excludeStaging = Boolean(gi?.analytics?.excludeStaging);
+    const consentModeEnabled = gi?.tagManager?.consentModeEnabled ?? true;
+    const debugMode = Boolean(gi?.analytics?.debugMode);
+    const anonymizeIp = gi?.analytics?.anonymizeIp ?? true;
+    const trackEnhancedEvents = gi?.analytics?.trackEnhancedEvents ?? true;
+
+    let trackingMode: 'gtm' | 'direct_gtag' | 'disabled' =
+      gi?.analytics?.trackingMode || (gtmEnabled ? 'gtm' : gaEnabled ? 'direct_gtag' : 'disabled');
+    if (trackingMode === 'gtm' && !gtmEnabled) {
+      trackingMode = gaEnabled ? 'direct_gtag' : 'disabled';
+    } else if (trackingMode === 'direct_gtag' && !gaEnabled) {
+      trackingMode = gtmEnabled ? 'gtm' : 'disabled';
+    }
+
+    const cleanHost = String(requestHost || '').toLowerCase().split(':')[0].trim();
+    const isStagingHost =
+      Boolean(cleanHost) &&
+      (cleanHost === 'localhost' ||
+        cleanHost === '127.0.0.1' ||
+        cleanHost === '0.0.0.0' ||
+        (cleanHost.endsWith('.vercel.app') && cleanHost !== 'www.360khabarnama.com'));
+
+    const shouldInjectTrackers =
+      trackingMode !== 'disabled' &&
+      !(isAdminRoute && excludeAdmin) &&
+      !(isStagingHost && excludeStaging);
 
     const analyticsTags: string[] = [];
-    if (gscCode && !out.includes('google-site-verification')) {
+    if (!isAdminRoute && gscCode && !out.includes('google-site-verification')) {
       analyticsTags.push(`<meta name="google-site-verification" content="${escapeAttr(gscCode)}" />`);
     }
-    if (bingCode && !out.includes('msvalidate.01')) {
+    if (!isAdminRoute && bingCode && !out.includes('msvalidate.01')) {
       analyticsTags.push(`<meta name="msvalidate.01" content="${escapeAttr(bingCode)}" />`);
     }
-    if (!isAdminRoute) {
-      if (/^GTM-[A-Z0-9]+$/i.test(gtmId) && !out.includes(gtmId)) {
+
+    const safeBootstrapJson = JSON.stringify({
+      ga4Enabled: gaEnabled,
+      ga4MeasurementId: gaId,
+      gtmEnabled,
+      gtmContainerId: gtmId,
+      trackingMode: shouldInjectTrackers ? trackingMode : 'disabled',
+      anonymizeIp,
+      debugMode,
+      excludeAdmin,
+      excludeStaging,
+      isStagingHost,
+      activeOnRequest: shouldInjectTrackers,
+      consentBannerEnabled: settings.consentBannerEnabled ?? true,
+      consentModeEnabled,
+      trackEnhancedEvents,
+    }).replace(/</g, '\\u003c');
+
+    if (!(isAdminRoute && excludeAdmin)) {
+      analyticsTags.push(`<script>window.__360KN_TRACKING__=${safeBootstrapJson};</script>`);
+    }
+
+    let gtmBodyNoscript = '';
+
+    if (shouldInjectTrackers) {
+      // Google Consent Mode v2 Default MUST execute before GTM / gtag.js
+      if (consentModeEnabled) {
+        analyticsTags.push(
+          `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}try{var _c=JSON.parse(localStorage.getItem('360khabarnama_consent')||'null');var _ag=!!(_c&&_c.analytics);var _ad=!!(_c&&_c.advertising);gtag('consent','default',{analytics_storage:_ag?'granted':'denied',ad_storage:_ad?'granted':'denied',ad_user_data:_ad?'granted':'denied',ad_personalization:_ad?'granted':'denied',wait_for_update:500});}catch(_e){gtag('consent','default',{analytics_storage:'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',wait_for_update:500});}</script>`
+        );
+      }
+
+      if (trackingMode === 'gtm' && gtmId && !out.includes(`gtm.js?id=${gtmId}`)) {
+        // GTM-managed mode: inject GTM <head> + <body> <noscript> ONLY (no duplicate direct gtag.js!)
         analyticsTags.push(
           `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${escapeAttr(gtmId)}');</script>`
         );
-      }
-      if (/^(G|UA|AW|DC)-[A-Z0-9-]+$/i.test(gaId) && !out.includes(gaId)) {
-        const sendPageView = !/^GTM-[A-Z0-9]+$/i.test(gtmId);
+        if (!out.includes(`ns.html?id=${gtmId}`)) {
+          gtmBodyNoscript = `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${escapeAttr(gtmId)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>`;
+        }
+      } else if (trackingMode === 'direct_gtag' && gaId && !out.includes(`gtag/js?id=${gaId}`)) {
+        // Direct gtag.js mode: send_page_view:false so React SPA tracker emits single deduplicated page_view per view
         analyticsTags.push(
           `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeAttr(gaId)}"></script>` +
-            `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${escapeAttr(gaId)}',{send_page_view:${sendPageView}});</script>`
+            `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${escapeAttr(gaId)}',{send_page_view:false,anonymize_ip:${anonymizeIp}${debugMode ? ',debug_mode:true' : ''}});</script>`
         );
       }
     }
@@ -277,6 +354,9 @@ export class MetadataGenerator {
       .join('\n    ');
 
     out = out.replace('</head>', `    ${injectedHeadTags}\n  </head>`);
+    if (gtmBodyNoscript) {
+      out = out.replace(/<body([^>]*)>/i, `<body$1>\n    ${gtmBodyNoscript}`);
+    }
     return out;
   }
 }
