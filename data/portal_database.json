@@ -1,6 +1,45 @@
 {
   "articles": [
     {
+      "id": "art-auto-world-1795678410072-0",
+      "slug": "world-french-navy-intercepts-suspected-drug-smuggling-semi-submersible-1fc170",
+      "titleEn": "French navy intercepts suspected drug-smuggling semi-submersible",
+      "titleUr": "عالمی خبر: French navy intercepts suspected drug-smuggling semi-submersible",
+      "summaryEn": "French forces intercepted a semi-submersible suspected of drug trafficking in the Atlantic.",
+      "summaryUr": "French forces intercepted a semi-submersible suspected of drug trafficking in the Atlantic. (الجزیرہ انٹرنیشنل)",
+      "contentEn": "French forces intercepted a semi-submersible suspected of drug trafficking in the Atlantic.\n\nSource Attribution: Al Jazeera English\nOriginal Report: https://www.aljazeera.com/video/newsfeed/2026/11/26/french-navy-intercepts-suspected-drug-smuggling-semi-submersible?traffic_source=rss",
+      "contentUr": "French forces intercepted a semi-submersible suspected of drug trafficking in the Atlantic.\n\nحوالہ: الجزیرہ انٹرنیشنل",
+      "category": "world",
+      "tags": [
+        "WorldNews",
+        "Geopolitics",
+        "Breaking"
+      ],
+      "author": {
+        "id": "auth-wire-world",
+        "nameEn": "Al Jazeera English Wire",
+        "nameUr": "الجزیرہ انٹرنیشنل نیوز ڈیسک",
+        "avatar": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=200&q=80",
+        "role": "Automated Verified Wire"
+      },
+      "publishedAt": "2026-11-26T07:15:39.000Z",
+      "updatedAt": "2026-11-26T07:33:30.073Z",
+      "createdBy": "Automated News Wire",
+      "views": 0,
+      "status": "published",
+      "version": 1,
+      "deletedAt": null,
+      "heroImage": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
+      "imageCaptionEn": "French navy intercepts suspected drug-smuggling semi-submersible (Al Jazeera English)",
+      "imageCaptionUr": "الجزیرہ انٹرنیشنل",
+      "isBreaking": true,
+      "isFeatured": false,
+      "isTrending": true,
+      "homepageSlot": "none",
+      "readingTimeMin": 2,
+      "versions": []
+    },
+    {
       "id": "art-auto-sports-1795677754738-4",
       "slug": "sports-four-time-mvp-rodgers-released-and-may-have-played-last-nfl-game-b7db7e",
       "titleEn": "Four-time MVP Rodgers released and may have played last NFL game",
@@ -7659,8 +7698,8 @@
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 28,
-      "lowC": 20,
-      "humidity": 59,
+      "lowC": 19,
+      "humidity": 60,
       "windKmh": 8,
       "aqi": 102,
       "aqiStatusEn": "Unhealthy for Sensitive",
@@ -7671,12 +7710,12 @@
       "hourly": [
         {
           "time": "07:00",
-          "tempC": 20,
+          "tempC": 19,
           "condition": "Clear Sky"
         },
         {
           "time": "10:00",
-          "tempC": 26,
+          "tempC": 25,
           "condition": "Clear Sky"
         },
         {
@@ -7700,7 +7739,7 @@
           "dayEn": "Thu",
           "dayUr": "جمعرات",
           "highC": 28,
-          "lowC": 20,
+          "lowC": 19,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
@@ -7750,7 +7789,7 @@
       "highC": 24,
       "lowC": 12,
       "humidity": 47,
-      "windKmh": 2,
+      "windKmh": 3,
       "aqi": 250,
       "aqiStatusEn": "Hazardous Smog Alert",
       "aqiStatusUr": "شدید خطرناک اسموگ",
@@ -7765,12 +7804,12 @@
         },
         {
           "time": "10:00",
-          "tempC": 20,
+          "tempC": 19,
           "condition": "Clear Sky"
         },
         {
           "time": "13:00",
-          "tempC": 24,
+          "tempC": 23,
           "condition": "Clear Sky"
         },
         {
@@ -7780,7 +7819,7 @@
         },
         {
           "time": "19:00",
-          "tempC": 19,
+          "tempC": 18,
           "condition": "Clear Sky"
         }
       ],
@@ -7813,7 +7852,7 @@
           "dayEn": "Sun",
           "dayUr": "اتوار",
           "highC": 24,
-          "lowC": 13,
+          "lowC": 12,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         },
@@ -7821,7 +7860,7 @@
           "dayEn": "Mon",
           "dayUr": "پیر",
           "highC": 24,
-          "lowC": 13,
+          "lowC": 12,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         }
@@ -7848,7 +7887,7 @@
       "aqi": 153,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
-      "feelsLikeC": 20,
+      "feelsLikeC": 19,
       "sunrise": "06:49 AM",
       "sunset": "05:00 PM",
       "hourly": [
@@ -7859,12 +7898,12 @@
         },
         {
           "time": "10:00",
-          "tempC": 18,
+          "tempC": 17,
           "condition": "Clear Sky"
         },
         {
           "time": "13:00",
-          "tempC": 21,
+          "tempC": 20,
           "condition": "Clear Sky"
         },
         {
@@ -7891,7 +7930,7 @@
           "dayEn": "Fri",
           "dayUr": "جمعہ",
           "highC": 21,
-          "lowC": 12,
+          "lowC": 11,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
@@ -7930,9 +7969,9 @@
       "tempC": 20,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 22,
+      "highC": 21,
       "lowC": 10,
-      "humidity": 49,
+      "humidity": 50,
       "windKmh": 2,
       "aqi": 153,
       "aqiStatusEn": "Unhealthy (Smog)",
@@ -7948,7 +7987,7 @@
         },
         {
           "time": "10:00",
-          "tempC": 17,
+          "tempC": 16,
           "condition": "Clear Sky"
         },
         {
@@ -7958,7 +7997,7 @@
         },
         {
           "time": "16:00",
-          "tempC": 21,
+          "tempC": 20,
           "condition": "Clear Sky"
         },
         {
@@ -7971,7 +8010,7 @@
         {
           "dayEn": "Thu",
           "dayUr": "جمعرات",
-          "highC": 22,
+          "highC": 21,
           "lowC": 10,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
@@ -8004,7 +8043,7 @@
           "dayEn": "Mon",
           "dayUr": "پیر",
           "highC": 22,
-          "lowC": 11,
+          "lowC": 10,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         }
@@ -8016,13 +8055,13 @@
       "nameUr": "پشاور",
       "provinceEn": "Khyber Pakhtunkhwa",
       "provinceUr": "خیبر پختونخوا",
-      "tempC": 20,
+      "tempC": 21,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 22,
       "lowC": 10,
       "humidity": 54,
-      "windKmh": 3,
+      "windKmh": 2,
       "aqi": 165,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
@@ -8047,12 +8086,12 @@
         },
         {
           "time": "16:00",
-          "tempC": 21,
+          "tempC": 20,
           "condition": "Clear Sky"
         },
         {
           "time": "19:00",
-          "tempC": 16,
+          "tempC": 15,
           "condition": "Clear Sky"
         }
       ],
@@ -8078,8 +8117,8 @@
           "dayUr": "ہفتہ",
           "highC": 22,
           "lowC": 10,
-          "conditionEn": "Mainly Clear",
-          "conditionUr": "زیادہ تر صاف"
+          "conditionEn": "Dense Fog / Smog",
+          "conditionUr": "شدید دھند اور اسموگ"
         },
         {
           "dayEn": "Sun",
@@ -8110,12 +8149,12 @@
       "conditionUr": "صاف مطلع",
       "highC": 20,
       "lowC": 9,
-      "humidity": 23,
-      "windKmh": 6,
+      "humidity": 22,
+      "windKmh": 7,
       "aqi": 62,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 16,
+      "feelsLikeC": 17,
       "sunrise": "07:06 AM",
       "sunset": "05:32 PM",
       "hourly": [
@@ -8157,7 +8196,7 @@
         {
           "dayEn": "Fri",
           "dayUr": "جمعہ",
-          "highC": 20,
+          "highC": 19,
           "lowC": 8,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
@@ -8165,7 +8204,7 @@
         {
           "dayEn": "Sat",
           "dayUr": "ہفتہ",
-          "highC": 21,
+          "highC": 20,
           "lowC": 8,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
@@ -8194,12 +8233,12 @@
       "nameUr": "ملتان",
       "provinceEn": "Punjab",
       "provinceUr": "پنجاب",
-      "tempC": 27,
+      "tempC": 28,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
       "highC": 29,
-      "lowC": 14,
-      "humidity": 23,
+      "lowC": 13,
+      "humidity": 22,
       "windKmh": 8,
       "aqi": 169,
       "aqiStatusEn": "Unhealthy (Smog)",
@@ -8210,17 +8249,17 @@
       "hourly": [
         {
           "time": "07:00",
-          "tempC": 14,
+          "tempC": 13,
           "condition": "Clear Sky"
         },
         {
           "time": "10:00",
-          "tempC": 23,
+          "tempC": 22,
           "condition": "Clear Sky"
         },
         {
           "time": "13:00",
-          "tempC": 29,
+          "tempC": 28,
           "condition": "Clear Sky"
         },
         {
@@ -8239,14 +8278,14 @@
           "dayEn": "Thu",
           "dayUr": "جمعرات",
           "highC": 29,
-          "lowC": 14,
+          "lowC": 13,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
         {
           "dayEn": "Fri",
           "dayUr": "جمعہ",
-          "highC": 29,
+          "highC": 28,
           "lowC": 13,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
@@ -8360,7 +8399,7 @@
           "dayEn": "Mon",
           "dayUr": "پیر",
           "highC": 24,
-          "lowC": 13,
+          "lowC": 12,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         }
@@ -8380,10 +8419,10 @@
       "tempC": 22,
       "conditionEn": "Clear Sky",
       "conditionUr": "صاف مطلع",
-      "highC": 23,
+      "highC": 22,
       "lowC": 11,
       "humidity": 50,
-      "windKmh": 2,
+      "windKmh": 4,
       "aqi": 240,
       "aqiStatusEn": "Hazardous Smog Alert",
       "aqiStatusUr": "شدید خطرناک اسموگ",
@@ -8398,17 +8437,17 @@
         },
         {
           "time": "10:00",
-          "tempC": 19,
+          "tempC": 18,
           "condition": "Clear Sky"
         },
         {
           "time": "13:00",
-          "tempC": 23,
+          "tempC": 22,
           "condition": "Clear Sky"
         },
         {
           "time": "16:00",
-          "tempC": 22,
+          "tempC": 21,
           "condition": "Clear Sky"
         },
         {
@@ -8421,7 +8460,7 @@
         {
           "dayEn": "Thu",
           "dayUr": "جمعرات",
-          "highC": 23,
+          "highC": 22,
           "lowC": 11,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
@@ -8445,7 +8484,7 @@
         {
           "dayEn": "Sun",
           "dayUr": "اتوار",
-          "highC": 24,
+          "highC": 23,
           "lowC": 11,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
@@ -8476,8 +8515,8 @@
       "conditionUr": "صاف مطلع",
       "highC": 31,
       "lowC": 16,
-      "humidity": 26,
-      "windKmh": 6,
+      "humidity": 24,
+      "windKmh": 5,
       "aqi": 128,
       "aqiStatusEn": "Unhealthy for Sensitive",
       "aqiStatusUr": "حساس افراد کے لیے مضر",
@@ -8492,7 +8531,7 @@
         },
         {
           "time": "10:00",
-          "tempC": 26,
+          "tempC": 25,
           "condition": "Clear Sky"
         },
         {
@@ -8565,8 +8604,8 @@
       "conditionUr": "صاف مطلع",
       "highC": 15,
       "lowC": 4,
-      "humidity": 29,
-      "windKmh": 5,
+      "humidity": 31,
+      "windKmh": 6,
       "aqi": 151,
       "aqiStatusEn": "Unhealthy (Smog)",
       "aqiStatusUr": "مضرِ صحت (اسموگ)",
@@ -8576,7 +8615,7 @@
       "hourly": [
         {
           "time": "07:00",
-          "tempC": 4,
+          "tempC": 5,
           "condition": "Clear Sky"
         },
         {
@@ -8591,7 +8630,7 @@
         },
         {
           "time": "16:00",
-          "tempC": 11,
+          "tempC": 10,
           "condition": "Clear Sky"
         },
         {
@@ -8613,7 +8652,7 @@
           "dayEn": "Fri",
           "dayUr": "جمعہ",
           "highC": 13,
-          "lowC": 3,
+          "lowC": 4,
           "conditionEn": "Clear Sky",
           "conditionUr": "صاف مطلع"
         },
@@ -8637,7 +8676,7 @@
           "dayEn": "Mon",
           "dayUr": "پیر",
           "highC": 15,
-          "lowC": 5,
+          "lowC": 4,
           "conditionEn": "Overcast",
           "conditionUr": "مطلع ابر آلود"
         }
@@ -8654,12 +8693,12 @@
       "conditionUr": "صاف مطلع",
       "highC": 28,
       "lowC": 21,
-      "humidity": 51,
-      "windKmh": 6,
+      "humidity": 52,
+      "windKmh": 9,
       "aqi": 58,
       "aqiStatusEn": "Moderate",
       "aqiStatusUr": "معتدل",
-      "feelsLikeC": 29,
+      "feelsLikeC": 30,
       "sunrise": "07:15 AM",
       "sunset": "06:00 PM",
       "hourly": [
@@ -8736,31 +8775,31 @@
   "goldRates": [
     {
       "karat": "24K (Per Tola)",
-      "tolaPkr": 373600,
-      "tenGramPkr": 320307,
-      "changePkr": 6100,
-      "isPositive": false
+      "tolaPkr": 374000,
+      "tenGramPkr": 320650,
+      "changePkr": 400,
+      "isPositive": true
     },
     {
       "karat": "22K (Per Tola)",
-      "tolaPkr": 342500,
-      "tenGramPkr": 293644,
-      "changePkr": 5588,
-      "isPositive": false
+      "tolaPkr": 342800,
+      "tenGramPkr": 293901,
+      "changePkr": 366,
+      "isPositive": true
     },
     {
       "karat": "21K (Per Tola)",
-      "tolaPkr": 326900,
-      "tenGramPkr": 280269,
-      "changePkr": 5338,
-      "isPositive": false
+      "tolaPkr": 327300,
+      "tenGramPkr": 280612,
+      "changePkr": 350,
+      "isPositive": true
     },
     {
       "karat": "18K (Per Tola)",
-      "tolaPkr": 280200,
-      "tenGramPkr": 240230,
-      "changePkr": 4575,
-      "isPositive": false
+      "tolaPkr": 280500,
+      "tenGramPkr": 240488,
+      "changePkr": 300,
+      "isPositive": true
     }
   ],
   "currencyRates": [
@@ -8771,7 +8810,7 @@
       "buyingPkr": 277.5,
       "sellingPkr": 279.43,
       "interbankPkr": 276.39,
-      "change": -0.16,
+      "change": 0,
       "flag": "🇺🇸"
     },
     {
@@ -8781,7 +8820,7 @@
       "buyingPkr": 304.12,
       "sellingPkr": 306.24,
       "interbankPkr": 302.91,
-      "change": 0.88,
+      "change": 0,
       "flag": "🇪🇺"
     },
     {
@@ -8791,7 +8830,7 @@
       "buyingPkr": 363.57,
       "sellingPkr": 366.1,
       "interbankPkr": 362.12,
-      "change": 1.41,
+      "change": 0,
       "flag": "🇬🇧"
     },
     {
@@ -8801,7 +8840,7 @@
       "buyingPkr": 73.99,
       "sellingPkr": 74.51,
       "interbankPkr": 73.7,
-      "change": -0.05,
+      "change": 0,
       "flag": "🇸🇦"
     },
     {
@@ -8811,7 +8850,7 @@
       "buyingPkr": 75.56,
       "sellingPkr": 76.09,
       "interbankPkr": 75.26,
-      "change": -0.04,
+      "change": 0,
       "flag": "🇦🇪"
     },
     {
@@ -8821,7 +8860,7 @@
       "buyingPkr": 194.17,
       "sellingPkr": 195.53,
       "interbankPkr": 193.4,
-      "change": 0.82,
+      "change": 0,
       "flag": "🇨🇦"
     },
     {
@@ -8831,7 +8870,7 @@
       "buyingPkr": 184.1,
       "sellingPkr": 185.39,
       "interbankPkr": 183.37,
-      "change": 0.09,
+      "change": 0,
       "flag": "🇦🇺"
     },
     {
@@ -8841,7 +8880,7 @@
       "buyingPkr": 41.56,
       "sellingPkr": 41.85,
       "interbankPkr": 41.39,
-      "change": -0.01,
+      "change": 0,
       "flag": "🇨🇳"
     },
     {
@@ -8851,7 +8890,7 @@
       "buyingPkr": 890.99,
       "sellingPkr": 897.2,
       "interbankPkr": 887.44,
-      "change": 0.18,
+      "change": 0,
       "flag": "🇰🇼"
     }
   ],
@@ -8933,8 +8972,8 @@
   "cricketMatches": [
     {
       "id": "cric-live-1",
-      "titleEn": "Western Australia 439/10 v Tasmania 342/10 & 201/6 *",
-      "titleUr": "انٹرنیشنل کرکٹ: Western Australia 439/10 v Tasmania 342/10 & 201/6 *",
+      "titleEn": "Western Australia 439/10 v Tasmania 342/10 & 206/7 *",
+      "titleUr": "انٹرنیشنل کرکٹ: Western Australia 439/10 v Tasmania 342/10 & 206/7 *",
       "tournament": "ICC / International Live Match Center",
       "status": "live",
       "teamA": {
@@ -8947,16 +8986,16 @@
         "code": "TAS",
         "flag": "🏏"
       },
-      "statusTextEn": "Western Australia 439/10 v Tasmania 342/10 & 201/6 *",
-      "statusTextUr": "Western Australia 439/10 v Tasmania 342/10 & 201/6 *",
+      "statusTextEn": "Western Australia 439/10 v Tasmania 342/10 & 206/7 *",
+      "statusTextUr": "Western Australia 439/10 v Tasmania 342/10 & 206/7 *",
       "venueEn": "Live International Fixture",
       "venueUr": "لائیو بین الاقوامی اسکور",
       "dateStr": "26-Nov-2026"
     },
     {
       "id": "cric-live-2",
-      "titleEn": "South Australia 129/2 & 287/10 * v Victoria 417/10",
-      "titleUr": "انٹرنیشنل کرکٹ: South Australia 129/2 & 287/10 * v Victoria 417/10",
+      "titleEn": "South Australia 287/10 & 136/2 * v Victoria 417/10",
+      "titleUr": "انٹرنیشنل کرکٹ: South Australia 287/10 & 136/2 * v Victoria 417/10",
       "tournament": "ICC / International Live Match Center",
       "status": "live",
       "teamA": {
@@ -8969,8 +9008,8 @@
         "code": "VIC",
         "flag": "🏏"
       },
-      "statusTextEn": "South Australia 129/2 & 287/10 * v Victoria 417/10",
-      "statusTextUr": "South Australia 129/2 & 287/10 * v Victoria 417/10",
+      "statusTextEn": "South Australia 287/10 & 136/2 * v Victoria 417/10",
+      "statusTextUr": "South Australia 287/10 & 136/2 * v Victoria 417/10",
       "venueEn": "Live International Fixture",
       "venueUr": "لائیو بین الاقوامی اسکور",
       "dateStr": "26-Nov-2026"
@@ -9739,6 +9778,41 @@
     "searchConsoleVerification": "abc1234567890_token"
   },
   "auditLogs": [
+    {
+      "id": "log-1795678561481",
+      "timestamp": "2026-11-26T07:36:01.481Z",
+      "user": "Supabase Hydration",
+      "action": "Settings Updated",
+      "details": "Updated site appearance and configuration"
+    },
+    {
+      "id": "log-1795678480183",
+      "timestamp": "2026-11-26T07:34:40.183Z",
+      "user": "Supabase Hydration",
+      "action": "Settings Updated",
+      "details": "Updated site appearance and configuration"
+    },
+    {
+      "id": "log-1795678410074",
+      "timestamp": "2026-11-26T07:33:30.074Z",
+      "user": "Automated News Wire",
+      "action": "Article Created",
+      "details": "Created article art-auto-world-1795678410072-0: French navy intercepts suspected drug-smuggling semi-submersible (Status: published)"
+    },
+    {
+      "id": "log-1795678408153",
+      "timestamp": "2026-11-26T07:33:28.153Z",
+      "user": "AI Automation Engine",
+      "action": "Automation Settings Updated",
+      "details": "Modified live sync intervals or engine flags"
+    },
+    {
+      "id": "log-1795678405867",
+      "timestamp": "2026-11-26T07:33:25.868Z",
+      "user": "Supabase Hydration",
+      "action": "Settings Updated",
+      "details": "Updated site appearance and configuration"
+    },
     {
       "id": "log-1795677803024",
       "timestamp": "2026-11-26T07:23:23.024Z",
@@ -11103,41 +11177,6 @@
       "user": "Automated Data Engine",
       "action": "AI Provider Updated",
       "details": "Updated gemini credential \"Gemini Key 4\" (gcp-proj-4)"
-    },
-    {
-      "id": "log-1795004852762",
-      "timestamp": "2026-11-18T12:27:32.762Z",
-      "user": "Automated Data Engine",
-      "action": "AI Provider Updated",
-      "details": "Updated gemini credential \"Gemini Key 3\" (gcp-proj-3)"
-    },
-    {
-      "id": "log-1795004852736",
-      "timestamp": "2026-11-18T12:27:32.736Z",
-      "user": "Automated Data Engine",
-      "action": "AI Provider Updated",
-      "details": "Updated gemini credential \"Gemini Key 2\" (gcp-proj-2)"
-    },
-    {
-      "id": "log-1795004852714",
-      "timestamp": "2026-11-18T12:27:32.714Z",
-      "user": "Automated Data Engine",
-      "action": "AI Provider Updated",
-      "details": "Updated gemini credential \"Gemini Key 1\" (gcp-proj-1)"
-    },
-    {
-      "id": "log-1795004852359",
-      "timestamp": "2026-11-18T12:27:32.359Z",
-      "user": "Automated News Wire",
-      "action": "Article Created",
-      "details": "Created article art-auto-sports-1795004852359-2: Cricket Australia sets up 'safe space' for players to share sandpapergate experiences (Status: published)"
-    },
-    {
-      "id": "log-1795004852294",
-      "timestamp": "2026-11-18T12:27:32.294Z",
-      "user": "Automated News Wire",
-      "action": "Article Created",
-      "details": "Created article art-auto-sports-1795004852294-1: Duckett ton & impressive bowlers give England series win (Status: published)"
     }
   ],
   "dataProviders": [
@@ -11148,17 +11187,17 @@
       "endpoint": "https://open.er-api.com/v6/latest/USD",
       "status": "active",
       "intervalMinutes": 30,
-      "lastSyncAt": "2026-11-26T07:06:47.221Z",
-      "nextSyncAt": "2026-11-26T07:36:47.236Z",
+      "lastSyncAt": "2026-11-26T07:33:26.456Z",
+      "nextSyncAt": "2026-11-26T08:03:26.476Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "ExchangeRate-API & SBP Foreign Exchange Regulations",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 249,
-      "successfulSyncs": 249,
-      "dailyCallsUsed": 50
+      "totalSyncs": 251,
+      "successfulSyncs": 251,
+      "dailyCallsUsed": 51
     },
     {
       "id": "weather-openmeteo",
@@ -11167,17 +11206,17 @@
       "endpoint": "https://api.open-meteo.com/v1/forecast",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-26T07:06:48.336Z",
-      "nextSyncAt": "2026-11-26T08:06:48.351Z",
+      "lastSyncAt": "2026-11-26T07:33:28.213Z",
+      "nextSyncAt": "2026-11-26T08:33:28.230Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Open-Meteo & Pakistan Meteorological Department (PMD)",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 209,
-      "successfulSyncs": 193,
-      "dailyCallsUsed": 51
+      "totalSyncs": 211,
+      "successfulSyncs": 195,
+      "dailyCallsUsed": 52
     },
     {
       "id": "gold-bullion",
@@ -11186,17 +11225,17 @@
       "endpoint": "https://api.frankfurter.app/latest",
       "status": "active",
       "intervalMinutes": 60,
-      "lastSyncAt": "2026-11-26T07:06:49.022Z",
-      "nextSyncAt": "2026-11-26T08:06:49.040Z",
+      "lastSyncAt": "2026-11-26T07:33:28.940Z",
+      "nextSyncAt": "2026-11-26T08:33:28.960Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "All Pakistan Gem & Jewellers Association (APGJAA)",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 171,
-      "successfulSyncs": 171,
-      "dailyCallsUsed": 50
+      "totalSyncs": 173,
+      "successfulSyncs": 173,
+      "dailyCallsUsed": 51
     },
     {
       "id": "fuel-ogra",
@@ -11205,17 +11244,17 @@
       "endpoint": "https://www.ogra.org.pk/petroleum-prices",
       "status": "active",
       "intervalMinutes": 360,
-      "lastSyncAt": "2026-11-26T07:06:49.121Z",
-      "nextSyncAt": "2026-11-26T13:06:49.134Z",
+      "lastSyncAt": "2026-11-26T07:33:29.049Z",
+      "nextSyncAt": "2026-11-26T13:33:29.069Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Oil & Gas Regulatory Authority (OGRA) Official Gazette",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 124,
-      "successfulSyncs": 124,
-      "dailyCallsUsed": 47
+      "totalSyncs": 126,
+      "successfulSyncs": 126,
+      "dailyCallsUsed": 48
     },
     {
       "id": "cricket-feed",
@@ -11224,17 +11263,17 @@
       "endpoint": "https://www.pcb.com.pk/live-scores",
       "status": "active",
       "intervalMinutes": 10,
-      "lastSyncAt": "2026-11-26T07:17:51.555Z",
-      "nextSyncAt": "2026-11-26T07:27:51.577Z",
+      "lastSyncAt": "2026-11-26T07:33:29.492Z",
+      "nextSyncAt": "2026-11-26T07:43:29.516Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "Pakistan Cricket Board (PCB) & International Cricket Council",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 299,
-      "successfulSyncs": 299,
-      "dailyCallsUsed": 55
+      "totalSyncs": 301,
+      "successfulSyncs": 301,
+      "dailyCallsUsed": 56
     },
     {
       "id": "world-news-rss",
@@ -11243,17 +11282,17 @@
       "endpoint": "https://feeds.bbci.co.uk/news/world/rss.xml",
       "status": "active",
       "intervalMinutes": 15,
-      "lastSyncAt": "2026-11-26T07:22:34.347Z",
-      "nextSyncAt": "2026-11-26T07:37:34.362Z",
+      "lastSyncAt": "2026-11-26T07:33:30.192Z",
+      "nextSyncAt": "2026-11-26T07:48:30.209Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "BBC World Service & Al Jazeera English",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 96,
-      "successfulSyncs": 96,
-      "dailyCallsUsed": 48
+      "totalSyncs": 98,
+      "successfulSyncs": 98,
+      "dailyCallsUsed": 49
     },
     {
       "id": "sports-news-rss",
@@ -11262,20 +11301,139 @@
       "endpoint": "https://feeds.bbci.co.uk/sport/cricket/rss.xml",
       "status": "active",
       "intervalMinutes": 15,
-      "lastSyncAt": "2026-11-26T07:22:34.863Z",
-      "nextSyncAt": "2026-11-26T07:37:34.881Z",
+      "lastSyncAt": "2026-11-26T07:33:31.355Z",
+      "nextSyncAt": "2026-11-26T07:48:31.384Z",
       "lastError": null,
       "isLicensed": true,
       "attribution": "BBC Sport & International Cricket Wire",
       "requiresApiKey": false,
       "hasApiKey": true,
       "consecutiveFailures": 0,
-      "totalSyncs": 92,
-      "successfulSyncs": 92,
-      "dailyCallsUsed": 46
+      "totalSyncs": 94,
+      "successfulSyncs": 94,
+      "dailyCallsUsed": 47
     }
   ],
   "syncJobRuns": [
+    {
+      "id": "run-sports-news-rss-1795678411355",
+      "providerId": "sports-news-rss",
+      "providerName": "Sports & Cricket Wire (BBC Sport Cricket RSS)",
+      "category": "cricket",
+      "timestamp": "2026-11-26T07:33:31.355Z",
+      "status": "success",
+      "itemsProcessed": 10,
+      "changesDetected": false,
+      "changeSummaryEn": "Checked Sports & Cricket News feeds (10 items verified, no unseen stories).",
+      "changeSummaryUr": "کھیل و کرکٹ فیڈ چیک کر لی گئی (10 خبریں تصدیق شدہ)۔",
+      "durationMs": 1123,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-world-news-rss-1795678410192",
+      "providerId": "world-news-rss",
+      "providerName": "Global World News Wire (BBC & Al Jazeera RSS)",
+      "category": "news",
+      "timestamp": "2026-11-26T07:33:30.192Z",
+      "status": "success",
+      "itemsProcessed": 10,
+      "changesDetected": true,
+      "changeSummaryEn": "Ingested 1 new World News stories from verified feeds.",
+      "changeSummaryUr": "تصدیق شدہ فیڈ سے 1 نئی عالمی خبریں خبریں شامل ہو گئیں۔",
+      "durationMs": 658,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-cricket-feed-1795678409492",
+      "providerId": "cricket-feed",
+      "providerName": "PCB Official Tournament & ICC Match Feed",
+      "category": "cricket",
+      "timestamp": "2026-11-26T07:33:29.492Z",
+      "status": "success",
+      "itemsProcessed": 8,
+      "changesDetected": true,
+      "changeSummaryEn": "Synchronized 6 live international cricket scorecards.",
+      "changeSummaryUr": "6 لائیو بین الاقوامی کرکٹ میچز کے اسکور اپ ڈیٹ ہو گئے۔",
+      "durationMs": 395,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-fuel-ogra-1795678409049",
+      "providerId": "fuel-ogra",
+      "providerName": "OGRA Petroleum Notification Gateway",
+      "category": "fuel",
+      "timestamp": "2026-11-26T07:33:29.049Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "OGRA POL Notification verified: Petrol Rs. 265.40/L, HSD Rs. 272.80/L. Effective: 01 Nov 2026.",
+      "changeSummaryUr": "اوگرا نوٹیفکیشن تصدیق شدہ: پیٹرول 265.40 روپے فی لیٹر، ڈیزل 272.80 روپے۔ نافذ العمل: 01 Nov 2026۔",
+      "durationMs": 72,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-gold-bullion-1795678408940",
+      "providerId": "gold-bullion",
+      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
+      "category": "gold",
+      "timestamp": "2026-11-26T07:33:28.940Z",
+      "status": "success",
+      "itemsProcessed": 4,
+      "changesDetected": false,
+      "changeSummaryEn": "Gold 24K per tola updated to Rs. 374,000 (Spot $3571.3/oz, +Rs. 400).",
+      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 374,000 روپے اپ ڈیٹ (عالمی اسپاٹ $3571.3 فی اونس)۔",
+      "durationMs": 689,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-weather-openmeteo-1795678408213",
+      "providerId": "weather-openmeteo",
+      "providerName": "Open-Meteo High-Resolution Meteorological Service",
+      "category": "weather",
+      "timestamp": "2026-11-26T07:33:28.213Z",
+      "status": "success",
+      "itemsProcessed": 12,
+      "changesDetected": true,
+      "changeSummaryEn": "Updated 12 cities. Smog alerts in: Lahore (AQI 250), Faisalabad (AQI 286), Sialkot (AQI 240)",
+      "changeSummaryUr": "12 شہروں کا موسم اپ ڈیٹ ہوا۔ اسموگ وارننگ: Lahore (AQI 250)، Faisalabad (AQI 286)، Sialkot (AQI 240)",
+      "durationMs": 1716,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
+    {
+      "id": "run-currency-erapi-1795678406456",
+      "providerId": "currency-erapi",
+      "providerName": "ExchangeRate API & SBP Interbank Gateway",
+      "category": "currency",
+      "timestamp": "2026-11-26T07:33:26.456Z",
+      "status": "success",
+      "itemsProcessed": 9,
+      "changesDetected": false,
+      "changeSummaryEn": "Currency rates refreshed from live market. Values stable.",
+      "changeSummaryUr": "کرنسی مارکیٹ کے ریٹس مستحکم ہیں۔",
+      "durationMs": 501,
+      "httpStatus": 200,
+      "validationPassed": true,
+      "triggeredBy": "scheduler",
+      "errorDetails": null
+    },
     {
       "id": "run-sports-news-rss-1795677754863",
       "providerId": "sports-news-rss",
@@ -13706,128 +13864,130 @@
       "validationPassed": true,
       "triggeredBy": "scheduler",
       "errorDetails": null
-    },
-    {
-      "id": "run-sports-news-rss-1794918509603",
-      "providerId": "sports-news-rss",
-      "providerName": "Sports & Cricket Wire (BBC Sport Cricket RSS)",
-      "category": "cricket",
-      "timestamp": "2026-11-17T12:28:29.603Z",
-      "status": "success",
-      "itemsProcessed": 10,
-      "changesDetected": false,
-      "changeSummaryEn": "Checked Sports & Cricket News feeds (10 items verified, no unseen stories).",
-      "changeSummaryUr": "کھیل و کرکٹ فیڈ چیک کر لی گئی (10 خبریں تصدیق شدہ)۔",
-      "durationMs": 1357,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-world-news-rss-1794918508235",
-      "providerId": "world-news-rss",
-      "providerName": "Global World News Wire (BBC & Al Jazeera RSS)",
-      "category": "news",
-      "timestamp": "2026-11-17T12:28:28.235Z",
-      "status": "success",
-      "itemsProcessed": 10,
-      "changesDetected": false,
-      "changeSummaryEn": "Checked World News feeds (10 items verified, no unseen stories).",
-      "changeSummaryUr": "عالمی خبریں فیڈ چیک کر لی گئی (10 خبریں تصدیق شدہ)۔",
-      "durationMs": 520,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-cricket-feed-1794918507699",
-      "providerId": "cricket-feed",
-      "providerName": "PCB Official Tournament & ICC Match Feed",
-      "category": "cricket",
-      "timestamp": "2026-11-17T12:28:27.699Z",
-      "status": "success",
-      "itemsProcessed": 8,
-      "changesDetected": true,
-      "changeSummaryEn": "Synchronized 6 live international cricket scorecards.",
-      "changeSummaryUr": "6 لائیو بین الاقوامی کرکٹ میچز کے اسکور اپ ڈیٹ ہو گئے۔",
-      "durationMs": 412,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-fuel-ogra-1794918507275",
-      "providerId": "fuel-ogra",
-      "providerName": "OGRA Petroleum Notification Gateway",
-      "category": "fuel",
-      "timestamp": "2026-11-17T12:28:27.275Z",
-      "status": "success",
-      "itemsProcessed": 4,
-      "changesDetected": false,
-      "changeSummaryEn": "OGRA POL Notification verified: Petrol Rs. 265.40/L, HSD Rs. 272.80/L. Effective: 01 Nov 2026.",
-      "changeSummaryUr": "اوگرا نوٹیفکیشن تصدیق شدہ: پیٹرول 265.40 روپے فی لیٹر، ڈیزل 272.80 روپے۔ نافذ العمل: 01 Nov 2026۔",
-      "durationMs": 27,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-gold-bullion-1794918507237",
-      "providerId": "gold-bullion",
-      "providerName": "APGJAA Sarafa Bullion & XAU Spot Parity",
-      "category": "gold",
-      "timestamp": "2026-11-17T12:28:27.237Z",
-      "status": "success",
-      "itemsProcessed": 4,
-      "changesDetected": false,
-      "changeSummaryEn": "Gold 24K per tola updated to Rs. 404,500 (Spot $3863.3/oz, Rs. -400).",
-      "changeSummaryUr": "24 کیرٹ سونے کی فی تولہ قیمت 404,500 روپے اپ ڈیٹ (عالمی اسپاٹ $3863.3 فی اونس)۔",
-      "durationMs": 1047,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-weather-openmeteo-1794918506177",
-      "providerId": "weather-openmeteo",
-      "providerName": "Open-Meteo High-Resolution Meteorological Service",
-      "category": "weather",
-      "timestamp": "2026-11-17T12:28:26.177Z",
-      "status": "success",
-      "itemsProcessed": 12,
-      "changesDetected": false,
-      "changeSummaryEn": "Refreshed live meteorological observations and forecasts for 12 Pakistani cities.",
-      "changeSummaryUr": "12 پاکستانی شہروں کے موسمی اعداد و شمار اور پیشن گوئی کامیابی سے اپ ڈیٹ ہو گئی۔",
-      "durationMs": 1620,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
-    },
-    {
-      "id": "run-currency-erapi-1794918504543",
-      "providerId": "currency-erapi",
-      "providerName": "ExchangeRate API & SBP Interbank Gateway",
-      "category": "currency",
-      "timestamp": "2026-11-17T12:28:24.543Z",
-      "status": "success",
-      "itemsProcessed": 9,
-      "changesDetected": false,
-      "changeSummaryEn": "Currency rates refreshed from live market. Values stable.",
-      "changeSummaryUr": "کرنسی مارکیٹ کے ریٹس مستحکم ہیں۔",
-      "durationMs": 290,
-      "httpStatus": 200,
-      "validationPassed": true,
-      "triggeredBy": "scheduler",
-      "errorDetails": null
     }
   ],
   "historicalRates": [
+    {
+      "id": "fuel-petrol-1795678409000",
+      "type": "fuel",
+      "symbol": "PETROL",
+      "value": 265.4,
+      "previousValue": 265.4,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:28.978Z",
+      "source": "Ministry of Energy (Petroleum Division) & OGRA"
+    },
+    {
+      "id": "gold-24k-1795678408876",
+      "type": "gold",
+      "symbol": "GOLD_24K_TOLA",
+      "value": 374000,
+      "previousValue": 373600,
+      "change": 400,
+      "changePercent": 0.11,
+      "timestamp": "2026-11-26T07:33:28.252Z",
+      "source": "APGJAA Parity / Gold-API Live XAU/USD ($3571.30/oz)"
+    },
+    {
+      "id": "curr-KWD-1795678406355",
+      "type": "currency",
+      "symbol": "KWD/PKR",
+      "value": 887.44,
+      "previousValue": 887.44,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CNY-1795678406329",
+      "type": "currency",
+      "symbol": "CNY/PKR",
+      "value": 41.39,
+      "previousValue": 41.39,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AUD-1795678406313",
+      "type": "currency",
+      "symbol": "AUD/PKR",
+      "value": 183.37,
+      "previousValue": 183.37,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-CAD-1795678406294",
+      "type": "currency",
+      "symbol": "CAD/PKR",
+      "value": 193.4,
+      "previousValue": 193.4,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-AED-1795678406269",
+      "type": "currency",
+      "symbol": "AED/PKR",
+      "value": 75.26,
+      "previousValue": 75.26,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-SAR-1795678406249",
+      "type": "currency",
+      "symbol": "SAR/PKR",
+      "value": 73.7,
+      "previousValue": 73.7,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-GBP-1795678406228",
+      "type": "currency",
+      "symbol": "GBP/PKR",
+      "value": 362.12,
+      "previousValue": 362.12,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-EUR-1795678406213",
+      "type": "currency",
+      "symbol": "EUR/PKR",
+      "value": 302.91,
+      "previousValue": 302.91,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
+    {
+      "id": "curr-USD-1795678406172",
+      "type": "currency",
+      "symbol": "USD/PKR",
+      "value": 276.39,
+      "previousValue": 276.39,
+      "change": 0,
+      "changePercent": 0,
+      "timestamp": "2026-11-26T07:33:25.956Z",
+      "source": "ExchangeRate-API / SBP Reference Market"
+    },
     {
       "id": "fuel-petrol-1795676809077",
       "type": "fuel",
@@ -19206,127 +19366,6 @@
       "changePercent": 0,
       "timestamp": "2026-11-14T08:57:40.219Z",
       "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-GBP-1794646660350",
-      "type": "currency",
-      "symbol": "GBP/PKR",
-      "value": 365.66,
-      "previousValue": 365.66,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:57:40.219Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-EUR-1794646660348",
-      "type": "currency",
-      "symbol": "EUR/PKR",
-      "value": 305.31,
-      "previousValue": 305.31,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:57:40.219Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-USD-1794646660343",
-      "type": "currency",
-      "symbol": "USD/PKR",
-      "value": 276.6,
-      "previousValue": 276.6,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:57:40.219Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "gold-24k-1794645649370",
-      "type": "gold",
-      "symbol": "GOLD_24K_TOLA",
-      "value": 407000,
-      "previousValue": 407000,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:48.348Z",
-      "source": "APGJAA Parity / Gold-API Live XAU/USD ($3887.60/oz)"
-    },
-    {
-      "id": "fuel-petrol-1794645637679",
-      "type": "fuel",
-      "symbol": "PETROL",
-      "value": 265.4,
-      "previousValue": 265.4,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:37.676Z",
-      "source": "Ministry of Energy (Petroleum Division) & OGRA"
-    },
-    {
-      "id": "gold-24k-1794645637659",
-      "type": "gold",
-      "symbol": "GOLD_24K_TOLA",
-      "value": 407000,
-      "previousValue": 407000,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:36.657Z",
-      "source": "APGJAA Parity / Gold-API Live XAU/USD ($3887.60/oz)"
-    },
-    {
-      "id": "curr-KWD-1794645635577",
-      "type": "currency",
-      "symbol": "KWD/PKR",
-      "value": 888.55,
-      "previousValue": 888.55,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:35.492Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-CNY-1794645635574",
-      "type": "currency",
-      "symbol": "CNY/PKR",
-      "value": 41.38,
-      "previousValue": 41.38,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:35.492Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-AUD-1794645635572",
-      "type": "currency",
-      "symbol": "AUD/PKR",
-      "value": 187.51,
-      "previousValue": 187.51,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:35.492Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-CAD-1794645635570",
-      "type": "currency",
-      "symbol": "CAD/PKR",
-      "value": 193.96,
-      "previousValue": 193.96,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:35.492Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
-    },
-    {
-      "id": "curr-AED-1794645635568",
-      "type": "currency",
-      "symbol": "AED/PKR",
-      "value": 75.32,
-      "previousValue": 75.32,
-      "change": 0,
-      "changePercent": 0,
-      "timestamp": "2026-11-14T08:40:35.492Z",
-      "source": "ExchangeRate-API / SBP Reference Market"
     }
   ],
   "fuelPriceNotifications": [
@@ -19345,6 +19384,29 @@
     }
   ],
   "aiContentDrafts": [
+    {
+      "id": "draft-weather-1795678422180",
+      "category": "weather",
+      "triggerReason": "Updated 12 cities. Smog alerts in: Lahore (AQI 250), Faisalabad (AQI 286), Sialkot (AQI 240)",
+      "titleEn": "Smog Alerts Issued in Lahore, Faisalabad, and Sialkot as Air Quality Worsens Across 12 Cities",
+      "titleUr": "فضائی آلودگی میں اضافہ: لاہور، فیصل آباد اور سیالکوٹ میں اسموگ الرٹ جاری",
+      "summaryEn": "Latest weather monitoring across 12 cities shows hazardous smog alerts in three major urban centers. Faisalabad recorded an AQI of 286, followed by Lahore at 250 and Sialkot at 240.",
+      "summaryUr": "ملک کے 12 شہروں کے تازہ ترین موسمیاتی اعداد و شمار کے مطابق لاہور، فیصل آباد اور سیالکوٹ میں اسموگ الرٹ جاری کر دیا گیا ہے۔ فیصل آباد میں ایئر کوالٹی انڈیکس 286، لاہور میں 250 اور سیالکوٹ میں 240 ریکارڈ کیا گیا ہے۔",
+      "contentEn": "The latest environmental update covering 12 cities across Pakistan highlights a significant deterioration in air quality, prompting official smog alerts in key industrial and residential hubs. Residents in Punjab are facing thick haze as pollutant levels remain elevated.\n\nAccording to verified data, Faisalabad recorded the highest Air Quality Index (AQI) among the alerted cities at 286. Lahore followed closely with an AQI of 250, while Sialkot registered an AQI of 240, placing all three cities under active smog advisories.\n\nThe persistent smog conditions pose health risks for daily commuters, children, and the elderly, while also affecting visibility on major transit routes. Authorities and health experts advise citizens in the affected cities to take precautionary measures, such as wearing masks and limiting outdoor exposure.",
+      "contentUr": "ملک کے 12 شہروں کے حوالے سے جاری کردہ تازہ ترین موسمیاتی اور ماحولیاتی رپورٹ میں فضائی آلودگی کی سنگین صورتحال کی نشاندہی کی گئی ہے، جس کے باعث پنجاب کے تین بڑے شہروں میں اسموگ الرٹ نافذ کر دیا گیا ہے۔\n\nتصدیق شدہ اعداد و شمار کے مطابق اسموگ سے متاثرہ شہروں میں فیصل آباد سرفہرست رہا جہاں ایئر کوالٹی انڈیکس (AQI) 286 ریکارڈ کیا گیا۔ اسی طرح لاہور میں اے کیو آئی 250 اور سیالکوٹ میں 240 رہا، جو انسانی صحت کے لیے انتہائی مضر قرار دیا جا رہا ہے۔\n\nاسموگ کی اس لہر سے شہریوں، خصوصاً بچوں، بزرگوں اور سانس کے مریضوں کو شدید مشکلات کا سامنا ہے۔ ماہرین صحت نے متاثرہ شہروں کے باسیوں کو ہدایت کی ہے کہ وہ غیر ضروری طور پر گھروں سے باہر نہ نکلیں اور احتیاطی تدابیر اختیار کریں۔",
+      "sourceDataSnapshot": {
+        "weatherSummary": "Updated 12 cities. Smog alerts in: Lahore (AQI 250), Faisalabad (AQI 286), Sialkot (AQI 240)"
+      },
+      "status": "pending_review",
+      "createdAt": "2026-11-26T07:33:28.152Z",
+      "seoTags": [
+        "Pakistan Smog Alert",
+        "Lahore AQI 250",
+        "Faisalabad AQI 286",
+        "Sialkot AQI 240",
+        "360Khabarnama Weather"
+      ]
+    },
     {
       "id": "draft-currency-1795676845470",
       "category": "currency",
@@ -20051,7 +20113,7 @@
     "cricketSyncIntervalMin": 10,
     "fuelCheckIntervalMin": 360,
     "geminiCooldownMin": 20,
-    "lastGeminiCallAt": "2026-11-26T07:06:47.193Z",
+    "lastGeminiCallAt": "2026-11-26T07:33:28.152Z",
     "lastCronRunAt": "2026-11-26T07:21:46.495Z"
   },
   "adminUsers": [
@@ -22617,26 +22679,26 @@
       "billingNote": "",
       "modelListStatus": "error",
       "generationTestStatus": "ok",
-      "lastTestedAt": "2026-11-26T07:11:47.870Z",
+      "lastTestedAt": "2026-11-26T07:28:48.539+00:00",
       "lastSuccessfulVerificationAt": "2026-11-23T07:00:45.177+00:00",
       "lastSuccessfulGenerationAt": "2026-11-26T07:05:49.463+00:00",
-      "lastFailureAt": "2026-11-26T07:11:47.870Z",
+      "lastFailureAt": "2026-11-26T07:28:48.539+00:00",
       "lastTestStatus": "error",
       "lastTestMessage": "Credential decryption failed: Credential decryption failed. Verify AI_MASTER_KEY matches the key used when this credential was encrypted, or replace/re-enter the API key.",
-      "lastLatencyMs": 3,
-      "lastCorrelationId": "hc-mwx7sbz0-6e8ebc",
+      "lastLatencyMs": 1,
+      "lastCorrelationId": "hc-mwx8e7iy-2226df",
       "lastDiagnostic": {
-        "correlationId": "hc-mwx7sbz0-6e8ebc",
-        "category": "unknown",
-        "connectionStatus": "error",
         "title": "Google Gemini Unexpected Error",
+        "category": "unknown",
         "diagnosis": "Credential decryption failed: Credential decryption failed. Verify AI_MASTER_KEY matches the key used when this credential was encrypted, or replace/re-enter the API key.",
-        "suggestedAction": "Check Connection Diagnostics (Correlation ID: hc-mwx7sbz0-6e8ebc) and click Retry Test.",
+        "correlationId": "hc-mwx8e7iy-2226df",
+        "failureSource": "Google API",
         "providerMessage": "Credential decryption failed: Credential decryption failed. Verify AI_MASTER_KEY matches the key used when this credential was encrypted, or replace/re-enter the API key.",
-        "failureSource": "Google API"
+        "suggestedAction": "Check Connection Diagnostics (Correlation ID: hc-mwx8e7iy-2226df) and click Retry Test.",
+        "connectionStatus": "error"
       },
       "createdAt": "2026-11-23T07:00:45.333942+00:00",
-      "updatedAt": "2026-11-26T07:11:47.870Z"
+      "updatedAt": "2026-11-26T07:28:48.617064+00:00"
     }
   ],
   "aiTaskRoutes": {
@@ -22752,6 +22814,22 @@
     }
   },
   "aiUsageLogs": [
+    {
+      "id": "aiuse-1795678422158-rk1y",
+      "timestamp": "2026-11-26T07:33:42.158Z",
+      "task": "breaking_alerts",
+      "credentialId": "env-gemini-default",
+      "providerType": "gemini",
+      "projectId": "env-gemini-project",
+      "model": "gemini-4-hydrogen",
+      "promptTokens": 476,
+      "completionTokens": 700,
+      "totalTokens": 1176,
+      "estimatedCostUsd": 0.000491,
+      "latencyMs": 13730,
+      "status": "success",
+      "actor": "Automated Data Engine"
+    },
     {
       "id": "aiuse-1795676845455-d4s7",
       "timestamp": "2026-11-26T07:07:25.455Z",
@@ -26394,6 +26472,17 @@
   },
   "publicationLogs": [
     {
+      "articleId": "art-auto-world-1795678410072-0",
+      "action": "create_and_publish",
+      "previousStatus": "none",
+      "nextStatus": "published",
+      "actor": "Automated News Wire",
+      "storageEngine": "json_fallback",
+      "message": "Created world-french-navy-intercepts-suspected-drug-smuggling-semi-submersible-1fc170 (v1)",
+      "id": "publog-1795678410099-djl5",
+      "createdAt": "2026-11-26T07:33:30.099Z"
+    },
+    {
       "articleId": "art-auto-sports-1795677754738-4",
       "action": "create_and_publish",
       "previousStatus": "none",
@@ -28066,8 +28155,8 @@
       "createdAt": "2026-11-16T10:36:42.862Z"
     }
   ],
-  "newsCacheVersion": 153,
-  "lastCacheInvalidationAt": "2026-11-26T07:22:34.738Z",
+  "newsCacheVersion": 154,
+  "lastCacheInvalidationAt": "2026-11-26T07:33:30.073Z",
   "aiEnvSuppressed": {
     "gemini": false,
     "grok": false

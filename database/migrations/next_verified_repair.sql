@@ -282,13 +282,73 @@ ALTER TABLE public.automation_jobs
 CREATE INDEX IF NOT EXISTS idx_automation_jobs_provider_exec
   ON public.automation_jobs (provider_id, executed_at DESC);
 
--- 3H. public.admin_users (`mfa_enabled`, `bio_en`, `bio_ur`)
+-- 3H. public.admin_users & RLS Role Helpers
+CREATE TABLE IF NOT EXISTS public.admin_users (
+  id TEXT PRIMARY KEY,
+  auth_uid UUID UNIQUE NULL,
+  name_en TEXT NOT NULL,
+  name_ur TEXT NOT NULL DEFAULT 'اداریہ 360 خبرنامہ',
+  email TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL DEFAULT 'Read-only Analyst',
+  permissions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  avatar_url TEXT DEFAULT '',
+  articles_count INTEGER NOT NULL DEFAULT 0,
+  mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  bio_en TEXT DEFAULT '',
+  bio_ur TEXT DEFAULT '',
+  last_login_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE public.admin_users
   ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS bio_en TEXT DEFAULT '',
   ADD COLUMN IF NOT EXISTS bio_ur TEXT DEFAULT '';
 
+CREATE INDEX IF NOT EXISTS idx_admin_users_email ON public.admin_users (LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_admin_users_auth_uid ON public.admin_users (auth_uid);
+
+CREATE OR REPLACE FUNCTION public.is_active_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.admin_users
+    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
+      AND status = 'active'
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.has_admin_role(allowed_roles TEXT[])
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.admin_users
+    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
+      AND status = 'active'
+      AND role = ANY(allowed_roles)
+  );
+$$;
+
 -- 3I. public.site_settings (`updated_by`)
+CREATE TABLE IF NOT EXISTS public.site_settings (
+  id TEXT PRIMARY KEY DEFAULT 'global',
+  settings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE public.site_settings
   ADD COLUMN IF NOT EXISTS updated_by TEXT NULL;
 
@@ -414,10 +474,266 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_ad_campaigns_active_slots
   ON public.ad_campaigns (status, priority DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ad_campaigns_target_slots_gin
+  ON public.ad_campaigns USING GIN (target_slots_json);
+CREATE INDEX IF NOT EXISTS idx_ad_campaigns_updated_at
+  ON public.ad_campaigns (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_placements_slot_enabled
   ON public.ad_placements (slot_id, enabled);
 
--- 3K. public.articles: Expand workflow status CHECK cleanly without breaking existing rows
+-- 3J3. Audience, Homepage Layout, SEO Diagnostics & Save Telemetry Tables (From Migration 003)
+CREATE TABLE IF NOT EXISTS public.newsletter_subscribers (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  language TEXT NOT NULL DEFAULT 'both',
+  frequency TEXT NOT NULL DEFAULT 'daily',
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'unsubscribed', 'bounced')),
+  consent_source TEXT DEFAULT 'website',
+  consent_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  subscribed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscribers_status
+  ON public.newsletter_subscribers (status, subscribed_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.audience_notifications (
+  id TEXT PRIMARY KEY,
+  title_en TEXT NOT NULL DEFAULT '',
+  title_ur TEXT NOT NULL DEFAULT '',
+  body_en TEXT NOT NULL DEFAULT '',
+  body_ur TEXT NOT NULL DEFAULT '',
+  target_language TEXT NOT NULL DEFAULT 'both',
+  target_url TEXT DEFAULT 'https://www.360khabarnama.com',
+  category TEXT,
+  recipients_count INTEGER DEFAULT 0,
+  delivered_count INTEGER DEFAULT 0,
+  failed_count INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'sent',
+  error_summary TEXT,
+  scheduled_for TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id TEXT PRIMARY KEY,
+  endpoint TEXT UNIQUE NOT NULL,
+  keys_json JSONB DEFAULT '{}'::jsonb,
+  topics_json JSONB DEFAULT '{}'::jsonb,
+  language TEXT NOT NULL DEFAULT 'both',
+  user_agent TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.homepage_layouts (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.homepage_custom_blocks (
+  id TEXT PRIMARY KEY,
+  title_en TEXT NOT NULL DEFAULT '',
+  title_ur TEXT NOT NULL DEFAULT '',
+  body_en TEXT NOT NULL DEFAULT '',
+  body_ur TEXT NOT NULL DEFAULT '',
+  placement TEXT NOT NULL DEFAULT 'homepage',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER DEFAULT 0,
+  config_json JSONB DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.broken_links (
+  id TEXT PRIMARY KEY,
+  source_url TEXT NOT NULL,
+  broken_target_url TEXT NOT NULL,
+  http_status INTEGER DEFAULT 404,
+  detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS public.search_console_config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.search_console_config
+  ADD COLUMN IF NOT EXISTS updated_by TEXT NULL;
+
+CREATE TABLE IF NOT EXISTS public.seo_audit_logs (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  target TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_seo_audit_logs_created
+  ON public.seo_audit_logs (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.admin_save_diagnostics (
+  id TEXT PRIMARY KEY,
+  module TEXT NOT NULL,
+  action TEXT NOT NULL,
+  record_id TEXT,
+  storage_engine TEXT NOT NULL,
+  success BOOLEAN NOT NULL,
+  verified_read_back BOOLEAN NOT NULL DEFAULT FALSE,
+  latency_ms INTEGER DEFAULT 0,
+  actor TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_save_diag_created
+  ON public.admin_save_diagnostics (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.publication_logs (
+  id TEXT PRIMARY KEY,
+  article_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  next_status TEXT NOT NULL,
+  storage_engine TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  details TEXT NOT NULL,
+  ip_address TEXT DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 3J4. Google Integrations Settings, Encrypted Secrets & Logs (From Migration 008)
+CREATE TABLE IF NOT EXISTS public.google_integrations_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  ga4_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ga4_measurement_id TEXT NOT NULL DEFAULT '',
+  ga4_tracking_mode TEXT NOT NULL DEFAULT 'gtm'
+    CHECK (ga4_tracking_mode IN ('gtm', 'direct_gtag', 'disabled')),
+  ga4_anonymize_ip BOOLEAN NOT NULL DEFAULT TRUE,
+  ga4_debug_mode BOOLEAN NOT NULL DEFAULT FALSE,
+  ga4_exclude_admin BOOLEAN NOT NULL DEFAULT TRUE,
+  ga4_exclude_staging BOOLEAN NOT NULL DEFAULT FALSE,
+  ga4_track_enhanced_events BOOLEAN NOT NULL DEFAULT TRUE,
+  ga4_last_verified_at TIMESTAMPTZ NULL,
+  ga4_last_error TEXT NOT NULL DEFAULT '',
+  gtm_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  gtm_container_id TEXT NOT NULL DEFAULT '',
+  gtm_exclude_admin BOOLEAN NOT NULL DEFAULT TRUE,
+  gtm_consent_mode_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  gtm_last_verified_at TIMESTAMPTZ NULL,
+  gtm_last_error TEXT NOT NULL DEFAULT '',
+  gsc_verification_code TEXT NOT NULL DEFAULT '',
+  gsc_property_url TEXT NOT NULL DEFAULT 'https://www.360khabarnama.com/',
+  gsc_scope_mode TEXT NOT NULL DEFAULT 'webmasters'
+    CHECK (gsc_scope_mode IN ('readonly', 'webmasters')),
+  gsc_diagnostic_status TEXT NOT NULL DEFAULT 'Disconnected',
+  gsc_diagnostic_message TEXT NOT NULL DEFAULT '',
+  gsc_last_verified_at TIMESTAMPTZ NULL,
+  gsc_last_synced_at TIMESTAMPTZ NULL,
+  gsc_last_error TEXT NOT NULL DEFAULT '',
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_by TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.google_integration_secrets (
+  id TEXT PRIMARY KEY DEFAULT 'gsc_default',
+  provider TEXT NOT NULL DEFAULT 'search_console'
+    CHECK (provider IN ('search_console', 'ga4', 'gtm')),
+  auth_mode TEXT NOT NULL DEFAULT 'none'
+    CHECK (auth_mode IN ('none', 'oauth2', 'service_account')),
+  client_id TEXT NULL,
+  encrypted_client_secret TEXT NULL,
+  encrypted_refresh_token TEXT NULL,
+  encrypted_access_token TEXT NULL,
+  encrypted_service_account_json TEXT NULL,
+  service_account_email TEXT NULL,
+  granted_scopes TEXT NULL,
+  token_expires_at TIMESTAMPTZ NULL,
+  updated_by TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.google_integration_logs (
+  id TEXT PRIMARY KEY,
+  integration TEXT NOT NULL
+    CHECK (integration IN ('ga4', 'gtm', 'gsc', 'system')),
+  action TEXT NOT NULL,
+  status TEXT NOT NULL
+    CHECK (status IN ('ok', 'warning', 'error', 'info')),
+  message TEXT NOT NULL DEFAULT '',
+  details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  actor TEXT NOT NULL DEFAULT 'System',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_google_integration_logs_created
+  ON public.google_integration_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_google_integration_logs_integration
+  ON public.google_integration_logs (integration, created_at DESC);
+
+-- 3K. public.articles: Ensure table & Migration 003 editorial media columns + expanded workflow status CHECK
+CREATE TABLE IF NOT EXISTS public.articles (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  title_en TEXT NOT NULL DEFAULT '',
+  title_ur TEXT NOT NULL DEFAULT '',
+  summary_en TEXT NOT NULL DEFAULT '',
+  summary_ur TEXT NOT NULL DEFAULT '',
+  content_en TEXT NOT NULL DEFAULT '',
+  content_ur TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'pakistan',
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status TEXT NOT NULL DEFAULT 'draft',
+  is_breaking BOOLEAN NOT NULL DEFAULT FALSE,
+  is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+  is_trending BOOLEAN NOT NULL DEFAULT FALSE,
+  hero_image TEXT NOT NULL DEFAULT '',
+  image_caption_en TEXT NOT NULL DEFAULT '',
+  image_caption_ur TEXT NOT NULL DEFAULT '',
+  reading_time_min INTEGER NOT NULL DEFAULT 3,
+  author_id TEXT NOT NULL DEFAULT 'admin-desk',
+  author_name_en TEXT NOT NULL DEFAULT '360Khabarnama Editorial',
+  author_name_ur TEXT NOT NULL DEFAULT 'ادارہ 360 خبرنامہ',
+  author_role TEXT NOT NULL DEFAULT 'Editor',
+  seo_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  versions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  workflow_notes TEXT DEFAULT '',
+  failure_reason TEXT DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  views INTEGER NOT NULL DEFAULT 0,
+  published_at TIMESTAMPTZ NULL,
+  scheduled_at TIMESTAMPTZ NULL,
+  deleted_at TIMESTAMPTZ NULL,
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.articles
+  ADD COLUMN IF NOT EXISTS featured_image TEXT,
+  ADD COLUMN IF NOT EXISTS hero_image_meta_json JSONB,
+  ADD COLUMN IF NOT EXISTS featured_image_meta_json JSONB,
+  ADD COLUMN IF NOT EXISTS social_image_url TEXT,
+  ADD COLUMN IF NOT EXISTS use_hero_as_featured BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS homepage_slot TEXT;
 DO $$
 DECLARE
   con_name TEXT;
@@ -500,6 +816,61 @@ SELECT
   last_successful_generation_at, last_failure_at, last_test_status, last_test_message,
   last_latency_ms, last_correlation_id, created_at, updated_at, rate_limit_info_json
 FROM public.ai_provider_credentials;
+
+CREATE TABLE IF NOT EXISTS public.ai_providers (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  auth_scheme TEXT NOT NULL,
+  supports_model_discovery BOOLEAN NOT NULL DEFAULT TRUE,
+  supports_responses_api BOOLEAN NOT NULL DEFAULT FALSE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_task_routes (
+  task TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  primary_credential_id TEXT NULL,
+  primary_model TEXT NOT NULL DEFAULT '',
+  fallback_credential_id TEXT NULL,
+  fallback_model TEXT DEFAULT '',
+  temperature NUMERIC(3,2) NOT NULL DEFAULT 0.40,
+  max_tokens INTEGER NOT NULL DEFAULT 3072,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_usage_logs (
+  id TEXT PRIMARY KEY,
+  credential_id TEXT NOT NULL,
+  provider_type TEXT NOT NULL,
+  model TEXT NOT NULL,
+  task TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+  error_message TEXT NULL,
+  actor TEXT NOT NULL DEFAULT 'System',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_connection_tests (
+  id TEXT PRIMARY KEY,
+  credential_id TEXT NULL,
+  provider_type TEXT NOT NULL,
+  model_tested TEXT NULL,
+  stage TEXT NOT NULL,
+  ok BOOLEAN NOT NULL DEFAULT FALSE,
+  connection_status TEXT NOT NULL,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  diagnostic_json JSONB NULL,
+  actor TEXT NOT NULL DEFAULT 'Super Admin',
+  tested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- -----------------------------------------------------------------------------
 -- 4. New Persistent Tables Replacing Previously Ephemeral JSON / RAM Storage
@@ -636,9 +1007,27 @@ CREATE TRIGGER trg_sync_providers_updated_at
   BEFORE UPDATE ON public.sync_providers
   FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
 
+DROP TRIGGER IF EXISTS trg_google_integrations_settings_updated_at ON public.google_integrations_settings;
+CREATE TRIGGER trg_google_integrations_settings_updated_at
+  BEFORE UPDATE ON public.google_integrations_settings
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_google_integration_secrets_updated_at ON public.google_integration_secrets;
+CREATE TRIGGER trg_google_integration_secrets_updated_at
+  BEFORE UPDATE ON public.google_integration_secrets
+  FOR EACH ROW EXECUTE FUNCTION public.kn360_set_updated_at();
+
 -- -----------------------------------------------------------------------------
--- 6. Hardened Least-Privilege RLS & Role Reconciliation
+-- 6. Hardened Least-Privilege RLS, Storage Bucket & Role Reconciliation
 -- -----------------------------------------------------------------------------
+ALTER TABLE public.articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.category_pages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seo_pages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seo_redirects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.media_assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.deleted_tombstones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_auth_credentials ENABLE ROW LEVEL SECURITY;
@@ -651,6 +1040,26 @@ ALTER TABLE public.ad_placements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ad_campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.automation_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.newsletter_subscribers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audience_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.homepage_layouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.homepage_custom_blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.editorial_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.broken_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.search_console_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seo_audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_save_diagnostics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.publication_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.google_integrations_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.google_integration_secrets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.google_integration_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_providers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_provider_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_task_routes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_usage_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_connection_tests ENABLE ROW LEVEL SECURITY;
 
 -- Server-only private tables: ZERO direct browser / PostgREST access for anon or authenticated
 REVOKE ALL ON public.admin_auth_credentials FROM PUBLIC, anon, authenticated;
@@ -711,13 +1120,25 @@ CREATE POLICY "category_pages_admin_manage"
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']));
 
--- Reconcile canonical & alias role names on Ads, Audience, SEO & Automation policies
+-- Reconcile canonical & alias role names on Ads, Audience, SEO, Layout & Automation policies
+DROP POLICY IF EXISTS "ad_placements_public_read" ON public.ad_placements;
+CREATE POLICY "ad_placements_public_read"
+  ON public.ad_placements FOR SELECT
+  TO anon, authenticated
+  USING (enabled = TRUE OR public.is_active_admin());
+
 DROP POLICY IF EXISTS "ad_placements_admin_all" ON public.ad_placements;
 CREATE POLICY "ad_placements_admin_all"
   ON public.ad_placements FOR ALL
   TO authenticated
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']));
+
+DROP POLICY IF EXISTS "ad_campaigns_public_read_active" ON public.ad_campaigns;
+CREATE POLICY "ad_campaigns_public_read_active"
+  ON public.ad_campaigns FOR SELECT
+  TO anon, authenticated
+  USING ((status = 'active' AND deleted_at IS NULL) OR public.is_active_admin());
 
 DROP POLICY IF EXISTS "ad_campaigns_admin_all" ON public.ad_campaigns;
 CREATE POLICY "ad_campaigns_admin_all"
@@ -727,6 +1148,10 @@ CREATE POLICY "ad_campaigns_admin_all"
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']));
 
 DROP POLICY IF EXISTS "subscribers_public_insert" ON public.newsletter_subscribers;
+CREATE POLICY "subscribers_public_insert"
+  ON public.newsletter_subscribers FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (TRUE);
 REVOKE SELECT, UPDATE, DELETE ON public.newsletter_subscribers FROM anon;
 DROP POLICY IF EXISTS "subscribers_admin_all" ON public.newsletter_subscribers;
 CREATE POLICY "subscribers_admin_all"
@@ -735,12 +1160,86 @@ CREATE POLICY "subscribers_admin_all"
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Audience Manager']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Audience Manager']));
 
+DROP POLICY IF EXISTS "audience_notifications_admin_all" ON public.audience_notifications;
+CREATE POLICY "audience_notifications_admin_all"
+  ON public.audience_notifications FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'Audience Manager']));
+
+DROP POLICY IF EXISTS "push_subscriptions_public_upsert" ON public.push_subscriptions;
+CREATE POLICY "push_subscriptions_public_upsert"
+  ON public.push_subscriptions FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "push_subscriptions_admin_read" ON public.push_subscriptions;
+CREATE POLICY "push_subscriptions_admin_read"
+  ON public.push_subscriptions FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
+
+DROP POLICY IF EXISTS "homepage_layouts_public_read" ON public.homepage_layouts;
+CREATE POLICY "homepage_layouts_public_read"
+  ON public.homepage_layouts FOR SELECT
+  TO anon, authenticated
+  USING (TRUE);
+
+DROP POLICY IF EXISTS "homepage_layouts_admin_all" ON public.homepage_layouts;
+CREATE POLICY "homepage_layouts_admin_all"
+  ON public.homepage_layouts FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor']));
+
+DROP POLICY IF EXISTS "homepage_custom_blocks_public_read" ON public.homepage_custom_blocks;
+CREATE POLICY "homepage_custom_blocks_public_read"
+  ON public.homepage_custom_blocks FOR SELECT
+  TO anon, authenticated
+  USING (enabled = TRUE OR public.is_active_admin());
+
+DROP POLICY IF EXISTS "homepage_custom_blocks_admin_all" ON public.homepage_custom_blocks;
+CREATE POLICY "homepage_custom_blocks_admin_all"
+  ON public.homepage_custom_blocks FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor']));
+
+DROP POLICY IF EXISTS "editorial_drafts_admin_all" ON public.editorial_drafts;
+CREATE POLICY "editorial_drafts_admin_all"
+  ON public.editorial_drafts FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
+
 DROP POLICY IF EXISTS "broken_links_admin_all" ON public.broken_links;
 CREATE POLICY "broken_links_admin_all"
   ON public.broken_links FOR ALL
   TO authenticated
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist', 'Managing Editor']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist', 'Managing Editor']));
+
+DROP POLICY IF EXISTS "search_console_config_superadmin" ON public.search_console_config;
+CREATE POLICY "search_console_config_superadmin"
+  ON public.search_console_config FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'SEO Manager', 'SEO Specialist']));
+
+DROP POLICY IF EXISTS "seo_audit_logs_admin_read" ON public.seo_audit_logs;
+CREATE POLICY "seo_audit_logs_admin_read"
+  ON public.seo_audit_logs FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
+
+DROP POLICY IF EXISTS "admin_save_diagnostics_admin_all" ON public.admin_save_diagnostics;
+CREATE POLICY "admin_save_diagnostics_admin_all"
+  ON public.admin_save_diagnostics FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
 
 DROP POLICY IF EXISTS "seo_pages_admin_manage" ON public.seo_pages;
 CREATE POLICY "seo_pages_admin_manage"
@@ -762,6 +1261,20 @@ CREATE POLICY "seo_redirects_admin_manage"
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'SEO Manager', 'SEO Specialist']));
 
+DROP POLICY IF EXISTS "sync_providers_admin_all" ON public.sync_providers;
+CREATE POLICY "sync_providers_admin_all"
+  ON public.sync_providers FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']));
+
+DROP POLICY IF EXISTS "automation_jobs_admin_all" ON public.automation_jobs;
+CREATE POLICY "automation_jobs_admin_all"
+  ON public.automation_jobs FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Automation Manager']));
+
 DROP POLICY IF EXISTS "automation_settings_admin_all" ON public.automation_settings;
 CREATE POLICY "automation_settings_admin_all"
   ON public.automation_settings FOR ALL
@@ -781,6 +1294,115 @@ CREATE POLICY "category_datasets_admin_manage"
   TO authenticated
   USING (public.is_active_admin())
   WITH CHECK (public.is_active_admin());
+
+DROP POLICY IF EXISTS "google_integration_secrets_deny_browser" ON public.google_integration_secrets;
+CREATE POLICY "google_integration_secrets_deny_browser"
+  ON public.google_integration_secrets FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "google_integrations_settings_deny_browser" ON public.google_integrations_settings;
+CREATE POLICY "google_integrations_settings_deny_browser"
+  ON public.google_integrations_settings FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "google_integration_logs_deny_browser" ON public.google_integration_logs;
+CREATE POLICY "google_integration_logs_deny_browser"
+  ON public.google_integration_logs FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "ai_credentials_deny_browser" ON public.ai_provider_credentials;
+CREATE POLICY "ai_credentials_deny_browser"
+  ON public.ai_provider_credentials FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "ai_providers_deny_browser" ON public.ai_providers;
+CREATE POLICY "ai_providers_deny_browser"
+  ON public.ai_providers FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "ai_task_routes_deny_browser" ON public.ai_task_routes;
+CREATE POLICY "ai_task_routes_deny_browser"
+  ON public.ai_task_routes FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "ai_usage_logs_deny_browser" ON public.ai_usage_logs;
+CREATE POLICY "ai_usage_logs_deny_browser"
+  ON public.ai_usage_logs FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "ai_connection_tests_deny_browser" ON public.ai_connection_tests;
+CREATE POLICY "ai_connection_tests_deny_browser"
+  ON public.ai_connection_tests FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
+DROP POLICY IF EXISTS "publication_logs_admin_read" ON public.publication_logs;
+CREATE POLICY "publication_logs_admin_read"
+  ON public.publication_logs FOR SELECT
+  TO authenticated
+  USING (public.is_active_admin());
+
+DROP POLICY IF EXISTS "audit_logs_admin_read_only" ON public.audit_logs;
+CREATE POLICY "audit_logs_admin_read_only"
+  ON public.audit_logs FOR SELECT
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+
+-- Editorial Media Storage Bucket & Policies (safe, non-failing if already provisioned)
+DO $$
+BEGIN
+  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES (
+    'editorial-media',
+    'editorial-media',
+    TRUE,
+    8388608,
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/avif']
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    public = TRUE,
+    file_size_limit = 8388608,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+
+  DROP POLICY IF EXISTS "editorial_media_public_read" ON storage.objects;
+  CREATE POLICY "editorial_media_public_read"
+    ON storage.objects FOR SELECT
+    TO anon, authenticated
+    USING (bucket_id = 'editorial-media');
+
+  DROP POLICY IF EXISTS "editorial_media_admin_upload" ON storage.objects;
+  CREATE POLICY "editorial_media_admin_upload"
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (bucket_id = 'editorial-media' AND public.is_active_admin());
+
+  DROP POLICY IF EXISTS "editorial_media_admin_update" ON storage.objects;
+  CREATE POLICY "editorial_media_admin_update"
+    ON storage.objects FOR UPDATE
+    TO authenticated
+    USING (bucket_id = 'editorial-media' AND public.is_active_admin());
+
+  DROP POLICY IF EXISTS "editorial_media_admin_delete" ON storage.objects;
+  CREATE POLICY "editorial_media_admin_delete"
+    ON storage.objects FOR DELETE
+    TO authenticated
+    USING (bucket_id = 'editorial-media' AND public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor']));
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping storage.objects/buckets step due to role privileges: %', SQLERRM;
+END $$;
+
+-- Explicit browser role grants scoped strictly by RLS policies above
+GRANT SELECT ON public.ad_placements, public.ad_campaigns TO anon, authenticated;
+GRANT ALL ON public.ad_placements, public.ad_campaigns TO authenticated;
+GRANT INSERT ON public.newsletter_subscribers, public.push_subscriptions TO anon, authenticated;
 
 -- Grant full operational rights to trusted backend service_role across every table & sequence
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
