@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS public.categories (
 );
 
 ALTER TABLE public.categories
+  ADD COLUMN IF NOT EXISTS description_en TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS description_ur TEXT DEFAULT '',
   ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT 'Newspaper',
   ADD COLUMN IF NOT EXISTS icon_name TEXT DEFAULT 'Newspaper',
   ADD COLUMN IF NOT EXISTS color TEXT DEFAULT '#0f6a44',
@@ -315,13 +317,17 @@ RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.admin_users
-    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
-      AND status = 'active'
+  SELECT COALESCE(
+    auth.uid() IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM public.admin_users
+      WHERE auth_uid IS NOT NULL
+        AND auth_uid = auth.uid()
+        AND status = 'active'
+    ),
+    FALSE
   );
 $$;
 
@@ -330,16 +336,25 @@ RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.admin_users
-    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
-      AND status = 'active'
-      AND role = ANY(allowed_roles)
+  SELECT COALESCE(
+    auth.uid() IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM public.admin_users
+      WHERE auth_uid IS NOT NULL
+        AND auth_uid = auth.uid()
+        AND status = 'active'
+        AND role = ANY(allowed_roles)
+    ),
+    FALSE
   );
 $$;
+
+REVOKE ALL ON FUNCTION public.is_active_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.has_admin_role(TEXT[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_active_admin() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.has_admin_role(TEXT[]) TO anon, authenticated, service_role;
 
 -- 3I. public.site_settings (`updated_by`)
 CREATE TABLE IF NOT EXISTS public.site_settings (
@@ -830,6 +845,62 @@ CREATE TABLE IF NOT EXISTS public.ai_providers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+INSERT INTO public.ai_providers (id, slug, display_name, base_url, auth_scheme, supports_model_discovery, supports_responses_api, enabled)
+VALUES
+  ('gemini', 'gemini', 'Google Gemini', 'https://generativelanguage.googleapis.com/v1beta', 'x-goog-api-key', TRUE, FALSE, TRUE),
+  ('grok', 'grok', 'xAI Grok', 'https://api.x.ai/v1', 'bearer', TRUE, TRUE, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+DO $$
+DECLARE
+  cred_id_type TEXT;
+BEGIN
+  SELECT data_type INTO cred_id_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'ai_provider_credentials'
+    AND column_name = 'id';
+
+  IF to_regclass('public.ai_provider_models') IS NULL THEN
+    IF cred_id_type IN ('bigint', 'int8') THEN
+      EXECUTE $sql$
+        CREATE TABLE public.ai_provider_models (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          credential_id BIGINT NOT NULL REFERENCES public.ai_provider_credentials(id) ON DELETE CASCADE,
+          provider_type TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          display_name TEXT NULL,
+          supported_methods_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+          supports_text_generation BOOLEAN NOT NULL DEFAULT TRUE,
+          input_token_limit INTEGER NULL,
+          output_token_limit INTEGER NULL,
+          discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_ai_provider_models_cred_model UNIQUE (credential_id, model_id)
+        )
+      $sql$;
+    ELSE
+      EXECUTE $sql$
+        CREATE TABLE public.ai_provider_models (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          credential_id TEXT NOT NULL REFERENCES public.ai_provider_credentials(id) ON DELETE CASCADE,
+          provider_type TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          display_name TEXT NULL,
+          supported_methods_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+          supports_text_generation BOOLEAN NOT NULL DEFAULT TRUE,
+          input_token_limit INTEGER NULL,
+          output_token_limit INTEGER NULL,
+          discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_ai_provider_models_cred_model UNIQUE (credential_id, model_id)
+        )
+      $sql$;
+    END IF;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_ai_provider_models_cred
+  ON public.ai_provider_models (credential_id);
+
 CREATE TABLE IF NOT EXISTS public.ai_task_routes (
   task TEXT PRIMARY KEY,
   label TEXT NOT NULL,
@@ -843,29 +914,37 @@ CREATE TABLE IF NOT EXISTS public.ai_task_routes (
 );
 
 CREATE TABLE IF NOT EXISTS public.ai_usage_logs (
-  id TEXT PRIMARY KEY,
-  credential_id TEXT NOT NULL,
-  provider_type TEXT NOT NULL,
-  model TEXT NOT NULL,
-  task TEXT NOT NULL,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  credential_id TEXT NOT NULL DEFAULT '',
+  provider_type TEXT NOT NULL DEFAULT 'gemini',
+  project_id TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  task TEXT NOT NULL DEFAULT '',
   prompt_tokens INTEGER NOT NULL DEFAULT 0,
   completion_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens INTEGER NOT NULL DEFAULT 0,
+  estimated_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0.000000,
   latency_ms INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+  status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error')),
   error_message TEXT NULL,
+  correlation_id TEXT NULL,
   actor TEXT NOT NULL DEFAULT 'System',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE public.ai_usage_logs
+  ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS estimated_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0.000000,
+  ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL;
+
 CREATE TABLE IF NOT EXISTS public.ai_connection_tests (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   credential_id TEXT NULL,
-  provider_type TEXT NOT NULL,
+  provider_type TEXT NOT NULL DEFAULT 'gemini',
   model_tested TEXT NULL,
-  stage TEXT NOT NULL,
+  stage TEXT NOT NULL DEFAULT 'model_list',
   ok BOOLEAN NOT NULL DEFAULT FALSE,
-  connection_status TEXT NOT NULL,
+  connection_status TEXT NOT NULL DEFAULT 'untested',
   latency_ms INTEGER NOT NULL DEFAULT 0,
   diagnostic_json JSONB NULL,
   actor TEXT NOT NULL DEFAULT 'Super Admin',
@@ -1057,6 +1136,7 @@ ALTER TABLE public.google_integration_secrets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.google_integration_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_provider_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_provider_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_task_routes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_usage_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_connection_tests ENABLE ROW LEVEL SECURITY;
@@ -1068,6 +1148,10 @@ REVOKE ALL ON public.cron_locks FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.deleted_tombstones FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.public_submissions FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.schema_migrations FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.google_integration_secrets, public.google_integrations_settings, public.google_integration_logs,
+  public.ai_providers, public.ai_provider_credentials, public.ai_provider_models,
+  public.ai_task_routes, public.ai_usage_logs, public.ai_connection_tests
+  FROM PUBLIC, anon, authenticated;
 
 DROP POLICY IF EXISTS "admin_auth_credentials_deny_browser" ON public.admin_auth_credentials;
 CREATE POLICY "admin_auth_credentials_deny_browser"
@@ -1147,12 +1231,85 @@ CREATE POLICY "ad_campaigns_admin_all"
   USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']))
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Advertising Manager', 'Ad Manager']));
 
-DROP POLICY IF EXISTS "subscribers_public_insert" ON public.newsletter_subscribers;
-CREATE POLICY "subscribers_public_insert"
-  ON public.newsletter_subscribers FOR INSERT
+-- Core Articles, Categories, Media, Settings & Admin Users Policies
+DROP POLICY IF EXISTS "articles_public_read_published" ON public.articles;
+CREATE POLICY "articles_public_read_published"
+  ON public.articles FOR SELECT
   TO anon, authenticated
-  WITH CHECK (TRUE);
-REVOKE SELECT, UPDATE, DELETE ON public.newsletter_subscribers FROM anon;
+  USING (status = 'published' AND deleted_at IS NULL);
+
+DROP POLICY IF EXISTS "articles_admin_read_all" ON public.articles;
+CREATE POLICY "articles_admin_read_all"
+  ON public.articles FOR SELECT
+  TO authenticated
+  USING (public.is_active_admin());
+
+DROP POLICY IF EXISTS "articles_admin_insert" ON public.articles;
+CREATE POLICY "articles_admin_insert"
+  ON public.articles FOR INSERT
+  TO authenticated
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'Content Contributor']));
+
+DROP POLICY IF EXISTS "articles_admin_update" ON public.articles;
+CREATE POLICY "articles_admin_update"
+  ON public.articles FOR UPDATE
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'SEO Manager', 'Content Contributor']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'SEO Manager', 'Content Contributor']));
+
+DROP POLICY IF EXISTS "articles_admin_delete" ON public.articles;
+CREATE POLICY "articles_admin_delete"
+  ON public.articles FOR DELETE
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor']));
+
+DROP POLICY IF EXISTS "categories_public_read" ON public.categories;
+CREATE POLICY "categories_public_read"
+  ON public.categories FOR SELECT
+  TO anon, authenticated
+  USING (enabled = TRUE);
+
+DROP POLICY IF EXISTS "categories_admin_manage" ON public.categories;
+CREATE POLICY "categories_admin_manage"
+  ON public.categories FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'SEO Manager']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'SEO Manager']));
+
+DROP POLICY IF EXISTS "media_public_read" ON public.media_assets;
+CREATE POLICY "media_public_read"
+  ON public.media_assets FOR SELECT
+  TO anon, authenticated
+  USING (TRUE);
+
+DROP POLICY IF EXISTS "media_admin_manage" ON public.media_assets;
+CREATE POLICY "media_admin_manage"
+  ON public.media_assets FOR ALL
+  TO authenticated
+  USING (public.is_active_admin())
+  WITH CHECK (public.is_active_admin());
+
+DROP POLICY IF EXISTS "site_settings_admin_read" ON public.site_settings;
+CREATE POLICY "site_settings_admin_read"
+  ON public.site_settings FOR SELECT
+  TO authenticated
+  USING (public.is_active_admin());
+
+DROP POLICY IF EXISTS "site_settings_super_admin_write" ON public.site_settings;
+CREATE POLICY "site_settings_super_admin_write"
+  ON public.site_settings FOR ALL
+  TO authenticated
+  USING (public.has_admin_role(ARRAY['Super Admin', 'Administrator']))
+  WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+
+DROP POLICY IF EXISTS "admin_users_self_or_super" ON public.admin_users;
+CREATE POLICY "admin_users_self_or_super"
+  ON public.admin_users FOR SELECT
+  TO authenticated
+  USING ((auth_uid IS NOT NULL AND auth_uid = auth.uid()) OR public.has_admin_role(ARRAY['Super Admin', 'Administrator']));
+
+DROP POLICY IF EXISTS "subscribers_public_insert" ON public.newsletter_subscribers;
+REVOKE ALL ON public.newsletter_subscribers FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "subscribers_admin_all" ON public.newsletter_subscribers;
 CREATE POLICY "subscribers_admin_all"
   ON public.newsletter_subscribers FOR ALL
@@ -1168,11 +1325,7 @@ CREATE POLICY "audience_notifications_admin_all"
   WITH CHECK (public.has_admin_role(ARRAY['Super Admin', 'Administrator', 'Managing Editor', 'Editor', 'Audience Manager']));
 
 DROP POLICY IF EXISTS "push_subscriptions_public_upsert" ON public.push_subscriptions;
-CREATE POLICY "push_subscriptions_public_upsert"
-  ON public.push_subscriptions FOR INSERT
-  TO anon, authenticated
-  WITH CHECK (TRUE);
-
+REVOKE ALL ON public.push_subscriptions FROM PUBLIC, anon;
 DROP POLICY IF EXISTS "push_subscriptions_admin_read" ON public.push_subscriptions;
 CREATE POLICY "push_subscriptions_admin_read"
   ON public.push_subscriptions FOR ALL
@@ -1240,6 +1393,12 @@ CREATE POLICY "admin_save_diagnostics_admin_all"
   TO authenticated
   USING (public.is_active_admin())
   WITH CHECK (public.is_active_admin());
+
+DROP POLICY IF EXISTS "seo_pages_public_read" ON public.seo_pages;
+CREATE POLICY "seo_pages_public_read"
+  ON public.seo_pages FOR SELECT
+  TO anon, authenticated
+  USING (TRUE);
 
 DROP POLICY IF EXISTS "seo_pages_admin_manage" ON public.seo_pages;
 CREATE POLICY "seo_pages_admin_manage"
@@ -1325,6 +1484,12 @@ CREATE POLICY "ai_providers_deny_browser"
   TO anon, authenticated
   USING (FALSE) WITH CHECK (FALSE);
 
+DROP POLICY IF EXISTS "ai_provider_models_deny_browser" ON public.ai_provider_models;
+CREATE POLICY "ai_provider_models_deny_browser"
+  ON public.ai_provider_models FOR ALL
+  TO anon, authenticated
+  USING (FALSE) WITH CHECK (FALSE);
+
 DROP POLICY IF EXISTS "ai_task_routes_deny_browser" ON public.ai_task_routes;
 CREATE POLICY "ai_task_routes_deny_browser"
   ON public.ai_task_routes FOR ALL
@@ -1400,9 +1565,8 @@ EXCEPTION
 END $$;
 
 -- Explicit browser role grants scoped strictly by RLS policies above
-GRANT SELECT ON public.ad_placements, public.ad_campaigns TO anon, authenticated;
+GRANT SELECT ON public.articles, public.categories, public.category_pages, public.seo_pages, public.seo_redirects, public.media_assets, public.ad_placements, public.ad_campaigns, public.homepage_layouts, public.homepage_custom_blocks, public.category_datasets TO anon, authenticated;
 GRANT ALL ON public.ad_placements, public.ad_campaigns TO authenticated;
-GRANT INSERT ON public.newsletter_subscribers, public.push_subscriptions TO anon, authenticated;
 
 -- Grant full operational rights to trusted backend service_role across every table & sequence
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

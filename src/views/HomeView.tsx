@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext.tsx';
 import {
   Article,
@@ -58,6 +58,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
   const [latestPage, setLatestPage] = useState(1);
   const [loadingMoreLatest, setLoadingMoreLatest] = useState(false);
   const [latestLimitSetting, setLatestLimitSetting] = useState<number>(15);
+  const latestLimitRef = useRef<number>(15);
 
   // Quick Roll Number Checker state
   const [selectedBoard, setSelectedBoard] = useState('BISE_LHR');
@@ -68,8 +69,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
 
   useEffect(() => {
     const loadHomeFeeds = async () => {
-      const [newsData, weatherData, finData, cricketData, prayerData] = await Promise.all([
+      const [newsData, latestRes, weatherData, finData, cricketData, prayerData] = await Promise.all([
         safeFetchJson('/api/news?limit=30'),
+        safeFetchJson(`/api/v1/news?status=published&limit=${latestLimitRef.current}&page=1`),
         safeFetchJson('/api/weather'),
         safeFetchJson('/api/finance/rates'),
         safeFetchJson('/api/cricket/matches'),
@@ -77,6 +79,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
       ]);
 
       if (newsData.success) setArticles(newsData.articles || []);
+      if (latestRes.success) {
+        setLatestFeedArticles(latestRes.articles || []);
+        setLatestTotal(latestRes.total || (latestRes.articles || []).length);
+        setLatestPage(1);
+      }
       if (weatherData.success) setWeatherList(weatherData.weather || []);
       if (finData.success) {
         setGoldRates(finData.goldRates || []);
@@ -108,11 +115,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectArticle }) => {
         Number(latestSection?.itemLimit || settingsData?.settings?.latestNewsCount || 15)
       );
       setLatestLimitSetting(configuredLimit);
-      const latestRes = await safeFetchJson(`/api/v1/news?status=published&limit=${configuredLimit}&page=1`);
-      if (latestRes.success) {
-        setLatestFeedArticles(latestRes.articles || []);
-        setLatestTotal(latestRes.total || (latestRes.articles || []).length);
-        setLatestPage(1);
+      if (configuredLimit !== latestLimitRef.current) {
+        latestLimitRef.current = configuredLimit;
+        const latestRes = await safeFetchJson(`/api/v1/news?status=published&limit=${configuredLimit}&page=1`);
+        if (latestRes.success) {
+          setLatestFeedArticles(latestRes.articles || []);
+          setLatestTotal(latestRes.total || (latestRes.articles || []).length);
+          setLatestPage(1);
+        }
       }
     };
 

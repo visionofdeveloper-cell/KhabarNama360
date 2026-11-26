@@ -427,7 +427,26 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
                 <input
                   type="text"
                   value={form.googleAnalyticsId || ''}
-                  onChange={e => setForm({ ...form, googleAnalyticsId: e.target.value })}
+                  onChange={e => {
+                    const val = e.target.value;
+                    const trimmed = val.trim().toUpperCase();
+                    setForm({
+                      ...form,
+                      googleAnalyticsId: val,
+                      ...(form.googleIntegrations
+                        ? {
+                            googleIntegrations: {
+                              ...form.googleIntegrations,
+                              analytics: {
+                                ...form.googleIntegrations.analytics,
+                                measurementId: trimmed,
+                                enabled: /^G-[A-Z0-9]{4,16}$/i.test(trimmed),
+                              },
+                            },
+                          }
+                        : {}),
+                    });
+                  }}
                   placeholder="G-XXXXXXXXXX"
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
                 />
@@ -437,7 +456,26 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSave
                 <input
                   type="text"
                   value={form.googleTagManagerId || ''}
-                  onChange={e => setForm({ ...form, googleTagManagerId: e.target.value })}
+                  onChange={e => {
+                    const val = e.target.value;
+                    const trimmed = val.trim().toUpperCase();
+                    setForm({
+                      ...form,
+                      googleTagManagerId: val,
+                      ...(form.googleIntegrations
+                        ? {
+                            googleIntegrations: {
+                              ...form.googleIntegrations,
+                              tagManager: {
+                                ...form.googleIntegrations.tagManager,
+                                containerId: trimmed,
+                                enabled: /^GTM-[A-Z0-9]{4,12}$/i.test(trimmed),
+                              },
+                            },
+                          }
+                        : {}),
+                    });
+                  }}
                   placeholder="GTM-XXXXXXX"
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-mono"
                 />

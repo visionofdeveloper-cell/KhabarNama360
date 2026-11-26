@@ -52,13 +52,17 @@ RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.admin_users
-    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
-      AND status = 'active'
+  SELECT COALESCE(
+    auth.uid() IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM public.admin_users
+      WHERE auth_uid IS NOT NULL
+        AND auth_uid = auth.uid()
+        AND status = 'active'
+    ),
+    FALSE
   );
 $$;
 
@@ -67,14 +71,18 @@ RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.admin_users
-    WHERE (auth_uid = auth.uid() OR LOWER(email) = LOWER(COALESCE(auth.jwt() ->> 'email', '')))
-      AND status = 'active'
-      AND role = ANY(allowed_roles)
+  SELECT COALESCE(
+    auth.uid() IS NOT NULL AND EXISTS (
+      SELECT 1
+      FROM public.admin_users
+      WHERE auth_uid IS NOT NULL
+        AND auth_uid = auth.uid()
+        AND status = 'active'
+        AND role = ANY(allowed_roles)
+    ),
+    FALSE
   );
 $$;
 

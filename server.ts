@@ -1317,10 +1317,38 @@ app.post('/api/settings', requireAdminAuth, requirePermission('settings:manage')
   try {
     const actor = getActor(req, 'Super Admin');
     await GoogleIntegrationsService.ensureHydratedIfConfigured().catch(() => {});
+    const currentSettings = db.getData().siteSettings;
     const incoming = { ...(req.body || {}) };
     if ('googleAnalyticsId' in incoming || 'googleTagManagerId' in incoming || 'searchConsoleVerification' in incoming) {
-      const mergedPreview = { ...db.getData().siteSettings, ...incoming };
-      incoming.googleIntegrations = GoogleIntegrationsService.buildNormalizedConfigFromSettings(mergedPreview);
+      const baseIntegrations = GoogleIntegrationsService.buildNormalizedConfigFromSettings(
+        incoming.googleIntegrations
+          ? { ...currentSettings, googleIntegrations: incoming.googleIntegrations }
+          : currentSettings
+      );
+      const nextIntegrations = {
+        ...baseIntegrations,
+        analytics: { ...baseIntegrations.analytics },
+        tagManager: { ...baseIntegrations.tagManager },
+        searchConsole: { ...baseIntegrations.searchConsole },
+      };
+      if ('googleAnalyticsId' in incoming && incoming.googleAnalyticsId !== currentSettings.googleAnalyticsId) {
+        const cleanGa = String(incoming.googleAnalyticsId || '').trim().toUpperCase();
+        nextIntegrations.analytics.measurementId = cleanGa;
+        nextIntegrations.analytics.enabled = /^G-[A-Z0-9]{4,16}$/i.test(cleanGa);
+      }
+      if ('googleTagManagerId' in incoming && incoming.googleTagManagerId !== currentSettings.googleTagManagerId) {
+        const cleanGtm = String(incoming.googleTagManagerId || '').trim().toUpperCase();
+        nextIntegrations.tagManager.containerId = cleanGtm;
+        nextIntegrations.tagManager.enabled = /^GTM-[A-Z0-9]{4,12}$/i.test(cleanGtm);
+      }
+      if ('searchConsoleVerification' in incoming && incoming.searchConsoleVerification !== currentSettings.searchConsoleVerification) {
+        nextIntegrations.searchConsole.verificationCode = String(incoming.searchConsoleVerification || '').trim();
+      }
+      incoming.googleIntegrations = GoogleIntegrationsService.buildNormalizedConfigFromSettings({
+        ...currentSettings,
+        ...incoming,
+        googleIntegrations: nextIntegrations,
+      });
     }
     const newSettings = db.updateSettings(incoming, actor);
     if (newSettings.runtimeDiagnostics) {
@@ -2207,6 +2235,8 @@ app.get('/api/search', (req, res) => {
     .filter(
       a =>
         a.status === 'published' &&
+        !a.deletedAt &&
+        !isArticleFutureScheduled(a) &&
         keywords.some(
           k =>
             a.titleEn.toLowerCase().includes(k) ||

@@ -2307,12 +2307,16 @@ export async function runCompleteDatabaseAudit(): Promise<CompleteDatabaseAuditR
         });
       } else {
         const versions = (migRes.data || []).map((m: any) => m.version);
+        const repairApplied =
+          versions.includes('010_post_migration_audit_fixes') ||
+          versions.includes('009_next_verified_repair') ||
+          versions.includes('009_ad_campaigns_and_missing_modules_repair');
         addCheck({
           category: 'Migrations',
           name: 'Migration Ledger (public.schema_migrations)',
-          status: versions.includes('009_next_verified_repair') ? 'pass' : 'warn',
+          status: repairApplied ? 'pass' : 'warn',
           detail: versions.length > 0 ? `Recorded migrations: ${versions.join(', ')}` : 'Table exists with 0 recorded entries.',
-          remediation: versions.includes('009_next_verified_repair') ? undefined : 'Apply database/migrations/next_verified_repair.sql.',
+          remediation: repairApplied ? undefined : 'Apply database/migrations/next_verified_repair.sql or 010_post_migration_audit_fixes.sql.',
         });
       }
     } catch {}

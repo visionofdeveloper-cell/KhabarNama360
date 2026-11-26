@@ -2920,6 +2920,7 @@ class DatabaseManager {
       this.data.adCampaigns.unshift(saved);
       this.logAudit(actor, 'Ad Campaign Created', `Created campaign: ${saved.campaignName}`);
     }
+    this.clearDeletionTombstone('ad_campaigns', saved.id);
     this.saveDatabase(this.data);
     return saved;
   }
@@ -3710,6 +3711,7 @@ class DatabaseManager {
       this.data.dataProviders.push(provider);
       this.logAudit(actor, 'Data Provider Registered', `Registered feed provider: ${provider.name} (${provider.endpoint})`);
     }
+    this.clearDeletionTombstone('sync_providers', provider.id);
     this.saveDatabase(this.data);
     return provider;
   }

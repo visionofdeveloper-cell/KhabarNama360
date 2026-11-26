@@ -1,22 +1,35 @@
-# 360Khabarnama — Database Repair Migration Rollback Plan
+# 360Khabarnama — Database Initialization, Repair & Rollback Plan
 
-**Target Migration:** `database/migrations/next_verified_repair.sql`  
-**Principle:** Additive schema columns are safe to leave in place without data loss; rollback scripts must **NEVER drop core tables** (`articles`, `categories`, `admin_users`, `site_settings`, `ai_provider_credentials`) or delete production rows.
-
----
-
-## Pre-Migration Snapshot Recommendation (Supabase SQL Editor / Dashboard)
-Before applying `next_verified_repair.sql`, create an on-demand Supabase backup (Supabase Dashboard -> Database -> Backups) or export schema/table counts via `database/audit/schema_inventory.sql`.
+**Target Migrations:** Staged Initialization (`Stage A–E`) / `database/supabase_migrations/009_ad_campaigns_and_missing_modules_repair.sql` / `database/migrations/next_verified_repair.sql`  
+**Core Rule:** NEVER drop or truncate preserved tables (`public.admin_users`, `public.site_settings`, `public.ai_provider_credentials`, `public.articles`) or delete production records.
 
 ---
 
-## Safe Selective Rollback Steps (If Required)
+## 1. Pre-Migration Backup (Required Before Running Stage A–E)
 
-### 1. Roll Back Only New Auxiliary Tables (Zero Impact on Core Data)
-If reverting back to an older backend commit prior to adding tombstones, persistent auth, or datasets:
+1. **Supabase Point-in-Time / Manual Backup:**  
+   Open **Supabase Dashboard → Database → Backups** and create an on-demand snapshot/backup before applying schema initialization.
+2. **Export Existing Preserved Tables (`admin_users`, `site_settings`, `ai_provider_credentials`):**
+   - Run `database/audit/schema_inventory.sql` and save the JSON/CSV outputs of existing rows:
+     ```sql
+     SELECT * FROM public.admin_users;
+     SELECT * FROM public.site_settings;
+     SELECT id, provider_type, label, project_id, model, masked_key, enabled, priority, created_at
+     FROM public.ai_provider_credentials;
+     ```
+3. **Preserve Existing `storage.buckets` (`editorial-media`):**  
+   All migrations use `ON CONFLICT (id) DO NOTHING` (or keep `public = TRUE`) so existing files in Supabase Storage remain intact.
 
+---
+
+## 2. Safe Non-Destructive Rollback Steps (Only If Needed)
+
+### A. Roll Back Newly Created Auxiliary Tables (Zero Impact on Preserved Tables)
 ```sql
--- Only run if reverting application code prior to next_verified_repair.sql
+-- Run ONLY if rolling back to a pre-repair codebase without touching admin_users,
+-- site_settings, ai_provider_credentials, or articles:
+DROP TABLE IF EXISTS public.ad_campaigns;
+DROP TABLE IF EXISTS public.ad_placements;
 DROP TABLE IF EXISTS public.public_submissions;
 DROP TABLE IF EXISTS public.category_datasets;
 DROP TABLE IF EXISTS public.cron_locks;
@@ -24,24 +37,23 @@ DROP TABLE IF EXISTS public.automation_settings;
 DROP TABLE IF EXISTS public.admin_sessions;
 DROP TABLE IF EXISTS public.admin_auth_credentials;
 DROP TABLE IF EXISTS public.deleted_tombstones;
-DELETE FROM public.schema_migrations WHERE version = '009_next_verified_repair';
+DROP TABLE IF EXISTS public.admin_save_diagnostics;
+DELETE FROM public.schema_migrations
+WHERE version IN ('009_next_verified_repair', '009_ad_campaigns_and_missing_modules_repair');
 NOTIFY pgrst, 'reload schema';
 ```
 
-### 2. Roll Back Only Policy Changes on `category_pages` or `articles` Constraint
-Do **not** drop columns containing live values (`icon_name`, `filename`, `alt_text_en`, `path`, `notes`, `mfa_enabled`, `total_syncs`, `records_updated`), because existing data remains valid and harmless to older queries. To revert the expanded `articles` status check constraint:
-
+### B. Roll Back Authorization Helper Functions Safely (Never Disable RLS Globally)
+If an authenticated Supabase Auth admin user cannot write directly via browser JWT because their `admin_users.auth_uid` is still `NULL`, do **not** weaken RLS with email matching and do **not** disable RLS. Instead, link their verified `auth.users.id` once via SQL Editor:
 ```sql
--- Verify zero rows use 'review', 'approved', or 'rejected' before running:
-SELECT COUNT(*) FROM public.articles WHERE status IN ('review', 'approved', 'rejected');
-
-ALTER TABLE public.articles DROP CONSTRAINT IF EXISTS chk_articles_status;
-ALTER TABLE public.articles
-  ADD CONSTRAINT articles_status_check
-  CHECK (status IN ('draft', 'in_review', 'scheduled', 'published', 'archived', 'failed'));
-
-NOTIFY pgrst, 'reload schema';
+UPDATE public.admin_users a
+SET auth_uid = u.id
+FROM auth.users u
+WHERE LOWER(a.email) = LOWER(u.email)
+  AND u.email_confirmed_at IS NOT NULL
+  AND a.auth_uid IS NULL;
 ```
+(Backend Express/Vercel routes use `SUPABASE_SECRET_KEY` / `service_role`, which operates safely behind Express middleware RBAC independently of browser RLS.)
 
-### 3. Verify Post-Rollback Integrity
-Re-run `database/audit/schema_inventory.sql` queries #1, #2, and #8 and run `Admin -> System Diagnostics -> Run Complete Database Audit` to verify read/write health.
+### C. Post-Rollback Verification
+Run the read-only inventory query from `database/audit/schema_inventory.sql` (#1 & #8) and confirm `admin_users`, `site_settings`, and `ai_provider_credentials` row counts match the pre-migration snapshot.
